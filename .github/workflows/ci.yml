@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build (native)
+        run: go build ./cmd/serpent-wrt
+
+      - name: Build (linux/mips)
+        run: GOOS=linux GOARCH=mips go build -o /dev/null ./cmd/serpent-wrt
+
+      - name: Build (linux/mipsle)
+        run: GOOS=linux GOARCH=mipsle go build -o /dev/null ./cmd/serpent-wrt
+
+      - name: Build (linux/arm v7)
+        run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/serpent-wrt
+
+  test:
+    name: Test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  lint:
+    name: Lint
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      # Uncomment once golangci-lint is configured (.golangci.yml)
+      # - uses: golangci/golangci-lint-action@v6
+      #   with:
+      #     version: latest
+
+  scan:
+    name: Scan
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
