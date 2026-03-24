@@ -1,7 +1,8 @@
 BINARY  := serpent-wrt
+VERSION ?= 0.1.0-dev
 LDFLAGS := -trimpath -ldflags="-s -w"
 
-.PHONY: build cross run test fmt lint clean deps
+.PHONY: build cross run test fmt lint clean deps ipk-glinet
 
 deps:
 	go mod download
@@ -31,3 +32,9 @@ lint:
 
 clean:
 	rm -rf bin/
+
+# Build an OpenWRT .ipk for GL.iNet MT7986AV (aarch64_cortex-a53).
+# Requires GNU ar. On macOS: brew install binutils
+# then export PATH="/opt/homebrew/opt/binutils/bin:$PATH"
+ipk-glinet:
+	VERSION=$(VERSION) sh scripts/package-glinet.sh
