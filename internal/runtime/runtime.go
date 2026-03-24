@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	recentCap   = 100           // max recent detections kept for the API
+	recentCap    = 100             // max recent detections kept for the API
 	refireWindow = 5 * time.Minute // suppress duplicate (type,src,dst) detections
-	pruneEvery  = 10            // prune state every N poll cycles
+	pruneEvery   = 10              // prune state every N poll cycles
 )
 
 // DetectionRecord is a summarized detection for the API response.

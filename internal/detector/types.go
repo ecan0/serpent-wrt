@@ -10,7 +10,7 @@ import (
 
 // Detection represents a triggered heuristic event.
 type Detection struct {
-	Type    string    // detector name: "feed_match", "fanout", "port_scan", "beacon"
+	Type    string // detector name: "feed_match", "fanout", "port_scan", "beacon"
 	SrcIP   net.IP
 	DstIP   net.IP
 	DstPort uint16

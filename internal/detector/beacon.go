@@ -25,8 +25,8 @@ type Beacon struct {
 }
 
 type beaconEntry struct {
-	times    []time.Time
-	expires  time.Time
+	times   []time.Time
+	expires time.Time
 }
 
 func NewBeacon(minHits int, tolerance, window time.Duration) *Beacon {
