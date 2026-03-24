@@ -96,10 +96,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build (linux/amd64)
-        run: GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-amd64 ./cmd/serpent-wrt
+      - name: Build (linux/386)
+        run: GOOS=linux GOARCH=386 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-386 ./cmd/serpent-wrt
 
       - name: Deploy to openwrt-x86
         run: |
-          scp -O -o StrictHostKeyChecking=no bin/serpent-wrt-linux-amd64 root@10.20.0.50:/usr/sbin/serpent-wrt
-          ssh -o StrictHostKeyChecking=no root@10.20.0.50 "/etc/init.d/serpent-wrt restart"
+          scp -O -o StrictHostKeyChecking=no bin/serpent-wrt-linux-386 root@openwrt-x86:/usr/sbin/serpent-wrt
+          ssh -o StrictHostKeyChecking=no root@openwrt-x86 "/etc/init.d/serpent-wrt restart"
