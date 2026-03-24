@@ -54,8 +54,8 @@ deploy-setup:
 # openwrt-x86 runs x86/generic (i386_pentium4), not x86/64.
 deploy-x86:
 	GOOS=linux GOARCH=386 go build $(LDFLAGS) -o bin/$(BINARY)-linux-386 ./cmd/serpent-wrt
-	$(SCP) bin/$(BINARY)-linux-386 $(DEPLOY_HOST):$(DEPLOY_BIN)
-	$(SSH) $(DEPLOY_HOST) "/etc/init.d/serpent-wrt restart"
+	$(SCP) bin/$(BINARY)-linux-386 $(DEPLOY_HOST):/tmp/$(BINARY)
+	$(SSH) $(DEPLOY_HOST) "mv /tmp/$(BINARY) $(DEPLOY_BIN) && /etc/init.d/serpent-wrt restart"
 
 # Build an OpenWRT .ipk for GL.iNet MT7986AV (aarch64_cortex-a53).
 # Requires GNU ar. On macOS: brew install binutils

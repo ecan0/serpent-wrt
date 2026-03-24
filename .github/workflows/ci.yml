@@ -101,5 +101,5 @@ jobs:
 
       - name: Deploy to openwrt-x86
         run: |
-          scp -O -o StrictHostKeyChecking=no bin/serpent-wrt-linux-386 root@openwrt-x86:/usr/sbin/serpent-wrt
-          ssh -o StrictHostKeyChecking=no root@openwrt-x86 "/etc/init.d/serpent-wrt restart"
+          scp -O -o StrictHostKeyChecking=no bin/serpent-wrt-linux-386 root@openwrt-x86:/tmp/serpent-wrt
+          ssh -o StrictHostKeyChecking=no root@openwrt-x86 "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
