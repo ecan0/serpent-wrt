@@ -1,0 +1,31 @@
+poll_interval: 10s
+threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+
+# Set to true once you have verified conntrack and nftables are working.
+enforcement_enabled: false
+block_duration: 1h
+
+# Adjust to match your router's LAN subnet(s).
+lan_cidrs:
+  - 10.20.0.0/16
+  - 192.168.1.0/24
+
+nft_table: serpent_wrt
+nft_set: blocked_ips
+
+log_level: info
+
+api_enabled: true
+api_bind: 127.0.0.1:8080
+
+detectors:
+  fanout:
+    distinct_dst_threshold: 50
+    window: 60s
+  scan:
+    distinct_port_threshold: 30
+    window: 60s
+  beacon:
+    min_hits: 5
+    tolerance: 3s
+    window: 5m

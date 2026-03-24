@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=95
+STOP=5
+
+PROG=/usr/sbin/serpent-wrt
+CONF=/etc/serpent-wrt/serpent-wrt.yaml
+PIDFILE=/var/run/serpent-wrt.pid
+
+start_service() {
+	procd_open_instance
+	procd_set_param command "$PROG" --config "$CONF"
+	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param pidfile "$PIDFILE"
+	procd_close_instance
+}
+
+reload_service() {
+	# SIGHUP triggers a threat feed reload without restarting the process.
+	start-stop-daemon -K -p "$PIDFILE" -s HUP
+}
+
+service_triggers() {
+	procd_add_reload_trigger "serpent-wrt"
+}
