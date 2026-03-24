@@ -2,7 +2,11 @@ BINARY  := serpent-wrt
 VERSION ?= 0.1.0-dev
 LDFLAGS := -trimpath -ldflags="-s -w"
 
-.PHONY: build cross run test fmt lint clean deps ipk-glinet
+DEPLOY_HOST ?= root@openwrt-x86
+DEPLOY_BIN  := /usr/sbin/serpent-wrt
+DEPLOY_CONF := /etc/serpent-wrt
+
+.PHONY: build cross run test fmt lint clean deps ipk-glinet deploy-setup deploy-x86
 
 deps:
 	go mod download
@@ -32,6 +36,23 @@ lint:
 
 clean:
 	rm -rf bin/
+
+# First-time VM setup: copies init script, config, and threat feed.
+# Override target with: make deploy-setup DEPLOY_HOST=root@<ip>
+deploy-setup:
+	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_CONF)"
+	scp contrib/init.d/serpent-wrt $(DEPLOY_HOST):/etc/init.d/serpent-wrt
+	ssh $(DEPLOY_HOST) "chmod 755 /etc/init.d/serpent-wrt"
+	scp configs/serpent-wrt.openwrt.yaml $(DEPLOY_HOST):$(DEPLOY_CONF)/serpent-wrt.yaml
+	scp testdata/threat-feed.txt $(DEPLOY_HOST):$(DEPLOY_CONF)/threat-feed.txt
+	ssh $(DEPLOY_HOST) "/etc/init.d/serpent-wrt enable"
+	@echo "Setup complete on $(DEPLOY_HOST). Run 'make deploy-x86' to push the binary."
+
+# Build for x86_64 and deploy to test VM.
+deploy-x86:
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY)-linux-amd64 ./cmd/serpent-wrt
+	scp bin/$(BINARY)-linux-amd64 $(DEPLOY_HOST):$(DEPLOY_BIN)
+	ssh $(DEPLOY_HOST) "/etc/init.d/serpent-wrt restart"
 
 # Build an OpenWRT .ipk for GL.iNet MT7986AV (aarch64_cortex-a53).
 # Requires GNU ar. On macOS: brew install binutils
