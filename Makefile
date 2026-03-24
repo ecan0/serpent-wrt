@@ -50,10 +50,11 @@ deploy-setup:
 	$(SSH) $(DEPLOY_HOST) "/etc/init.d/serpent-wrt enable"
 	@echo "Setup complete on $(DEPLOY_HOST). Run 'make deploy-x86' to push the binary."
 
-# Build for x86_64 and deploy to test VM.
+# Build for x86 32-bit (i386) and deploy to test VM.
+# openwrt-x86 runs x86/generic (i386_pentium4), not x86/64.
 deploy-x86:
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o bin/$(BINARY)-linux-amd64 ./cmd/serpent-wrt
-	$(SCP) bin/$(BINARY)-linux-amd64 $(DEPLOY_HOST):$(DEPLOY_BIN)
+	GOOS=linux GOARCH=386 go build $(LDFLAGS) -o bin/$(BINARY)-linux-386 ./cmd/serpent-wrt
+	$(SCP) bin/$(BINARY)-linux-386 $(DEPLOY_HOST):$(DEPLOY_BIN)
 	$(SSH) $(DEPLOY_HOST) "/etc/init.d/serpent-wrt restart"
 
 # Build an OpenWRT .ipk for GL.iNet MT7986AV (aarch64_cortex-a53).
