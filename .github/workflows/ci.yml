@@ -82,3 +82,24 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck ./...
+
+  deploy-test:
+    name: Deploy (openwrt-x86)
+    runs-on: self-hosted
+    needs: [build, test, lint, scan]
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build (linux/amd64)
+        run: GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-amd64 ./cmd/serpent-wrt
+
+      - name: Deploy to openwrt-x86
+        run: |
+          scp -o StrictHostKeyChecking=no bin/serpent-wrt-linux-amd64 root@10.20.0.50:/usr/sbin/serpent-wrt
+          ssh -o StrictHostKeyChecking=no root@10.20.0.50 "/etc/init.d/serpent-wrt restart"
