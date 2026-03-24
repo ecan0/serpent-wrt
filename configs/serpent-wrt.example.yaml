@@ -1,0 +1,28 @@
+poll_interval: 5s
+threat_feed_path: ./testdata/threat-feed.txt
+
+enforcement_enabled: true
+block_duration: 1h
+
+lan_cidrs:
+  - 192.168.1.0/24
+
+nft_table: serpent_wrt
+nft_set: blocked_ips
+
+log_level: info
+
+api_enabled: true
+api_bind: 127.0.0.1:8080
+
+detectors:
+  fanout:
+    distinct_dst_threshold: 50
+    window: 60s
+  scan:
+    distinct_port_threshold: 30
+    window: 60s
+  beacon:
+    min_hits: 5
+    tolerance: 3s
+    window: 5m

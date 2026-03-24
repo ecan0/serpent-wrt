@@ -1,0 +1,55 @@
+# Binaries
+/bin/
+/build/
+/dist/
+/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+
+# Go
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env / local config
+.env
+.env.*
+*.local.yaml
+*.local.yml
+
+# Temp
+tmp/
+.cache/
+
+# Go modules
+vendor/
+
+# OpenWRT-specific temp files
+*.ipk
+*.bin
+
+# agent instructions (private, local only)
+CLAUDE.md
+.llm.md
+AGENTS.md
+ARCHITECTURE.md
+CONSTRAINTS.md
+ROADMAP.md
+MVP_SCOPE.md
