@@ -63,10 +63,9 @@ jobs:
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
 
-      # Uncomment once golangci-lint is configured (.golangci.yml)
-      # - uses: golangci/golangci-lint-action@v6
-      #   with:
-      #     version: latest
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
 
   scan:
     name: Scan

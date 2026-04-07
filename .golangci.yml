@@ -1,0 +1,21 @@
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+linters-settings:
+  errcheck:
+    # Ignore errors on Close() and common write helpers — intentional in this codebase.
+    exclude-functions:
+      - (io.Closer).Close
+      - (*encoding/json.Encoder).Encode
+
+issues:
+  exclude-rules:
+    # Ignore errcheck on syslog remote calls — failures are non-fatal by design.
+    - path: internal/events/events.go
+      linters: [errcheck]
