@@ -16,19 +16,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Build (native)
         run: go build ./cmd/serpent-wrt
 
-      - name: Build (linux/mips)
-        run: GOOS=linux GOARCH=mips go build -o /dev/null ./cmd/serpent-wrt
+      - name: Build (linux/386 — openwrt-x86 target)
+        run: GOOS=linux GOARCH=386 go build -o /dev/null ./cmd/serpent-wrt
 
-      - name: Build (linux/mipsle)
-        run: GOOS=linux GOARCH=mipsle go build -o /dev/null ./cmd/serpent-wrt
-
-      - name: Build (linux/arm v7)
-        run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/serpent-wrt
+      # Uncomment when targeting additional OpenWRT architectures
+      # - name: Build (linux/mips)
+      #   run: GOOS=linux GOARCH=mips go build -o /dev/null ./cmd/serpent-wrt
+      # - name: Build (linux/mipsle)
+      #   run: GOOS=linux GOARCH=mipsle go build -o /dev/null ./cmd/serpent-wrt
+      # - name: Build (linux/arm v7)
+      #   run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/serpent-wrt
 
   test:
     name: Test
@@ -39,7 +41,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Test
         run: go test ./...
@@ -56,7 +58,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
@@ -75,7 +77,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -88,18 +90,43 @@ jobs:
     runs-on: self-hosted
     needs: [build, test, lint, scan]
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    env:
+      OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Set up SSH key
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Check connectivity
+        run: ping -c 2 "$OPENWRT_HOST"
 
       - name: Build (linux/386)
         run: GOOS=linux GOARCH=386 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-386 ./cmd/serpent-wrt
 
       - name: Deploy to openwrt-x86
         run: |
-          scp -O -o StrictHostKeyChecking=no bin/serpent-wrt-linux-386 root@openwrt-x86:/tmp/serpent-wrt
-          ssh -o StrictHostKeyChecking=no root@openwrt-x86 "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
+          scp -O -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            bin/serpent-wrt-linux-386 "root@$OPENWRT_HOST:/tmp/serpent-wrt"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
+            "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
+
+      - name: Verify serpent-wrt started
+        run: |
+          sleep 4
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
+            "/etc/init.d/serpent-wrt status && logread | grep serpent-wrt | tail -5"
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
