@@ -89,7 +89,7 @@ jobs:
     name: Deploy (openwrt-x86)
     runs-on: self-hosted
     needs: [build, test, lint, scan]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push' && secrets.OPENWRT_HOST != ''
     env:
       OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
     steps:

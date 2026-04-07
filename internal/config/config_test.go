@@ -67,6 +67,68 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadDetectorDefaults(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load minimal config: %v", err)
+	}
+	if cfg.Detectors.Fanout.DistinctDstThreshold != 50 {
+		t.Errorf("fanout threshold default: got %d, want 50", cfg.Detectors.Fanout.DistinctDstThreshold)
+	}
+	if cfg.Detectors.Fanout.Window != 60*time.Second {
+		t.Errorf("fanout window default: got %v, want 60s", cfg.Detectors.Fanout.Window)
+	}
+	if cfg.Detectors.Scan.DistinctPortThreshold != 30 {
+		t.Errorf("scan threshold default: got %d, want 30", cfg.Detectors.Scan.DistinctPortThreshold)
+	}
+	if cfg.Detectors.Scan.Window != 60*time.Second {
+		t.Errorf("scan window default: got %v, want 60s", cfg.Detectors.Scan.Window)
+	}
+	if cfg.Detectors.Beacon.MinHits != 5 {
+		t.Errorf("beacon min_hits default: got %d, want 5", cfg.Detectors.Beacon.MinHits)
+	}
+	if cfg.Detectors.Beacon.Tolerance != 3*time.Second {
+		t.Errorf("beacon tolerance default: got %v, want 3s", cfg.Detectors.Beacon.Tolerance)
+	}
+	if cfg.Detectors.Beacon.Window != 5*time.Minute {
+		t.Errorf("beacon window default: got %v, want 5m", cfg.Detectors.Beacon.Window)
+	}
+}
+
+func TestLoadSyslogProtoDefault(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsyslog_target: \"10.0.0.1:514\"\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load syslog config: %v", err)
+	}
+	if cfg.SyslogProto != "udp" {
+		t.Errorf("syslog_proto default: got %q, want udp", cfg.SyslogProto)
+	}
+}
+
+func TestLoadSyslogProtoExplicit(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsyslog_target: \"10.0.0.1:514\"\nsyslog_proto: tcp\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load syslog config: %v", err)
+	}
+	if cfg.SyslogProto != "tcp" {
+		t.Errorf("syslog_proto: got %q, want tcp", cfg.SyslogProto)
+	}
+}
+
+func TestLoadAPIBindDefault(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\napi_enabled: true\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.APIBind != "127.0.0.1:8080" {
+		t.Errorf("api_bind default: got %q, want 127.0.0.1:8080", cfg.APIBind)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cfg*.yaml")
