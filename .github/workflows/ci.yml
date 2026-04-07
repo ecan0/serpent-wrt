@@ -88,18 +88,29 @@ jobs:
     name: Deploy (openwrt-x86)
     runs-on: self-hosted
     needs: [build, test, lint, scan]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push' && secrets.OPENWRT_HOST != ''
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
       OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
     steps:
+      - name: Check deploy target configured
+        run: |
+          if [ -n "$OPENWRT_HOST" ]; then
+            echo "DEPLOY_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "OPENWRT_HOST secret not set — skipping deploy"
+          fi
+
       - uses: actions/checkout@v4
+        if: env.DEPLOY_ENABLED == 'true'
 
       - uses: actions/setup-go@v5
+        if: env.DEPLOY_ENABLED == 'true'
         with:
           go-version-file: go.mod
           cache: false
 
       - name: Set up SSH key
+        if: env.DEPLOY_ENABLED == 'true'
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
@@ -108,12 +119,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
 
       - name: Check connectivity
+        if: env.DEPLOY_ENABLED == 'true'
         run: ping -c 2 "$OPENWRT_HOST"
 
       - name: Build (linux/386)
+        if: env.DEPLOY_ENABLED == 'true'
         run: GOOS=linux GOARCH=386 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-386 ./cmd/serpent-wrt
 
       - name: Deploy to openwrt-x86
+        if: env.DEPLOY_ENABLED == 'true'
         run: |
           scp -O -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             bin/serpent-wrt-linux-386 "root@$OPENWRT_HOST:/tmp/serpent-wrt"
@@ -121,11 +135,12 @@ jobs:
             "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
 
       - name: Verify serpent-wrt started
+        if: env.DEPLOY_ENABLED == 'true'
         run: |
           sleep 4
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
             "/etc/init.d/serpent-wrt status && logread | grep serpent-wrt | tail -5"
 
       - name: Clean up SSH key
-        if: always()
+        if: always() && env.DEPLOY_ENABLED == 'true'
         run: rm -f ~/.ssh/deploy_key
