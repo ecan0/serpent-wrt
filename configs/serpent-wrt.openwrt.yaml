@@ -7,7 +7,6 @@ block_duration: 1h
 
 # Adjust to match your router's LAN subnet(s).
 lan_cidrs:
-  - 10.20.0.0/16
   - 192.168.1.0/24
 
 nft_table: serpent_wrt
@@ -17,6 +16,11 @@ log_level: info
 
 api_enabled: true
 api_bind: 127.0.0.1:8080
+
+# Remote syslog forwarding to a SIEM. Wazuh listens on 514/udp by default.
+# Set syslog_target to your SIEM's address and port.
+# syslog_target: "10.0.0.10:514"
+# syslog_proto: "udp"
 
 detectors:
   fanout:

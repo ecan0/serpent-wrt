@@ -15,6 +15,11 @@ log_level: info
 api_enabled: true
 api_bind: 127.0.0.1:8080
 
+# Remote syslog forwarding to a SIEM. Wazuh listens on 514/udp by default.
+# Set syslog_target to your SIEM's address and port.
+# syslog_target: "10.0.0.10:514"
+# syslog_proto: "udp"
+
 detectors:
   fanout:
     distinct_dst_threshold: 50

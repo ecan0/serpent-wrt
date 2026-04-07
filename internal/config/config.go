@@ -21,6 +21,8 @@ type Config struct {
 	LogLevel           string          `yaml:"log_level"`
 	APIEnabled         bool            `yaml:"api_enabled"`
 	APIBind            string          `yaml:"api_bind"`
+	SyslogTarget       string          `yaml:"syslog_target"` // host:port, e.g. 192.168.99.10:514
+	SyslogProto        string          `yaml:"syslog_proto"`  // "udp" (default) or "tcp"
 	Detectors          DetectorsConfig `yaml:"detectors"`
 }
 
@@ -92,6 +94,9 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.APIEnabled && c.APIBind == "" {
 		c.APIBind = "127.0.0.1:8080"
+	}
+	if c.SyslogTarget != "" && c.SyslogProto == "" {
+		c.SyslogProto = "udp"
 	}
 	for _, cidr := range c.LANCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/syslog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,16 +21,26 @@ func main() {
 	cfgPath := flag.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
 	flag.Parse()
 
-	log := events.NewLogger()
-
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "serpent-wrt: config: %v\n", err)
 		os.Exit(1)
 	}
 
-	log.Info(fmt.Sprintf("serpent-wrt starting (poll=%s enforcement=%v api=%v)",
-		cfg.PollInterval, cfg.EnforcementEnabled, cfg.APIEnabled))
+	var remote *syslog.Writer
+	if cfg.SyslogTarget != "" {
+		remote, err = syslog.Dial(cfg.SyslogProto, cfg.SyslogTarget,
+			syslog.LOG_DAEMON|syslog.LOG_WARNING, "serpent-wrt")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
+				cfg.SyslogProto, cfg.SyslogTarget, err)
+		}
+	}
+
+	log := events.NewLogger(remote)
+
+	log.Info(fmt.Sprintf("serpent-wrt starting (poll=%s enforcement=%v api=%v syslog=%v)",
+		cfg.PollInterval, cfg.EnforcementEnabled, cfg.APIEnabled, cfg.SyslogTarget != ""))
 
 	eng := runtime.NewEngine(cfg, log)
 	ctx, cancel := context.WithCancel(context.Background())
