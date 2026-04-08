@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log/syslog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,10 +26,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	var remote *syslog.Writer
+	var remote *events.UDPSyslog
 	if cfg.SyslogTarget != "" {
-		remote, err = syslog.Dial(cfg.SyslogProto, cfg.SyslogTarget,
-			syslog.LOG_DAEMON|syslog.LOG_WARNING, "serpent-wrt")
+		remote, err = events.NewUDPSyslog(cfg.SyslogProto, cfg.SyslogTarget)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
 				cfg.SyslogProto, cfg.SyslogTarget, err)
