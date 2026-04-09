@@ -206,21 +206,21 @@ func TestOutboundFlowSkipsInboundDetectors(t *testing.T) {
 	}
 	// ext_scan tracks external→internal port scanning. Should have no state for this flow.
 	det := e.extScan.Check(flow.FlowRecord{
-		Proto:  "tcp",
-		SrcIP:  net.ParseIP("192.168.1.10"),
-		DstIP:  net.ParseIP("8.8.8.8"),
+		Proto:   "tcp",
+		SrcIP:   net.ParseIP("192.168.1.10"),
+		DstIP:   net.ParseIP("8.8.8.8"),
 		DstPort: 443,
-		SeenAt: time.Now(),
+		SeenAt:  time.Now(),
 	})
 	if det != nil {
 		t.Error("outbound flow should not have incremented ext_scan state")
 	}
 	det = e.bruteForce.Check(flow.FlowRecord{
-		Proto:  "tcp",
-		SrcIP:  net.ParseIP("192.168.1.10"),
-		DstIP:  net.ParseIP("10.0.0.5"),
+		Proto:   "tcp",
+		SrcIP:   net.ParseIP("192.168.1.10"),
+		DstIP:   net.ParseIP("10.0.0.5"),
 		DstPort: 22,
-		SeenAt: time.Now(),
+		SeenAt:  time.Now(),
 	})
 	if det != nil {
 		t.Error("outbound flow should not have incremented brute_force state")
@@ -242,21 +242,21 @@ func TestInboundFlowSkipsOutboundDetectors(t *testing.T) {
 	}
 	// fanout tracks internal→external distinct dsts. Should have no state.
 	det := e.fanout.Check(flow.FlowRecord{
-		Proto:  "tcp",
-		SrcIP:  net.ParseIP("203.0.113.1"),
-		DstIP:  net.ParseIP("1.2.3.4"),
+		Proto:   "tcp",
+		SrcIP:   net.ParseIP("203.0.113.1"),
+		DstIP:   net.ParseIP("1.2.3.4"),
 		DstPort: 80,
-		SeenAt: time.Now(),
+		SeenAt:  time.Now(),
 	})
 	if det != nil {
 		t.Error("inbound flow should not have incremented fanout state")
 	}
 	det = e.portScan.Check(flow.FlowRecord{
-		Proto:  "tcp",
-		SrcIP:  net.ParseIP("203.0.113.1"),
-		DstIP:  net.ParseIP("1.2.3.4"),
+		Proto:   "tcp",
+		SrcIP:   net.ParseIP("203.0.113.1"),
+		DstIP:   net.ParseIP("1.2.3.4"),
 		DstPort: 443,
-		SeenAt: time.Now(),
+		SeenAt:  time.Now(),
 	})
 	if det != nil {
 		t.Error("inbound flow should not have incremented port_scan state")
