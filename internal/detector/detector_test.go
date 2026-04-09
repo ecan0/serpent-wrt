@@ -85,6 +85,10 @@ func TestFanoutThreshold(t *testing.T) {
 	if det.Type != "fanout" {
 		t.Errorf("type: got %q, want fanout", det.Type)
 	}
+	// DstIP must be nil so dedup collapses repeated alerts to one per src.
+	if det.DstIP != nil {
+		t.Errorf("fanout DstIP should be nil for dedup collapse, got %v", det.DstIP)
+	}
 }
 
 func TestFanoutDuplicateDst(t *testing.T) {
@@ -275,6 +279,13 @@ func TestBruteForceThreshold(t *testing.T) {
 	}
 	if det.Type != "brute_force" {
 		t.Errorf("type: got %q, want brute_force", det.Type)
+	}
+	// DstIP must be nil so dedup collapses spray alerts to one per (src, port).
+	if det.DstIP != nil {
+		t.Errorf("brute_force DstIP should be nil for dedup collapse, got %v", det.DstIP)
+	}
+	if det.DstPort != 22 {
+		t.Errorf("brute_force DstPort should be 22, got %d", det.DstPort)
 	}
 }
 

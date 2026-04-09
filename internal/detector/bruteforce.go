@@ -32,10 +32,11 @@ func (d *BruteForce) Check(r flow.FlowRecord) *Detection {
 	if count < d.threshold {
 		return nil
 	}
+	// DstIP intentionally nil — dedup collapses repeated alerts for the same
+	// (src, port) spray to one per refire window. Port is preserved in DstPort.
 	return &Detection{
 		Type:    "brute_force",
 		SrcIP:   r.SrcIP,
-		DstIP:   r.DstIP,
 		DstPort: r.DstPort,
 		Message: fmt.Sprintf("%s attempted port %d on %d distinct internal hosts", r.SrcIP, r.DstPort, count),
 		At:      time.Now(),
