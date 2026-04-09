@@ -19,8 +19,7 @@ type Tracker struct {
 }
 
 type trackerEntry struct {
-	vals    map[string]struct{}
-	expires time.Time
+	vals map[string]time.Time // value → last-seen timestamp
 }
 
 // NewTracker creates a Tracker with the given window and source key limit.
@@ -33,46 +32,65 @@ func NewTracker(window time.Duration, maxSources int) *Tracker {
 }
 
 // Add records val under key and returns the current distinct value count for
-// that key. If the key's window has expired the count resets before adding.
+// that key within the sliding window. Values older than window are expired on
+// each call so the count always reflects only the recent window.
 func (t *Tracker) Add(key, val string) int {
 	now := time.Now()
+	cutoff := now.Add(-t.window)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	e, ok := t.entries[key]
-	if !ok || now.After(e.expires) {
-		if !ok && len(t.entries) >= t.maxSources {
-			t.evictOldestLocked()
+	if !ok {
+		if len(t.entries) >= t.maxSources {
+			t.evictOldestLocked(now)
 		}
-		e = &trackerEntry{
-			vals:    make(map[string]struct{}),
-			expires: now.Add(t.window),
-		}
+		e = &trackerEntry{vals: make(map[string]time.Time)}
 		t.entries[key] = e
 	}
-	e.vals[val] = struct{}{}
+	e.vals[val] = now
+
+	// Trim values that have fallen outside the sliding window.
+	for v, ts := range e.vals {
+		if ts.Before(cutoff) {
+			delete(e.vals, v)
+		}
+	}
 	return len(e.vals)
 }
 
-// Prune removes all entries whose window has expired.
+// Prune removes entries whose sliding windows are fully empty.
 func (t *Tracker) Prune() {
 	now := time.Now()
+	cutoff := now.Add(-t.window)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for k, e := range t.entries {
-		if now.After(e.expires) {
+		for v, ts := range e.vals {
+			if ts.Before(cutoff) {
+				delete(e.vals, v)
+			}
+		}
+		if len(e.vals) == 0 {
 			delete(t.entries, k)
 		}
 	}
 }
 
-func (t *Tracker) evictOldestLocked() {
+// evictOldestLocked removes the entry whose most-recently-seen value is oldest.
+func (t *Tracker) evictOldestLocked(now time.Time) {
 	var oldest string
-	var oldestExp time.Time
+	var oldestLatest time.Time
 	for k, e := range t.entries {
-		if oldest == "" || e.expires.Before(oldestExp) {
+		var latest time.Time
+		for _, ts := range e.vals {
+			if ts.After(latest) {
+				latest = ts
+			}
+		}
+		if oldest == "" || latest.Before(oldestLatest) {
 			oldest = k
-			oldestExp = e.expires
+			oldestLatest = latest
 		}
 	}
 	if oldest != "" {

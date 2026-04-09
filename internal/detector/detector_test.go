@@ -184,3 +184,115 @@ func TestFeedMatchNilDst(t *testing.T) {
 		t.Fatal("expected nil detection for nil DstIP")
 	}
 }
+
+func TestFeedMatchInboundSrc(t *testing.T) {
+	f := feed.New()
+	if err := f.Load("../../testdata/threat-feed.txt"); err != nil {
+		t.Fatalf("load feed: %v", err)
+	}
+	d := detector.NewFeedMatch(f)
+	// Known-bad IP is now the SOURCE (inbound flow).
+	det := d.Check(makeFlow("1.2.3.4", "192.168.1.100", 80, "SYN_SENT"))
+	if det == nil {
+		t.Fatal("expected detection when src_ip is in feed")
+	}
+	if det.Type != "feed_match" {
+		t.Errorf("type: got %q, want feed_match", det.Type)
+	}
+}
+
+// --- PortScan per-dst ---
+
+func TestPortScanDistinctTargets(t *testing.T) {
+	d := detector.NewPortScan(3, 10*time.Second)
+	src := "192.168.1.1"
+
+	// Ports on dst1 — should trigger.
+	d.Check(makeFlow(src, "10.0.0.1", 22, ""))
+	d.Check(makeFlow(src, "10.0.0.1", 80, ""))
+	det := d.Check(makeFlow(src, "10.0.0.1", 443, ""))
+	if det == nil {
+		t.Fatal("expected detection scanning same dst")
+	}
+
+	// Same ports on a different dst — separate counter, no detection yet.
+	d2 := detector.NewPortScan(3, 10*time.Second)
+	d2.Check(makeFlow(src, "10.0.0.1", 22, ""))
+	d2.Check(makeFlow(src, "10.0.0.1", 80, ""))
+	det2 := d2.Check(makeFlow(src, "10.0.0.2", 443, ""))
+	if det2 != nil {
+		t.Fatal("port scan across different dsts should not merge counts")
+	}
+}
+
+// --- ExtScan ---
+
+func TestExtScanThreshold(t *testing.T) {
+	d := detector.NewExtScan(3, 10*time.Second)
+	ext, target := "1.2.3.4", "192.168.1.10"
+
+	d.Check(makeFlow(ext, target, 22, ""))
+	d.Check(makeFlow(ext, target, 80, ""))
+	det := d.Check(makeFlow(ext, target, 443, ""))
+	if det == nil {
+		t.Fatal("expected ext_scan detection at threshold")
+	}
+	if det.Type != "ext_scan" {
+		t.Errorf("type: got %q, want ext_scan", det.Type)
+	}
+}
+
+func TestExtScanDifferentTargets(t *testing.T) {
+	d := detector.NewExtScan(3, 10*time.Second)
+	ext := "1.2.3.4"
+
+	// Ports spread across two targets — each counter is independent.
+	d.Check(makeFlow(ext, "192.168.1.10", 22, ""))
+	d.Check(makeFlow(ext, "192.168.1.11", 80, ""))
+	det := d.Check(makeFlow(ext, "192.168.1.12", 443, ""))
+	if det != nil {
+		t.Fatal("ext_scan across different targets should not merge counts")
+	}
+}
+
+func TestExtScanPruneNoPanic(t *testing.T) {
+	d := detector.NewExtScan(3, 10*time.Second)
+	d.Check(makeFlow("1.2.3.4", "192.168.1.10", 22, ""))
+	d.Prune()
+}
+
+// --- BruteForce ---
+
+func TestBruteForceThreshold(t *testing.T) {
+	d := detector.NewBruteForce(3, 10*time.Second)
+	ext := "1.2.3.4"
+
+	d.Check(makeFlow(ext, "192.168.1.1", 22, ""))
+	d.Check(makeFlow(ext, "192.168.1.2", 22, ""))
+	det := d.Check(makeFlow(ext, "192.168.1.3", 22, ""))
+	if det == nil {
+		t.Fatal("expected brute_force detection at threshold")
+	}
+	if det.Type != "brute_force" {
+		t.Errorf("type: got %q, want brute_force", det.Type)
+	}
+}
+
+func TestBruteForceDifferentPorts(t *testing.T) {
+	d := detector.NewBruteForce(3, 10*time.Second)
+	ext := "1.2.3.4"
+
+	// Same target, different ports — different counters, no detection.
+	d.Check(makeFlow(ext, "192.168.1.1", 22, ""))
+	d.Check(makeFlow(ext, "192.168.1.2", 80, ""))
+	det := d.Check(makeFlow(ext, "192.168.1.3", 443, ""))
+	if det != nil {
+		t.Fatal("brute_force on different ports should not merge counts")
+	}
+}
+
+func TestBruteForcePruneNoPanic(t *testing.T) {
+	d := detector.NewBruteForce(3, 10*time.Second)
+	d.Check(makeFlow("1.2.3.4", "192.168.1.1", 22, ""))
+	d.Prune()
+}

@@ -25,7 +25,9 @@ func NewPortScan(threshold int, window time.Duration) *PortScan {
 
 func (d *PortScan) Check(r flow.FlowRecord) *Detection {
 	portStr := strconv.Itoa(int(r.DstPort))
-	count := d.tracker.Add(r.SrcIP.String(), portStr)
+	// Key is (src, dst) so we count distinct ports to a specific target host.
+	key := r.SrcIP.String() + ":" + r.DstIP.String()
+	count := d.tracker.Add(key, portStr)
 	if count < d.threshold {
 		return nil
 	}
@@ -34,7 +36,7 @@ func (d *PortScan) Check(r flow.FlowRecord) *Detection {
 		SrcIP:   r.SrcIP,
 		DstIP:   r.DstIP,
 		DstPort: r.DstPort,
-		Message: fmt.Sprintf("%s scanned %d distinct ports (threshold %d)", r.SrcIP, count, d.threshold),
+		Message: fmt.Sprintf("%s scanned %d distinct ports on %s (threshold %d)", r.SrcIP, count, r.DstIP, d.threshold),
 		At:      time.Now(),
 	}
 }

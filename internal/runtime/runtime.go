@@ -24,6 +24,18 @@ const (
 	pruneEvery   = 10              // prune state every N poll cycles
 )
 
+var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
+
+// isUnroutable reports whether ip should never appear as a threat actor —
+// unspecified (0.0.0.0), loopback, link-local, multicast, or broadcast.
+func isUnroutable(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	return ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() ||
+		ip.IsLinkLocalUnicast() || ip.Equal(ipv4Broadcast)
+}
+
 // DetectionRecord is a summarized detection for the API response.
 type DetectionRecord struct {
 	Time     time.Time `json:"time"`
@@ -61,12 +73,18 @@ type Engine struct {
 	log  *events.Logger
 	enf  *enforcer.Enforcer
 
+	// outbound detectors
 	feedMatch *detector.FeedMatch
 	fanout    *detector.Fanout
 	portScan  *detector.PortScan
 	beacon    *detector.Beacon
 
+	// inbound detectors
+	extScan    *detector.ExtScan
+	bruteForce *detector.BruteForce
+
 	lanNets []*net.IPNet // pre-parsed from cfg.LANCIDRs
+	selfIPs []net.IP     // router's own IPs — excluded as detection sources
 
 	// detection type counters
 	detByTypeMu sync.Mutex
@@ -88,21 +106,28 @@ type Engine struct {
 func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 	f := feed.New()
 	e := &Engine{
-		cfg:       cfg,
-		feed:      f,
-		log:       log,
-		enf:       enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
-		feedMatch: detector.NewFeedMatch(f),
-		fanout:    detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
-		portScan:  detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
-		beacon:    detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window),
-		detByType: make(map[string]uint64),
-		dedup:     make(map[dedupKey]time.Time),
-		startedAt: time.Now(),
+		cfg:        cfg,
+		feed:       f,
+		log:        log,
+		enf:        enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
+		feedMatch:  detector.NewFeedMatch(f),
+		fanout:     detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
+		portScan:   detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
+		beacon:     detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window),
+		extScan:    detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
+		bruteForce: detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
+		detByType:  make(map[string]uint64),
+		dedup:      make(map[dedupKey]time.Time),
+		startedAt:  time.Now(),
 	}
 	for _, cidr := range cfg.LANCIDRs {
 		if _, network, err := net.ParseCIDR(cidr); err == nil {
 			e.lanNets = append(e.lanNets, network)
+		}
+	}
+	for _, s := range cfg.SelfIPs {
+		if ip := net.ParseIP(s); ip != nil {
+			e.selfIPs = append(e.selfIPs, ip.To4())
 		}
 	}
 	return e
@@ -148,15 +173,37 @@ func (e *Engine) poll() {
 	atomic.AddUint64(&e.flowsSeen, uint64(len(flows)))
 
 	for _, r := range flows {
-		if e.isLAN(r.DstIP) {
-			continue // skip internal destinations
+		// Skip unroutable addresses: broadcast, multicast, link-local, loopback.
+		if isUnroutable(r.SrcIP) || isUnroutable(r.DstIP) {
+			continue
 		}
-		dets := []*detector.Detection{
-			e.feedMatch.Check(r),
-			e.fanout.Check(r),
-			e.portScan.Check(r),
-			e.beacon.Check(r),
+		// Skip flows originating from the router itself (e.g. NTP, DHCP).
+		if e.isSelf(r.SrcIP) {
+			continue
 		}
+
+		srcLAN := e.isLAN(r.SrcIP)
+		dstLAN := e.isLAN(r.DstIP)
+
+		var dets []*detector.Detection
+		switch {
+		case srcLAN && !dstLAN:
+			// Outbound: LAN host → WAN. Detect compromised internal behaviour.
+			dets = []*detector.Detection{
+				e.feedMatch.Check(r),
+				e.fanout.Check(r),
+				e.portScan.Check(r),
+				e.beacon.Check(r),
+			}
+		case !srcLAN && dstLAN:
+			// Inbound: WAN → LAN host. Detect external recon / attacks.
+			dets = []*detector.Detection{
+				e.feedMatch.Check(r),
+				e.extScan.Check(r),
+				e.bruteForce.Check(r),
+			}
+		}
+
 		for _, det := range dets {
 			if det != nil {
 				e.handleDetection(det)
@@ -224,6 +271,8 @@ func (e *Engine) prune() {
 	e.fanout.Prune()
 	e.portScan.Prune()
 	e.beacon.Prune()
+	e.extScan.Prune()
+	e.bruteForce.Prune()
 	e.enf.Prune()
 
 	now := time.Now()
@@ -281,6 +330,18 @@ func (e *Engine) RecentDetections() []DetectionRecord {
 		}
 	}
 	return out
+}
+
+func (e *Engine) isSelf(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, self := range e.selfIPs {
+		if self.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) isLAN(ip net.IP) bool {

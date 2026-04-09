@@ -38,9 +38,40 @@ func TestTrackerWindowExpiry(t *testing.T) {
 	tr.Add("src1", "dst1")
 	time.Sleep(80 * time.Millisecond)
 
-	// Window expired — count resets.
+	// Sliding window: old value expired, new add starts at 1.
 	if n := tr.Add("src1", "dst2"); n != 1 {
 		t.Fatalf("after expiry: got %d, want 1", n)
+	}
+}
+
+func TestTrackerSlidingWindow(t *testing.T) {
+	tr := state.NewTracker(100*time.Millisecond, 100)
+	tr.Add("src1", "dst1")
+	tr.Add("src1", "dst2")
+	// Both values are within window → count is 2.
+	if n := tr.Add("src1", "dst3"); n != 3 {
+		t.Fatalf("sliding add: got %d, want 3", n)
+	}
+	time.Sleep(120 * time.Millisecond)
+	// All three values have expired. New add should count 1.
+	if n := tr.Add("src1", "dst4"); n != 1 {
+		t.Fatalf("after all expired: got %d, want 1", n)
+	}
+}
+
+func TestTrackerSlidingWindowPartialExpiry(t *testing.T) {
+	tr := state.NewTracker(120*time.Millisecond, 100)
+	tr.Add("src1", "dst1")
+	tr.Add("src1", "dst2")
+	time.Sleep(80 * time.Millisecond)
+	// dst1 and dst2 still within window; dst3 is new → count 3.
+	if n := tr.Add("src1", "dst3"); n != 3 {
+		t.Fatalf("partial expiry: got %d, want 3", n)
+	}
+	time.Sleep(60 * time.Millisecond)
+	// dst1 and dst2 now expired (>120ms old); dst3 still fresh → count 1.
+	if n := tr.Add("src1", "dst4"); n != 2 {
+		t.Fatalf("partial expiry second: got %d, want 2", n)
 	}
 }
 

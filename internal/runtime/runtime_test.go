@@ -17,10 +17,13 @@ func testConfig() *config.Config {
 		NftTable:       "serpent_wrt",
 		NftSet:         "blocked_ips",
 		LANCIDRs:       []string{"192.168.1.0/24", "10.0.0.0/8"},
+		SelfIPs:        []string{"192.168.1.1"},
 		Detectors: config.DetectorsConfig{
-			Fanout: config.FanoutConfig{DistinctDstThreshold: 50, Window: 60 * time.Second},
-			Scan:   config.ScanConfig{DistinctPortThreshold: 30, Window: 60 * time.Second},
-			Beacon: config.BeaconConfig{MinHits: 5, Tolerance: 3 * time.Second, Window: 5 * time.Minute},
+			Fanout:     config.FanoutConfig{DistinctDstThreshold: 50, Window: 60 * time.Second},
+			Scan:       config.ScanConfig{DistinctPortThreshold: 30, Window: 60 * time.Second},
+			Beacon:     config.BeaconConfig{MinHits: 5, Tolerance: 3 * time.Second, Window: 5 * time.Minute},
+			ExtScan:    config.ExtScanConfig{DistinctPortThreshold: 20, Window: 60 * time.Second},
+			BruteForce: config.BruteForceConfig{Threshold: 5, Window: 60 * time.Second},
 		},
 	}
 }
@@ -78,6 +81,55 @@ func TestNewEngine(t *testing.T) {
 	}
 	if len(e.lanNets) != 2 {
 		t.Errorf("lanNets: got %d, want 2", len(e.lanNets))
+	}
+	if len(e.selfIPs) != 1 {
+		t.Errorf("selfIPs: got %d, want 1", len(e.selfIPs))
+	}
+}
+
+// --- isUnroutable ---
+
+func TestIsUnroutable(t *testing.T) {
+	cases := []struct {
+		ip   string
+		want bool
+	}{
+		{"0.0.0.0", true},
+		{"255.255.255.255", true},
+		{"127.0.0.1", true},
+		{"169.254.1.1", true},
+		{"224.0.0.1", true},
+		{"8.8.8.8", false},
+		{"192.168.1.1", false},
+		{"10.0.0.1", false},
+	}
+	for _, tc := range cases {
+		ip := net.ParseIP(tc.ip)
+		got := isUnroutable(ip)
+		if got != tc.want {
+			t.Errorf("isUnroutable(%s): got %v, want %v", tc.ip, got, tc.want)
+		}
+	}
+}
+
+func TestIsUnroutableNil(t *testing.T) {
+	if !isUnroutable(nil) {
+		t.Error("isUnroutable(nil) should return true")
+	}
+}
+
+// --- isSelf ---
+
+func TestIsSelf(t *testing.T) {
+	e := testEngine(t)
+	if !e.isSelf(net.ParseIP("192.168.1.1")) {
+		t.Error("192.168.1.1 is in self_ips, should return true")
+	}
+	if e.isSelf(net.ParseIP("192.168.1.2")) {
+		t.Error("192.168.1.2 is not in self_ips")
+	}
+	if e.isSelf(nil) {
+		t.Error("isSelf(nil) should return false")
 	}
 }
 

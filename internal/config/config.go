@@ -16,6 +16,7 @@ type Config struct {
 	EnforcementEnabled bool            `yaml:"enforcement_enabled"`
 	BlockDuration      time.Duration   `yaml:"block_duration"`
 	LANCIDRs           []string        `yaml:"lan_cidrs"`
+	SelfIPs            []string        `yaml:"self_ips"` // router's own IPs — excluded from detection
 	NftTable           string          `yaml:"nft_table"`
 	NftSet             string          `yaml:"nft_set"`
 	LogLevel           string          `yaml:"log_level"`
@@ -28,9 +29,11 @@ type Config struct {
 
 // DetectorsConfig groups per-detector tuning parameters.
 type DetectorsConfig struct {
-	Fanout FanoutConfig `yaml:"fanout"`
-	Scan   ScanConfig   `yaml:"scan"`
-	Beacon BeaconConfig `yaml:"beacon"`
+	Fanout     FanoutConfig     `yaml:"fanout"`
+	Scan       ScanConfig       `yaml:"scan"`
+	Beacon     BeaconConfig     `yaml:"beacon"`
+	ExtScan    ExtScanConfig    `yaml:"ext_scan"`
+	BruteForce BruteForceConfig `yaml:"brute_force"`
 }
 
 // FanoutConfig controls the outbound fanout detector.
@@ -49,6 +52,18 @@ type ScanConfig struct {
 type BeaconConfig struct {
 	MinHits   int           `yaml:"min_hits"`
 	Tolerance time.Duration `yaml:"tolerance"`
+	Window    time.Duration `yaml:"window"`
+}
+
+// ExtScanConfig controls the inbound external port scan detector.
+type ExtScanConfig struct {
+	DistinctPortThreshold int           `yaml:"distinct_port_threshold"`
+	Window                time.Duration `yaml:"window"`
+}
+
+// BruteForceConfig controls the inbound brute-force / horizontal scan detector.
+type BruteForceConfig struct {
+	Threshold int           `yaml:"threshold"`
 	Window    time.Duration `yaml:"window"`
 }
 
@@ -123,6 +138,18 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Detectors.Beacon.Window <= 0 {
 		c.Detectors.Beacon.Window = 5 * time.Minute
+	}
+	if c.Detectors.ExtScan.DistinctPortThreshold <= 0 {
+		c.Detectors.ExtScan.DistinctPortThreshold = 20
+	}
+	if c.Detectors.ExtScan.Window <= 0 {
+		c.Detectors.ExtScan.Window = 60 * time.Second
+	}
+	if c.Detectors.BruteForce.Threshold <= 0 {
+		c.Detectors.BruteForce.Threshold = 5
+	}
+	if c.Detectors.BruteForce.Window <= 0 {
+		c.Detectors.BruteForce.Window = 60 * time.Second
 	}
 	return nil
 }
