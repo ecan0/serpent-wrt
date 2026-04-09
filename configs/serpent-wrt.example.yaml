@@ -1,11 +1,19 @@
 poll_interval: 5s
-threat_feed_path: ./testdata/threat-feed.txt
+threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 
-enforcement_enabled: true
+enforcement_enabled: false  # set true after verifying nftables rules work correctly
 block_duration: 1h
 
+# LAN CIDRs — used for direction classification (LAN→WAN vs WAN→LAN).
+# Add every private subnet reachable through this router.
 lan_cidrs:
   - 192.168.1.0/24
+
+# Router's own interface IPs — flows sourced from these are skipped before any
+# detector runs. Prevents NTP, DHCP, and management traffic from triggering alerts.
+# Add the router's LAN IP, WAN IP, and any additional interface IPs.
+# self_ips:
+#   - 192.168.1.1
 
 nft_table: serpent_wrt
 nft_set: blocked_ips
@@ -15,19 +23,34 @@ log_level: info
 api_enabled: true
 api_bind: 127.0.0.1:8080
 
-# Remote syslog forwarding to a SIEM. Wazuh listens on 514/udp by default.
-# Set syslog_target to your SIEM's address and port.
+# Remote syslog forwarding to a SIEM (e.g. Wazuh, Graylog).
+# The sender re-dials automatically on write failure.
 # syslog_target: "10.0.0.10:514"
-# syslog_proto: "udp"
+# syslog_proto: "udp"   # or "tcp"
 
 detectors:
+  # Outbound: internal host contacts too many distinct external destinations.
   fanout:
     distinct_dst_threshold: 50
     window: 60s
+
+  # Outbound: internal host probes too many distinct ports on one target.
   scan:
     distinct_port_threshold: 30
     window: 60s
+
+  # Outbound: internal host contacts the same external destination at a regular interval.
   beacon:
     min_hits: 5
     tolerance: 3s
     window: 5m
+
+  # Inbound: external IP probes many distinct ports on one internal host.
+  ext_scan:
+    distinct_port_threshold: 15
+    window: 60s
+
+  # Inbound: external IP hits the same service port across many internal hosts.
+  brute_force:
+    threshold: 5
+    window: 60s
