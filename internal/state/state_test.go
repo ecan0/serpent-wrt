@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -95,4 +96,15 @@ func TestTrackerEviction(t *testing.T) {
 	tr.Add("src3", "dst1")
 	// Adding a fourth should also be safe.
 	tr.Add("src4", "dst1")
+}
+
+func BenchmarkTrackerAddParallel(b *testing.B) {
+	t := state.NewTracker(60*time.Second, 1024)
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			t.Add(fmt.Sprintf("key-%d", i%100), fmt.Sprintf("val-%d", i))
+			i++
+		}
+	})
 }
