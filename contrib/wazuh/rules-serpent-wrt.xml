@@ -1,0 +1,73 @@
+<!--
+  Wazuh rules for serpent-wrt detections.
+  Rule IDs: 100200–100209 (custom range).
+
+  Install: copy to /var/ossec/etc/rules/ and restart Wazuh.
+-->
+<group name="serpent-wrt,">
+
+  <!-- Base rule: any serpent-wrt detection event -->
+  <rule id="100200" level="3">
+    <decoded_as>serpent-wrt</decoded_as>
+    <field name="type">^detection$</field>
+    <description>serpent-wrt detection event</description>
+    <group>serpent-wrt,</group>
+  </rule>
+
+  <!-- Enforcement action (IP blocked via nftables) -->
+  <rule id="100201" level="6">
+    <decoded_as>serpent-wrt</decoded_as>
+    <field name="type">^enforcement$</field>
+    <description>serpent-wrt blocked IP via nftables</description>
+    <group>serpent-wrt,active_response,</group>
+  </rule>
+
+  <!-- feed_match: traffic to/from known threat intelligence IP -->
+  <rule id="100202" level="10">
+    <if_sid>100200</if_sid>
+    <field name="detector">^feed_match$</field>
+    <description>serpent-wrt: traffic matches threat feed [$(src_ip) -> $(dst_ip)]</description>
+    <group>serpent-wrt,threat_intel,</group>
+  </rule>
+
+  <!-- fanout: internal host contacting many external destinations -->
+  <rule id="100203" level="8">
+    <if_sid>100200</if_sid>
+    <field name="detector">^fanout$</field>
+    <description>serpent-wrt: outbound fanout from $(src_ip)</description>
+    <group>serpent-wrt,anomaly,</group>
+  </rule>
+
+  <!-- port_scan: internal host scanning ports on an external target -->
+  <rule id="100204" level="8">
+    <if_sid>100200</if_sid>
+    <field name="detector">^port_scan$</field>
+    <description>serpent-wrt: outbound port scan from $(src_ip) to $(dst_ip)</description>
+    <group>serpent-wrt,recon,</group>
+  </rule>
+
+  <!-- beacon: internal host beaconing to an external destination -->
+  <rule id="100205" level="9">
+    <if_sid>100200</if_sid>
+    <field name="detector">^beacon$</field>
+    <description>serpent-wrt: beaconing from $(src_ip) to $(dst_ip)</description>
+    <group>serpent-wrt,c2,</group>
+  </rule>
+
+  <!-- ext_scan: external IP scanning ports on an internal host -->
+  <rule id="100206" level="7">
+    <if_sid>100200</if_sid>
+    <field name="detector">^ext_scan$</field>
+    <description>serpent-wrt: inbound port scan from $(src_ip) to $(dst_ip)</description>
+    <group>serpent-wrt,recon,</group>
+  </rule>
+
+  <!-- brute_force: external IP hitting same port across many internal hosts -->
+  <rule id="100207" level="8">
+    <if_sid>100200</if_sid>
+    <field name="detector">^brute_force$</field>
+    <description>serpent-wrt: inbound brute-force/spray from $(src_ip)</description>
+    <group>serpent-wrt,brute_force,</group>
+  </rule>
+
+</group>
