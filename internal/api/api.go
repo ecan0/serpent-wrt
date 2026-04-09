@@ -25,6 +25,7 @@ func New(addr string, eng *runtime.Engine) *Server {
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/detections/recent", s.handleRecentDetections)
+	mux.HandleFunc("/blocked", s.handleBlocked)
 
 	s.srv = &http.Server{
 		Addr:         addr,
@@ -68,6 +69,15 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRecentDetections(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.eng.RecentDetections())
+}
+
+func (s *Server) handleBlocked(w http.ResponseWriter, _ *http.Request) {
+	ips, err := s.eng.GetBlocked()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string][]string{"blocked": ips})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
