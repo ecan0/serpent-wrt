@@ -8,6 +8,7 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/detector"
 	"github.com/ecan0/serpent-wrt/internal/events"
+	"github.com/ecan0/serpent-wrt/internal/flow"
 )
 
 func testConfig() *config.Config {
@@ -187,6 +188,122 @@ func TestRecentDetectionsRingBuffer(t *testing.T) {
 }
 
 // --- ReloadFeed ---
+
+// --- Direction classification (processFlow) ---
+
+func TestOutboundFlowSkipsInboundDetectors(t *testing.T) {
+	e := testEngine(t)
+	// Outbound: LAN src → WAN dst. Should NOT touch ext_scan or brute_force.
+	for i := 0; i < 30; i++ {
+		e.processFlow(flow.FlowRecord{
+			Proto:   "tcp",
+			SrcIP:   net.ParseIP("192.168.1.10"),
+			DstIP:   net.ParseIP("8.8.8.8"),
+			SrcPort: uint16(40000 + i),
+			DstPort: uint16(80 + i),
+			SeenAt:  time.Now(),
+		})
+	}
+	// ext_scan tracks external→internal port scanning. Should have no state for this flow.
+	det := e.extScan.Check(flow.FlowRecord{
+		Proto:  "tcp",
+		SrcIP:  net.ParseIP("192.168.1.10"),
+		DstIP:  net.ParseIP("8.8.8.8"),
+		DstPort: 443,
+		SeenAt: time.Now(),
+	})
+	if det != nil {
+		t.Error("outbound flow should not have incremented ext_scan state")
+	}
+	det = e.bruteForce.Check(flow.FlowRecord{
+		Proto:  "tcp",
+		SrcIP:  net.ParseIP("192.168.1.10"),
+		DstIP:  net.ParseIP("10.0.0.5"),
+		DstPort: 22,
+		SeenAt: time.Now(),
+	})
+	if det != nil {
+		t.Error("outbound flow should not have incremented brute_force state")
+	}
+}
+
+func TestInboundFlowSkipsOutboundDetectors(t *testing.T) {
+	e := testEngine(t)
+	// Inbound: WAN src → LAN dst. Should NOT touch fanout, port_scan, or beacon.
+	for i := 0; i < 60; i++ {
+		e.processFlow(flow.FlowRecord{
+			Proto:   "tcp",
+			SrcIP:   net.ParseIP("203.0.113.1"),
+			DstIP:   net.ParseIP("192.168.1.10"),
+			SrcPort: uint16(50000 + i),
+			DstPort: uint16(80 + i),
+			SeenAt:  time.Now(),
+		})
+	}
+	// fanout tracks internal→external distinct dsts. Should have no state.
+	det := e.fanout.Check(flow.FlowRecord{
+		Proto:  "tcp",
+		SrcIP:  net.ParseIP("203.0.113.1"),
+		DstIP:  net.ParseIP("1.2.3.4"),
+		DstPort: 80,
+		SeenAt: time.Now(),
+	})
+	if det != nil {
+		t.Error("inbound flow should not have incremented fanout state")
+	}
+	det = e.portScan.Check(flow.FlowRecord{
+		Proto:  "tcp",
+		SrcIP:  net.ParseIP("203.0.113.1"),
+		DstIP:  net.ParseIP("1.2.3.4"),
+		DstPort: 443,
+		SeenAt: time.Now(),
+	})
+	if det != nil {
+		t.Error("inbound flow should not have incremented port_scan state")
+	}
+}
+
+func TestUnroutableSrcDropped(t *testing.T) {
+	e := testEngine(t)
+	unroutable := []string{"0.0.0.0", "255.255.255.255", "127.0.0.1", "169.254.1.1", "224.0.0.1"}
+	for _, ip := range unroutable {
+		e.processFlow(flow.FlowRecord{
+			Proto:   "tcp",
+			SrcIP:   net.ParseIP(ip),
+			DstIP:   net.ParseIP("192.168.1.10"),
+			SrcPort: 12345,
+			DstPort: 80,
+			SeenAt:  time.Now(),
+		})
+	}
+	s := e.GetStats()
+	for typ, count := range s.DetectionsByType {
+		if count > 0 {
+			t.Errorf("unroutable src produced %s detection (count=%d)", typ, count)
+		}
+	}
+}
+
+func TestSelfSrcDropped(t *testing.T) {
+	e := testEngine(t)
+	// 192.168.1.1 is in self_ips — should be dropped before any detector.
+	for i := 0; i < 60; i++ {
+		e.processFlow(flow.FlowRecord{
+			Proto:   "tcp",
+			SrcIP:   net.ParseIP("192.168.1.1"),
+			DstIP:   net.ParseIP("8.8.8.8"),
+			SrcPort: uint16(40000 + i),
+			DstPort: uint16(80 + i),
+			SeenAt:  time.Now(),
+		})
+	}
+	s := e.GetStats()
+	for typ, count := range s.DetectionsByType {
+		if count > 0 {
+			t.Errorf("self src produced %s detection (count=%d)", typ, count)
+		}
+	}
+}
 
 // --- Configurable dedup window ---
 

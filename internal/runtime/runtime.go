@@ -16,6 +16,7 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/enforcer"
 	"github.com/ecan0/serpent-wrt/internal/events"
 	"github.com/ecan0/serpent-wrt/internal/feed"
+	"github.com/ecan0/serpent-wrt/internal/flow"
 )
 
 const (
@@ -174,41 +175,46 @@ func (e *Engine) poll() {
 	atomic.AddUint64(&e.flowsSeen, uint64(len(flows)))
 
 	for _, r := range flows {
-		// Skip unroutable addresses: broadcast, multicast, link-local, loopback.
-		if isUnroutable(r.SrcIP) || isUnroutable(r.DstIP) {
-			continue
-		}
-		// Skip flows originating from the router itself (e.g. NTP, DHCP).
-		if e.isSelf(r.SrcIP) {
-			continue
-		}
+		e.processFlow(r)
+	}
+}
 
-		srcLAN := e.isLAN(r.SrcIP)
-		dstLAN := e.isLAN(r.DstIP)
+// processFlow classifies a single flow by direction and runs the appropriate detectors.
+func (e *Engine) processFlow(r flow.FlowRecord) {
+	// Skip unroutable addresses: broadcast, multicast, link-local, loopback.
+	if isUnroutable(r.SrcIP) || isUnroutable(r.DstIP) {
+		return
+	}
+	// Skip flows originating from the router itself (e.g. NTP, DHCP).
+	if e.isSelf(r.SrcIP) {
+		return
+	}
 
-		var dets []*detector.Detection
-		switch {
-		case srcLAN && !dstLAN:
-			// Outbound: LAN host → WAN. Detect compromised internal behaviour.
-			dets = []*detector.Detection{
-				e.feedMatch.Check(r),
-				e.fanout.Check(r),
-				e.portScan.Check(r),
-				e.beacon.Check(r),
-			}
-		case !srcLAN && dstLAN:
-			// Inbound: WAN → LAN host. Detect external recon / attacks.
-			dets = []*detector.Detection{
-				e.feedMatch.Check(r),
-				e.extScan.Check(r),
-				e.bruteForce.Check(r),
-			}
+	srcLAN := e.isLAN(r.SrcIP)
+	dstLAN := e.isLAN(r.DstIP)
+
+	var dets []*detector.Detection
+	switch {
+	case srcLAN && !dstLAN:
+		// Outbound: LAN host → WAN. Detect compromised internal behaviour.
+		dets = []*detector.Detection{
+			e.feedMatch.Check(r),
+			e.fanout.Check(r),
+			e.portScan.Check(r),
+			e.beacon.Check(r),
 		}
+	case !srcLAN && dstLAN:
+		// Inbound: WAN → LAN host. Detect external recon / attacks.
+		dets = []*detector.Detection{
+			e.feedMatch.Check(r),
+			e.extScan.Check(r),
+			e.bruteForce.Check(r),
+		}
+	}
 
-		for _, det := range dets {
-			if det != nil {
-				e.handleDetection(det)
-			}
+	for _, det := range dets {
+		if det != nil {
+			e.handleDetection(det)
 		}
 	}
 }
