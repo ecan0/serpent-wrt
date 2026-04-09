@@ -90,6 +90,47 @@ func (e *Enforcer) Prune() {
 	}
 }
 
+// ListBlocked shells out to nft to list the current contents of the blocked set.
+// Returns nil (not an error) if the set does not exist.
+func (e *Enforcer) ListBlocked() ([]string, error) {
+	cmd := exec.Command("nft", "list", "set", "inet", e.table, e.set)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If the set doesn't exist, nft returns an error — treat as empty.
+		return nil, nil
+	}
+	return parseSetElements(string(out)), nil
+}
+
+// parseSetElements extracts IPs from nft list set output.
+// The elements line looks like: "elements = { 1.2.3.4 timeout 1h, 5.6.7.8 timeout 1h }"
+func parseSetElements(output string) []string {
+	var ips []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "elements") {
+			continue
+		}
+		// Strip "elements = { ... }"
+		start := strings.Index(line, "{")
+		end := strings.LastIndex(line, "}")
+		if start < 0 || end < 0 || end <= start {
+			continue
+		}
+		inner := line[start+1 : end]
+		for _, elem := range strings.Split(inner, ",") {
+			fields := strings.Fields(strings.TrimSpace(elem))
+			if len(fields) > 0 && net.ParseIP(fields[0]) != nil {
+				ips = append(ips, fields[0])
+			}
+		}
+	}
+	if ips == nil {
+		return []string{}
+	}
+	return ips
+}
+
 func (e *Enforcer) runScript(script string) error {
 	cmd := exec.Command("nft", "-f", "-")
 	cmd.Stdin = strings.NewReader(script)

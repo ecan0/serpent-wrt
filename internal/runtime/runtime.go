@@ -339,6 +339,15 @@ func (e *Engine) RecentDetections() []DetectionRecord {
 	return out
 }
 
+// GetBlocked returns the list of currently blocked IPs from the nftables set.
+// Returns an empty slice if enforcement is disabled or the set doesn't exist.
+func (e *Engine) GetBlocked() ([]string, error) {
+	if !e.cfg.EnforcementEnabled {
+		return []string{}, nil
+	}
+	return e.enf.ListBlocked()
+}
+
 func (e *Engine) isSelf(ip net.IP) bool {
 	if ip == nil {
 		return false
