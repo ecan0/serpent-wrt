@@ -1,54 +1,36 @@
 # Week Plan: Open-Source Polish + SOC Refinement
 
-## Context
+**serpent-wrt** is a Go threat intelligence daemon for OpenWRT routers. It polls `/proc/net/nf_conntrack`, classifies flows by direction (LAN→WAN vs WAN→LAN), runs 6 behavioral detectors, deduplicates alerts via a sliding window, and emits NDJSON to stdout + UDP syslog to Wazuh. Single static binary, <10MB RAM, no database, no packet capture.
 
-serpent-wrt is a lightweight Go threat intelligence daemon for OpenWRT routers. It reads
-`/proc/net/nf_conntrack`, classifies flows by direction, runs 6 behavioral detectors, deduplicates
-alerts, and emits NDJSON to stdout + UDP syslog to Wazuh. Single static binary, <10MB RAM.
-
-All 6 detectors are working and tested. All 6 Wazuh rules fire. Dedup suppression is working.
-Code is on the `dev` branch.
-
-The goal for this week is:
-1. Open-source readiness (clean, documented, no hardcoded lab values)
-2. SOC setting refinements (configurable dedup, better API, threshold tuning guide)
-3. Code quality (readable, testable, no unnecessary complexity)
-4. Performance confidence (benchmark under load, verify no memory growth)
+Repo: `/Users/sintax/Projects/serpent-wrt`, branch: `dev`. All 6 detectors pass tests. All 6 Wazuh rules fire in the lab. Read `CLAUDE.md`, `ARCHITECTURE.md`, and `CONSTRAINTS.md` before touching anything.
 
 ---
 
-## Priority Order
+Work through these in order. After each item: `go test ./...`, then commit to `dev` with a focused message. Do not combine unrelated changes in one commit.
 
-### 1. Configurable dedup window (small, high value)
+---
 
-`internal/runtime/runtime.go` has a hardcoded 5-minute dedup window. Make it a config field.
+**1. Configurable dedup window**
 
-- Add `DedupWindow time.Duration yaml:"dedup_window"` to `Config` (default 5m in `applyDefaults`)
-- Pass it through to wherever dedup is applied in runtime
-- Add to `configs/serpent-wrt.example.yaml` with comment
-- Update `runtime_test.go` to cover non-default window
+The dedup refire window is hardcoded in `internal/runtime/runtime.go`. Add `DedupWindow time.Duration \`yaml:"dedup_window"\`` to `internal/config/config.go` with a default of `5m` in `applyDefaults`. Thread it through to wherever dedup is applied in the runtime. Add it to `configs/serpent-wrt.example.yaml` with a comment. Add a test in `runtime_test.go` that uses a non-default window.
 
-### 2. Missing tests: direction classification
+**2. Direction classification tests**
 
-`runtime.go` `poll()` routes flows to inbound vs outbound detectors. This logic is not directly
-tested — only the sub-functions (`isLAN`, `isSelf`, `isUnroutable`) are tested.
+`poll()` in `internal/runtime/runtime.go` routes flows to inbound vs outbound detectors. This logic is untested. Extract it into a `processFlow(r flow.FlowRecord)` method on `Engine`, then add tests in `runtime_test.go` verifying:
+- Outbound flow (LAN src, WAN dst) does not increment ext_scan or brute_force state
+- Inbound flow (WAN src, LAN dst) does not increment fanout, port_scan, or beacon state
+- Unroutable src is dropped before any detector runs
+- Self src is dropped before any detector runs
 
-Add integration-style tests in `runtime_test.go` using a fake FlowRecord to verify:
-- Outbound flow (LAN src, WAN dst) does NOT trigger ext_scan/brute_force
-- Inbound flow (WAN src, LAN dst) does NOT trigger fanout/port_scan/beacon
-- Unroutable src is dropped (no detector fires)
-- Self src is dropped (no detector fires)
+Test through stats counters or by asserting `Check()` returns nil on the appropriate detector after feeding a flow through `processFlow`.
 
-These require exposing a `processFlow(r flow.FlowRecord)` method on Engine (currently inlined in
-poll), or testing through the stats counter.
+**3. State store benchmark**
 
-### 3. State store benchmark
-
-`internal/state/state.go` is the critical path. Add a benchmark in `state_test.go`:
+Add to `internal/state/state_test.go`:
 
 ```go
-func BenchmarkTrackerAdd(b *testing.B) {
-    t := state.NewTracker(60*time.Second, 1024)
+func BenchmarkTrackerAddParallel(b *testing.B) {
+    t := NewTracker(60*time.Second, 1024)
     b.RunParallel(func(pb *testing.PB) {
         i := 0
         for pb.Next() {
@@ -59,91 +41,37 @@ func BenchmarkTrackerAdd(b *testing.B) {
 }
 ```
 
-Goal: confirm no lock contention under concurrent load representative of a busy router
-(~50 flows/sec, 10 goroutines).
+Run with `go test -bench=. -benchmem ./internal/state/`. Goal: confirm no lock contention or memory growth under concurrent load.
 
-### 4. API: blocked IPs endpoint
+**4. `GET /blocked` API endpoint**
 
-`/detections/recent` exists but there's no way to query what's currently blocked in nftables.
+Add to `internal/api/api.go`. Shell out `nft list set inet <table> <set>`, parse the output, return `{"blocked":["1.2.3.4",...]}`. Use the table/set names from config. Return an empty array (not an error) if enforcement is disabled or the set doesn't exist yet. Follow the same pattern as the existing enforcer subprocess calls.
 
-Add `GET /blocked` to `internal/api/api.go`:
-- Shells out `nft list set inet serpent_wrt blocked_ips` and returns parsed JSON
-- Same pattern as existing enforcer (nft subprocess is already accepted)
-- Keep it simple: `{"blocked": ["1.2.3.4", "5.6.7.8"]}`
+**5. `CONTRIBUTING.md`**
 
-### 5. CONTRIBUTING.md (required for open source)
+Write at repo root. Cover: how to run tests, how to cross-compile for OpenWRT targets, how to add a detector (implement `Check(FlowRecord) *Detection` + `Prune()`, register in runtime, add tests), what the sliding window guarantees and why bounded state matters on constrained hardware, and what not to add (point to `CONSTRAINTS.md`). No fluff.
 
-Write `CONTRIBUTING.md` at repo root covering:
-- How to run tests (`make test`)
-- How to cross-compile for OpenWRT targets (`make cross`)
-- How to test against a real router (point to ARCHITECTURE.md for conntrack context)
-- Detector addition guide: implement `Check(FlowRecord) *Detection` + `Prune()`, register in runtime
-- State: what the sliding window guarantees, why bounded matters on constrained hardware
-- What NOT to add (see CONSTRAINTS.md)
+**6. Scrub hardcoded lab values**
 
-### 6. Scrub hardcoded lab values
+Search non-test, non-demo files for `10.20.0`, `192.168.99`, `192.0.2`, `toghouse`. Replace with generic RFC 1918 addresses or `<YOUR-IP>` placeholders. The example config, any docs, and any inline comments are the likely locations. `testdata/` and `test-wrt-iac/` are exempt.
 
-Before any public release, audit for lab-specific values that would confuse external users:
-- Search for `10.20.0`, `192.168.99`, `192.0.2`, `toghouse`, `ecan0` in non-test files
-- `configs/serpent-wrt.example.yaml` should use generic RFC 1918 addresses
-- Any hardcoded SIEM IPs in docs should use placeholder like `<SIEM-IP>`
-- `testdata/threat-feed.txt` is fine (RFC 5737 test addresses)
+**7. `docs/threat-feeds.md`**
 
-### 7. Threat feed sourcing guide
+Write a short guide: the feed format serpent-wrt expects, free feed sources (Abuse.ch Feodo Tracker, Spamhaus DROP, CINS Score, Emerging Threats compromised IPs), how to download and hot-reload without restart (`curl ... > /etc/serpent-wrt/threat-feed.txt && kill -HUP $(pidof serpent-wrt)`), and size guidance (keep under a few thousand entries on 64MB devices).
 
-Add `docs/threat-feeds.md`:
-- What format serpent-wrt expects (one IP or CIDR per line, # comments)
-- Free feed sources: Abuse.ch Feodo, CINS Score, Spamhaus DROP, Emerging Threats
-- How to download and hot-reload: `curl ... > /etc/serpent-wrt/threat-feed.txt && kill -HUP $(pidof serpent-wrt)`
-- Guidance on size: keep under a few thousand entries on 64MB devices
+**8. `contrib/wazuh/`**
 
-### 8. Wazuh integration as proper contrib/
-
-Move Wazuh decoder and rules from ad-hoc deployment into the repo:
+Move the Wazuh decoder and rules out of ad-hoc deployment and into the repo:
 - `contrib/wazuh/decoder-serpent-wrt.xml`
 - `contrib/wazuh/rules-serpent-wrt.xml`
-- `contrib/wazuh/README.md` — install steps, alert level table, OWASP/ATT&CK mapping
+- `contrib/wazuh/README.md` — install steps, alert level table with OWASP/ATT&CK mapping for all 6 detection types
 
 ---
 
-## What NOT to do this week
-
+**Hard constraints:**
+- No new dependencies
 - No new detectors (Phase 6 scope)
-- No database or persistence
-- No IPv6 (Phase 6)
-- No LuCI plugin (Phase 6)
-- No netlink event streaming (Phase 6)
-- No refactoring that isn't directly needed by the above tasks
-- No adding error handling for impossible cases
-
----
-
-## Continuation Prompt
-
-Use this prompt to pick up the work:
-
----
-
-**serpent-wrt** is a Go threat intelligence daemon for OpenWRT. Repo is at
-`/Users/sintax/Projects/serpent-wrt`, working branch is `dev`. All 6 detectors and tests pass.
-Read CLAUDE.md, ARCHITECTURE.md, and CONSTRAINTS.md before touching anything.
-
-Work through `docs/week-plan.md` in priority order. The most important items are:
-
-1. Make the dedup window configurable (`DedupWindow` in config, default 5m)
-2. Add direction classification tests in `runtime_test.go` (verify inbound flows don't hit outbound
-   detectors and vice versa) — this may require extracting `processFlow` from `poll()`
-3. Add `BenchmarkTrackerAdd` parallel benchmark in `internal/state/state_test.go`
-4. Add `GET /blocked` to the HTTP API — parse `nft list set` output, return JSON
-5. Write `CONTRIBUTING.md`
-6. Scrub hardcoded lab IPs/hostnames from non-test, non-demo files
-7. Write `docs/threat-feeds.md`
-8. Move Wazuh XML files to `contrib/wazuh/` with a README
-
-After each item: run `go test ./...`, commit to `dev` with a focused commit message.
-Do not combine unrelated changes in one commit.
-
-Constraints: no new dependencies, no abstractions for one-off operations, no backwards-compat shims,
-no docstrings on unchanged functions. Stay within what the task actually requires.
-
----
+- No abstractions for one-off operations
+- No docstrings on functions you didn't change
+- No error handling for cases that can't happen
+- No database, no persistence, no packet capture
