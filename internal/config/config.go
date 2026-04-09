@@ -24,6 +24,7 @@ type Config struct {
 	APIBind            string          `yaml:"api_bind"`
 	SyslogTarget       string          `yaml:"syslog_target"` // host:port, e.g. 192.168.99.10:514
 	SyslogProto        string          `yaml:"syslog_proto"`  // "udp" (default) or "tcp"
+	DedupWindow        time.Duration   `yaml:"dedup_window"`  // suppress duplicate (type,src,dst) alerts within this window
 	Detectors          DetectorsConfig `yaml:"detectors"`
 }
 
@@ -112,6 +113,9 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.SyslogTarget != "" && c.SyslogProto == "" {
 		c.SyslogProto = "udp"
+	}
+	if c.DedupWindow <= 0 {
+		c.DedupWindow = 5 * time.Minute
 	}
 	for _, cidr := range c.LANCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {

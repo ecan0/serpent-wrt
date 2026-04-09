@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	recentCap    = 100             // max recent detections kept for the API
-	refireWindow = 5 * time.Minute // suppress duplicate (type,src,dst) detections
-	pruneEvery   = 10              // prune state every N poll cycles
+	recentCap  = 100 // max recent detections kept for the API
+	pruneEvery = 10  // prune state every N poll cycles
 )
 
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
@@ -96,8 +95,9 @@ type Engine struct {
 	rHead    int
 
 	// dedup suppression
-	dedupMu sync.Mutex
-	dedup   map[dedupKey]time.Time
+	dedupMu     sync.Mutex
+	dedup       map[dedupKey]time.Time
+	dedupWindow time.Duration
 
 	startedAt time.Time
 }
@@ -116,9 +116,10 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		beacon:     detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window),
 		extScan:    detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
 		bruteForce: detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
-		detByType:  make(map[string]uint64),
-		dedup:      make(map[dedupKey]time.Time),
-		startedAt:  time.Now(),
+		detByType:   make(map[string]uint64),
+		dedup:       make(map[dedupKey]time.Time),
+		dedupWindow: cfg.DedupWindow,
+		startedAt:   time.Now(),
 	}
 	for _, cidr := range cfg.LANCIDRs {
 		if _, network, err := net.ParseCIDR(cidr); err == nil {
@@ -218,7 +219,7 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 
 	e.dedupMu.Lock()
 	last, ok := e.dedup[key]
-	if ok && now.Sub(last) < refireWindow {
+	if ok && now.Sub(last) < e.dedupWindow {
 		e.dedupMu.Unlock()
 		return
 	}
@@ -278,7 +279,7 @@ func (e *Engine) prune() {
 	now := time.Now()
 	e.dedupMu.Lock()
 	for k, t := range e.dedup {
-		if now.Sub(t) > refireWindow {
+		if now.Sub(t) > e.dedupWindow {
 			delete(e.dedup, k)
 		}
 	}

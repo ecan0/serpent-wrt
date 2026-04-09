@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/detector"
 	"github.com/ecan0/serpent-wrt/internal/events"
 )
 
@@ -182,6 +183,64 @@ func TestRecentDetectionsRingBuffer(t *testing.T) {
 	dets := e.RecentDetections()
 	if len(dets) != 3 {
 		t.Errorf("RecentDetections: got %d, want 3", len(dets))
+	}
+}
+
+// --- ReloadFeed ---
+
+// --- Configurable dedup window ---
+
+func TestDedupWindowFromConfig(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = 30 * time.Second
+	e := NewEngine(cfg, events.NewLogger(nil))
+	if e.dedupWindow != 30*time.Second {
+		t.Errorf("dedupWindow: got %v, want 30s", e.dedupWindow)
+	}
+}
+
+func TestDedupWindowDefault(t *testing.T) {
+	e := testEngine(t)
+	// testConfig leaves DedupWindow zero; NewEngine receives the zero value.
+	// applyDefaults (called at Load time) would set 5m, but testConfig bypasses Load.
+	// Engine should still have whatever the config provides, so verify the field is set.
+	if e.dedupWindow != 0 {
+		t.Errorf("dedupWindow: got %v, want 0 (testConfig bypasses applyDefaults)", e.dedupWindow)
+	}
+}
+
+func TestDedupWindowSuppression(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = 50 * time.Millisecond
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	det := &detector.Detection{
+		Type:    "feed_match",
+		SrcIP:   net.ParseIP("192.168.1.10"),
+		DstIP:   net.ParseIP("8.8.8.8"),
+		Message: "test",
+	}
+
+	// First detection should pass through.
+	e.handleDetection(det)
+	s1 := e.GetStats()
+	if s1.DetectionsByType["feed_match"] != 1 {
+		t.Fatalf("first detection not counted: got %d", s1.DetectionsByType["feed_match"])
+	}
+
+	// Immediate duplicate should be suppressed.
+	e.handleDetection(det)
+	s2 := e.GetStats()
+	if s2.DetectionsByType["feed_match"] != 1 {
+		t.Fatalf("duplicate not suppressed: got %d", s2.DetectionsByType["feed_match"])
+	}
+
+	// After window expires, should fire again.
+	time.Sleep(60 * time.Millisecond)
+	e.handleDetection(det)
+	s3 := e.GetStats()
+	if s3.DetectionsByType["feed_match"] != 2 {
+		t.Fatalf("post-window detection not counted: got %d", s3.DetectionsByType["feed_match"])
 	}
 }
 

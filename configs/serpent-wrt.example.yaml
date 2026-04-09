@@ -20,6 +20,9 @@ nft_set: blocked_ips
 
 log_level: info
 
+# Suppress duplicate alerts for the same (type, src, dst) within this window.
+dedup_window: 5m
+
 api_enabled: true
 api_bind: 127.0.0.1:8080
 
