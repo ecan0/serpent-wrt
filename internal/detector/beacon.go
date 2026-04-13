@@ -16,12 +16,14 @@ import (
 // Only non-ESTABLISHED TCP flows and UDP flows are examined; persistent
 // long-lived connections are excluded to avoid false positives.
 type Beacon struct {
-	mu         sync.Mutex
-	entries    map[string]*beaconEntry
-	window     time.Duration
-	minHits    int
-	tolerance  time.Duration
-	maxEntries int
+	mu           sync.Mutex
+	entries      map[string]*beaconEntry
+	window       time.Duration
+	minHits      int
+	tolerance    time.Duration
+	minInterval  time.Duration
+	excludePorts map[uint16]bool
+	maxEntries   int
 }
 
 type beaconEntry struct {
@@ -29,19 +31,29 @@ type beaconEntry struct {
 	expires time.Time
 }
 
-func NewBeacon(minHits int, tolerance, window time.Duration) *Beacon {
+func NewBeacon(minHits int, tolerance, window, minInterval time.Duration, excludePorts []uint16) *Beacon {
+	ep := make(map[uint16]bool, len(excludePorts))
+	for _, p := range excludePorts {
+		ep[p] = true
+	}
 	return &Beacon{
-		entries:    make(map[string]*beaconEntry),
-		window:     window,
-		minHits:    minHits,
-		tolerance:  tolerance,
-		maxEntries: 512,
+		entries:      make(map[string]*beaconEntry),
+		window:       window,
+		minHits:      minHits,
+		tolerance:    tolerance,
+		minInterval:  minInterval,
+		excludePorts: ep,
+		maxEntries:   512,
 	}
 }
 
 func (d *Beacon) Check(r flow.FlowRecord) *Detection {
 	// Skip persistent connections — beaconing is about repeated initiation.
 	if r.Proto == "tcp" && r.State == "ESTABLISHED" {
+		return nil
+	}
+	// Skip excluded ports (e.g. DNS/53, NTP/123).
+	if d.excludePorts[r.DstPort] {
 		return nil
 	}
 
@@ -68,7 +80,7 @@ func (d *Beacon) Check(r flow.FlowRecord) *Detection {
 	if len(times) < d.minHits {
 		return nil
 	}
-	if !isBeaconing(times, d.tolerance) {
+	if !isBeaconing(times, d.tolerance, d.minInterval) {
 		return nil
 	}
 	return &Detection{
@@ -108,7 +120,7 @@ func (d *Beacon) evictOldestLocked(now time.Time) {
 
 // isBeaconing returns true when the timestamp sequence shows a regular
 // inter-arrival interval with standard deviation within tolerance.
-func isBeaconing(times []time.Time, tolerance time.Duration) bool {
+func isBeaconing(times []time.Time, tolerance, minInterval time.Duration) bool {
 	if len(times) < 2 {
 		return false
 	}
@@ -124,6 +136,11 @@ func isBeaconing(times []time.Time, tolerance time.Duration) bool {
 		sum += iv
 	}
 	mean := sum / float64(len(intervals))
+
+	// Reject burst traffic — real beaconing has intervals of seconds/minutes.
+	if time.Duration(mean) < minInterval {
+		return false
+	}
 
 	var variance float64
 	for _, iv := range intervals {
