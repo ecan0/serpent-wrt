@@ -51,9 +51,11 @@ type ScanConfig struct {
 
 // BeaconConfig controls the beaconing detector.
 type BeaconConfig struct {
-	MinHits   int           `yaml:"min_hits"`
-	Tolerance time.Duration `yaml:"tolerance"`
-	Window    time.Duration `yaml:"window"`
+	MinHits      int           `yaml:"min_hits"`
+	Tolerance    time.Duration `yaml:"tolerance"`
+	Window       time.Duration `yaml:"window"`
+	MinInterval  time.Duration `yaml:"min_interval"`
+	ExcludePorts []uint16      `yaml:"exclude_ports"`
 }
 
 // ExtScanConfig controls the inbound external port scan detector.
@@ -142,6 +144,9 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Detectors.Beacon.Window <= 0 {
 		c.Detectors.Beacon.Window = 5 * time.Minute
+	}
+	if c.Detectors.Beacon.MinInterval <= 0 {
+		c.Detectors.Beacon.MinInterval = 5 * time.Second
 	}
 	if c.Detectors.ExtScan.DistinctPortThreshold <= 0 {
 		c.Detectors.ExtScan.DistinctPortThreshold = 20

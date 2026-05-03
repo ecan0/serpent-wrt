@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	recentCap  = 100 // max recent detections kept for the API
-	pruneEvery = 10  // prune state every N poll cycles
+	recentCap  = 100  // max recent detections kept for the API
+	pruneEvery = 10   // prune state every N poll cycles
+	maxDedup   = 4096 // max dedup entries before accepting duplicates
 )
 
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
@@ -114,7 +115,7 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		feedMatch:   detector.NewFeedMatch(f),
 		fanout:      detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
 		portScan:    detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
-		beacon:      detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window),
+		beacon:      detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window, cfg.Detectors.Beacon.MinInterval, cfg.Detectors.Beacon.ExcludePorts),
 		extScan:     detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
 		bruteForce:  detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
 		detByType:   make(map[string]uint64),
@@ -229,7 +230,9 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 		e.dedupMu.Unlock()
 		return
 	}
-	e.dedup[key] = now
+	if len(e.dedup) < maxDedup {
+		e.dedup[key] = now
+	}
 	e.dedupMu.Unlock()
 
 	ev := events.Event{

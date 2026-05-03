@@ -152,7 +152,7 @@ func TestPortScanPruneNoPanic(t *testing.T) {
 }
 
 func TestBeaconPruneNoPanic(t *testing.T) {
-	d := detector.NewBeacon(5, 2*time.Second, 5*time.Minute)
+	d := detector.NewBeacon(5, 2*time.Second, 5*time.Minute, 1*time.Second, nil)
 	d.Check(makeFlow("192.168.1.1", "1.2.3.4", 443, "SYN_SENT"))
 	d.Prune() // must not panic
 }
@@ -160,7 +160,7 @@ func TestBeaconPruneNoPanic(t *testing.T) {
 // --- Beacon edge cases ---
 
 func TestBeaconSkipsEstablished(t *testing.T) {
-	d := detector.NewBeacon(2, 2*time.Second, time.Minute)
+	d := detector.NewBeacon(2, 2*time.Second, time.Minute, 1*time.Second, nil)
 	// ESTABLISHED TCP flows should be skipped — they represent persistent connections,
 	// not repeated beacon initiations.
 	for i := 0; i < 10; i++ {
