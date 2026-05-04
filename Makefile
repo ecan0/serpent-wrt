@@ -89,14 +89,16 @@ deploy-setup:
 	$(SCP) configs/serpent-wrt.openwrt.yaml $(DEPLOY_HOST):$(DEPLOY_CONF)/serpent-wrt.yaml
 	$(SCP) testdata/threat-feed.txt $(DEPLOY_HOST):$(DEPLOY_CONF)/threat-feed.txt
 	$(SSH) $(DEPLOY_HOST) "/etc/init.d/serpent-wrt enable"
-	@echo "Setup complete on $(DEPLOY_HOST). Run 'make deploy-x86-64' to push the binary and run smoke checks."
+	@echo "Setup complete on $(DEPLOY_HOST). Run 'make deploy-x86' to push the binary and run smoke checks."
 
-openwrt-runtime-test: build-openwrt-x86-64
-	OPENWRT_HOST=$(DEPLOY_HOST) OPENWRT_BINARY=bin/$(BINARY)-openwrt-x86-64 sh scripts/openwrt-runtime-test.sh
+# The current lab VM is named openwrt-x86-64, but it runs OpenWrt x86/generic
+# (i386_pentium4). Keep the runtime deploy on the 32-bit x86 build.
+openwrt-runtime-test: build-openwrt-x86
+	OPENWRT_HOST=$(DEPLOY_HOST) OPENWRT_BINARY=bin/$(BINARY)-openwrt-x86 sh scripts/openwrt-runtime-test.sh
 
-deploy-x86-64: openwrt-runtime-test
+deploy-x86: openwrt-runtime-test
 
-deploy-x86: deploy-x86-64
+deploy-x86-64: deploy-x86
 
 # Legacy direct .ipk assembly for GL.iNet MT7986AV (aarch64_cortex-a53).
 # Prefer the feed package in openwrt/ for reproducible SDK/buildroot builds.

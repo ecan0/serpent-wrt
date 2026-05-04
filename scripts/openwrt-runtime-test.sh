@@ -2,7 +2,7 @@
 
 set -eu
 
-BINARY=${OPENWRT_BINARY:-bin/serpent-wrt-openwrt-x86-64}
+BINARY=${OPENWRT_BINARY:-bin/serpent-wrt-openwrt-x86}
 INIT=${OPENWRT_INIT:-openwrt/serpent-wrt/files/serpent-wrt.init}
 CONFIG=${OPENWRT_CONFIG:-openwrt/serpent-wrt/files/serpent-wrt.yaml}
 FEED=${OPENWRT_FEED:-openwrt/serpent-wrt/files/threat-feed.txt}
@@ -47,7 +47,7 @@ $SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$FEED" "$TARGET:$REMOTE_TMP/threat-feed.txt"
 $SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$TEST" "$TARGET:$REMOTE_TMP/test.sh"
 
 $SSH $KEY_OPT $SSH_OPTS "$TARGET" "
-	set -eu
+	set -eux
 	mv '$REMOTE_TMP/serpent-wrt' /usr/sbin/serpent-wrt
 	mv '$REMOTE_TMP/serpent-wrt.init' /etc/init.d/serpent-wrt
 	mv '$REMOTE_TMP/serpent-wrt.yaml' /etc/serpent-wrt/serpent-wrt.yaml

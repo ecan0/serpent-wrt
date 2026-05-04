@@ -81,7 +81,7 @@ jobs:
         run: govulncheck ./...
 
   deploy-test:
-    name: Runtime test (openwrt-x86-64)
+    name: Runtime test (openwrt-x86-generic)
     runs-on: self-hosted
     needs: [build, test, lint, scan]
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
@@ -119,14 +119,14 @@ jobs:
         if: env.DEPLOY_ENABLED == 'true'
         run: ping -c 2 "${OPENWRT_HOST#*@}"
 
-      - name: Build OpenWrt x86-64 binary
+      - name: Build OpenWrt x86 generic binary
         if: env.DEPLOY_ENABLED == 'true'
-        run: make build-openwrt-x86-64
+        run: make build-openwrt-x86
 
       - name: Install and verify on OpenWrt
         if: env.DEPLOY_ENABLED == 'true'
         env:
-          OPENWRT_BINARY: bin/serpent-wrt-openwrt-x86-64
+          OPENWRT_BINARY: bin/serpent-wrt-openwrt-x86
         run: SSH_KEY_PATH="$HOME/.ssh/deploy_key" sh scripts/openwrt-runtime-test.sh
 
       - name: Clean up SSH key
