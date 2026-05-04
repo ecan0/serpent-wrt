@@ -19,7 +19,10 @@ jobs:
           cache: false
 
       - name: Build (native)
-        run: go build ./cmd/serpent-wrt
+        run: make build
+
+      - name: Check version output
+        run: bin/serpent-wrt -version
 
       - name: Build (linux/386 — openwrt-x86 target)
         run: GOOS=linux GOARCH=386 go build -o /dev/null ./cmd/serpent-wrt

@@ -16,9 +16,21 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/runtime"
 )
 
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
+
 func main() {
 	cfgPath := flag.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
+		return
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {

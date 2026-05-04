@@ -19,6 +19,10 @@ PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/ecan0/serpent-wrt
 GO_PKG_BUILD_PKG:=github.com/ecan0/serpent-wrt/cmd/serpent-wrt
+GO_PKG_LDFLAGS_X:= \
+	main.version=$(PKG_SOURCE_DATE)-$(PKG_SOURCE_VERSION) \
+	main.commit=$(PKG_SOURCE_VERSION) \
+	main.buildDate=$(PKG_SOURCE_DATE)
 GO_PKG_INSTALL_BIN_PATH:=/usr/sbin
 
 include $(INCLUDE_DIR)/package.mk

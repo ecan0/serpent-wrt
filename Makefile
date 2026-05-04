@@ -1,6 +1,8 @@
 BINARY  := serpent-wrt
 VERSION ?= 0.1.0-dev
-LDFLAGS := -trimpath -ldflags="-s -w"
+COMMIT  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+LDFLAGS := -trimpath -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
 DEPLOY_HOST ?= root@openwrt-x86
 DEPLOY_BIN  := /usr/sbin/serpent-wrt
@@ -14,10 +16,12 @@ deps:
 	go mod download
 
 build: deps
+	mkdir -p bin
 	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/serpent-wrt
 
 # Cross-compile for common OpenWrt targets.
 cross: deps
+	mkdir -p bin
 	GOOS=linux GOARCH=mipsle                  go build $(LDFLAGS) -o bin/$(BINARY)-linux-mipsle   ./cmd/serpent-wrt
 	GOOS=linux GOARCH=mips                    go build $(LDFLAGS) -o bin/$(BINARY)-linux-mips     ./cmd/serpent-wrt
 	GOOS=linux GOARCH=arm   GOARM=7           go build $(LDFLAGS) -o bin/$(BINARY)-linux-armv7    ./cmd/serpent-wrt
@@ -56,6 +60,7 @@ deploy-setup:
 # Build for x86 32-bit (i386) and deploy to test VM.
 # openwrt-x86 runs x86/generic (i386_pentium4), not x86/64.
 deploy-x86:
+	mkdir -p bin
 	GOOS=linux GOARCH=386 go build $(LDFLAGS) -o bin/$(BINARY)-linux-386 ./cmd/serpent-wrt
 	$(SCP) bin/$(BINARY)-linux-386 $(DEPLOY_HOST):/tmp/$(BINARY)
 	$(SSH) $(DEPLOY_HOST) "mv /tmp/$(BINARY) $(DEPLOY_BIN) && /etc/init.d/serpent-wrt restart"
