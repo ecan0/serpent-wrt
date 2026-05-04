@@ -8,7 +8,7 @@ DEPLOY_CONF := /etc/serpent-wrt
 SSH         := ssh
 SCP         := scp -O
 
-.PHONY: build cross run test fmt lint clean deps ipk-glinet deploy-setup deploy-x86
+.PHONY: build cross run test fmt lint clean deps openwrt-docs ipk-glinet deploy-setup deploy-x86
 
 deps:
 	go mod download
@@ -16,7 +16,7 @@ deps:
 build: deps
 	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/serpent-wrt
 
-# Cross-compile for common OpenWRT targets.
+# Cross-compile for common OpenWrt targets.
 cross: deps
 	GOOS=linux GOARCH=mipsle                  go build $(LDFLAGS) -o bin/$(BINARY)-linux-mipsle   ./cmd/serpent-wrt
 	GOOS=linux GOARCH=mips                    go build $(LDFLAGS) -o bin/$(BINARY)-linux-mips     ./cmd/serpent-wrt
@@ -39,6 +39,9 @@ lint:
 clean:
 	rm -rf bin/
 
+openwrt-docs:
+	powershell -ExecutionPolicy Bypass -File scripts/fetch-openwrt-dev-guide.ps1
+
 # First-time VM setup: copies init script, config, and threat feed.
 # Override target with: make deploy-setup DEPLOY_HOST=root@<ip>
 deploy-setup:
@@ -57,7 +60,8 @@ deploy-x86:
 	$(SCP) bin/$(BINARY)-linux-386 $(DEPLOY_HOST):/tmp/$(BINARY)
 	$(SSH) $(DEPLOY_HOST) "mv /tmp/$(BINARY) $(DEPLOY_BIN) && /etc/init.d/serpent-wrt restart"
 
-# Build an OpenWRT .ipk for GL.iNet MT7986AV (aarch64_cortex-a53).
+# Legacy direct .ipk assembly for GL.iNet MT7986AV (aarch64_cortex-a53).
+# Prefer the feed package in openwrt/ for reproducible SDK/buildroot builds.
 # Requires GNU ar. On macOS: brew install binutils
 # then export PATH="/opt/homebrew/opt/binutils/bin:$PATH"
 ipk-glinet:

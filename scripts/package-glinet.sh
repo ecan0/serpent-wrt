@@ -1,8 +1,11 @@
 #!/bin/sh
-# package-glinet.sh — build an OpenWRT .ipk for GL.iNet MT7986AV routers
+# package-glinet.sh - build a legacy OpenWrt .ipk for GL.iNet MT7986AV routers
 #
 # Target: MediaTek Filogic 830 (MT7986AV), ARM Cortex-A53, aarch64
-# OpenWRT architecture string: aarch64_cortex-a53
+# OpenWrt architecture string: aarch64_cortex-a53
+#
+# Prefer the feed package under openwrt/serpent-wrt for reproducible SDK or
+# buildroot builds. This script remains as a fast local packaging helper.
 #
 # Requirements:
 #   - Go toolchain on the build host
@@ -49,7 +52,7 @@ Architecture: ${ARCH}
 Maintainer: ecan0
 Depends:
 Section: net
-Description: Lightweight threat intelligence and enforcement daemon for OpenWRT.
+Description: Lightweight threat intelligence and enforcement daemon for OpenWrt.
  Collects conntrack metadata, runs behavioral detectors, and blocks suspicious
  IPs via nftables. No packet capture. No database. Single binary.
 EOF
