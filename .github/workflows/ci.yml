@@ -24,16 +24,8 @@ jobs:
       - name: Check version output
         run: bin/serpent-wrt -version
 
-      - name: Build (openwrt-x86-64 runtime target)
-        run: make build-openwrt-x86-64
-
-      # Uncomment when targeting additional OpenWRT architectures
-      # - name: Build (linux/mips)
-      #   run: GOOS=linux GOARCH=mips go build -o /dev/null ./cmd/serpent-wrt
-      # - name: Build (linux/mipsle)
-      #   run: GOOS=linux GOARCH=mipsle go build -o /dev/null ./cmd/serpent-wrt
-      # - name: Build (linux/arm v7)
-      #   run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/serpent-wrt
+      - name: Build OpenWrt router targets
+        run: make build-openwrt-targets
 
   test:
     name: Test

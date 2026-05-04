@@ -10,7 +10,11 @@ DEPLOY_CONF := /etc/serpent-wrt
 SSH         := ssh
 SCP         := scp -O
 
-.PHONY: build cross build-openwrt-x86-64 run test fmt lint clean deps openwrt-docs ipk-glinet deploy-setup deploy-x86-64 deploy-x86 openwrt-runtime-test
+.PHONY: build cross build-openwrt-targets build-openwrt-mips build-openwrt-mipsle
+.PHONY: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
+.PHONY: build-openwrt-riscv64 build-openwrt-x86 build-openwrt-x86-64
+.PHONY: run test fmt lint clean deps openwrt-docs ipk-glinet deploy-setup
+.PHONY: deploy-x86-64 deploy-x86 openwrt-runtime-test
 
 deps:
 	go mod download
@@ -20,13 +24,39 @@ build: deps
 	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/serpent-wrt
 
 # Cross-compile for common OpenWrt targets.
-cross: deps
+cross: build-openwrt-targets
+
+build-openwrt-targets: build-openwrt-mips build-openwrt-mipsle
+build-openwrt-targets: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
+build-openwrt-targets: build-openwrt-riscv64 build-openwrt-x86 build-openwrt-x86-64
+
+build-openwrt-mips: deps
 	mkdir -p bin
-	GOOS=linux GOARCH=mipsle                  go build $(LDFLAGS) -o bin/$(BINARY)-linux-mipsle   ./cmd/serpent-wrt
-	GOOS=linux GOARCH=mips                    go build $(LDFLAGS) -o bin/$(BINARY)-linux-mips     ./cmd/serpent-wrt
-	GOOS=linux GOARCH=arm   GOARM=7           go build $(LDFLAGS) -o bin/$(BINARY)-linux-armv7    ./cmd/serpent-wrt
-	GOOS=linux GOARCH=arm64                   go build $(LDFLAGS) -o bin/$(BINARY)-linux-arm64    ./cmd/serpent-wrt
-	GOOS=linux GOARCH=amd64                   go build $(LDFLAGS) -o bin/$(BINARY)-linux-amd64    ./cmd/serpent-wrt
+	GOOS=linux GOARCH=mips GOMIPS=softfloat go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-mips ./cmd/serpent-wrt
+
+build-openwrt-mipsle: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-mipsle ./cmd/serpent-wrt
+
+build-openwrt-armv5: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=arm GOARM=5 go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-armv5 ./cmd/serpent-wrt
+
+build-openwrt-armv7: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=arm GOARM=7 go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-armv7 ./cmd/serpent-wrt
+
+build-openwrt-arm64: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-arm64 ./cmd/serpent-wrt
+
+build-openwrt-riscv64: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=riscv64 go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-riscv64 ./cmd/serpent-wrt
+
+build-openwrt-x86: deps
+	mkdir -p bin
+	GOOS=linux GOARCH=386 go build $(LDFLAGS) -o bin/$(BINARY)-openwrt-x86 ./cmd/serpent-wrt
 
 build-openwrt-x86-64: deps
 	mkdir -p bin
