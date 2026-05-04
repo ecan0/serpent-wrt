@@ -24,8 +24,8 @@ jobs:
       - name: Check version output
         run: bin/serpent-wrt -version
 
-      - name: Build (linux/386 — openwrt-x86 target)
-        run: GOOS=linux GOARCH=386 go build -o /dev/null ./cmd/serpent-wrt
+      - name: Build (openwrt-x86-64 runtime target)
+        run: make build-openwrt-x86-64
 
       # Uncomment when targeting additional OpenWRT architectures
       # - name: Build (linux/mips)
@@ -89,12 +89,13 @@ jobs:
         run: govulncheck ./...
 
   deploy-test:
-    name: Deploy (openwrt-x86)
+    name: Runtime test (openwrt-x86-64)
     runs-on: self-hosted
     needs: [build, test, lint, scan]
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
       OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
+      OPENWRT_USER: root
     steps:
       - name: Check deploy target configured
         run: |
@@ -124,26 +125,17 @@ jobs:
 
       - name: Check connectivity
         if: env.DEPLOY_ENABLED == 'true'
-        run: ping -c 2 "$OPENWRT_HOST"
+        run: ping -c 2 "${OPENWRT_HOST#*@}"
 
-      - name: Build (linux/386)
+      - name: Build OpenWrt x86-64 binary
         if: env.DEPLOY_ENABLED == 'true'
-        run: GOOS=linux GOARCH=386 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-386 ./cmd/serpent-wrt
+        run: make build-openwrt-x86-64
 
-      - name: Deploy to openwrt-x86
+      - name: Install and verify on OpenWrt
         if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          scp -O -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            bin/serpent-wrt-linux-386 "root@$OPENWRT_HOST:/tmp/serpent-wrt"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
-            "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
-
-      - name: Verify serpent-wrt started
-        if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          sleep 4
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
-            "/etc/init.d/serpent-wrt status && logread | grep serpent-wrt | tail -5"
+        env:
+          OPENWRT_BINARY: bin/serpent-wrt-openwrt-x86-64
+        run: SSH_KEY_PATH="$HOME/.ssh/deploy_key" sh scripts/openwrt-runtime-test.sh
 
       - name: Clean up SSH key
         if: always() && env.DEPLOY_ENABLED == 'true'

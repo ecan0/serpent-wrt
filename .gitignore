@@ -11,6 +11,8 @@
 
 
 # Go
+.gocache/
+.gomodcache/
 *.test
 *.out
 coverage.out
