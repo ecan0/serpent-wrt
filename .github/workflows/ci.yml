@@ -60,8 +60,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          install-mode: goinstall
+          version: v2.11
 
   scan:
     name: Scan

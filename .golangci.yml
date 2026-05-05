@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - errcheck
@@ -7,15 +9,15 @@ linters:
     - staticcheck
     - unused
 
-linters-settings:
-  errcheck:
-    # Ignore errors on Close() and common write helpers — intentional in this codebase.
-    exclude-functions:
-      - (io.Closer).Close
-      - (*encoding/json.Encoder).Encode
+  settings:
+    errcheck:
+      # Ignore errors on Close() and common write helpers — intentional in this codebase.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*encoding/json.Encoder).Encode
 
-issues:
-  exclude-rules:
-    # Ignore errcheck on syslog remote calls — failures are non-fatal by design.
-    - path: internal/events/events.go
-      linters: [errcheck]
+  exclusions:
+    rules:
+      # Ignore errcheck on syslog remote calls — failures are non-fatal by design.
+      - path: internal/events/events.go
+        linters: [errcheck]
