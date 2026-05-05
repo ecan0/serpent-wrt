@@ -2,6 +2,8 @@ package feed_test
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ecan0/serpent-wrt/internal/feed"
@@ -55,6 +57,79 @@ func TestFeedReload(t *testing.T) {
 	}
 }
 
+func TestFeedLoadIgnoresCommentsBlankAndMalformedEntries(t *testing.T) {
+	path := writeFeed(t, `
+# comment
+
+1.2.3.4
+not-an-ip
+300.300.300.300
+5.6.7.0/24
+bad/cidr
+::1
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 2 {
+		t.Fatalf("len: got %d, want 2", f.Len())
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("expected exact IPv4 entry to match")
+	}
+	if !f.Contains(net.ParseIP("5.6.7.100")) {
+		t.Error("expected IPv4 CIDR entry to match")
+	}
+	if f.Contains(net.ParseIP("9.9.9.9")) {
+		t.Error("unexpected match for absent IPv4")
+	}
+	if f.Contains(net.ParseIP("::1")) {
+		t.Error("IPv6 entries should be ignored")
+	}
+}
+
+func TestFeedLoadDeduplicatesExactIPs(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+1.2.3.4
+5.6.7.0/24
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 2 {
+		t.Fatalf("len: got %d, want 2", f.Len())
+	}
+}
+
+func TestFeedFailedReloadKeepsPreviousEntries(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+5.6.7.0/24
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	before := f.Len()
+
+	missingPath := filepath.Join(t.TempDir(), "missing-feed.txt")
+	if err := f.Load(missingPath); err == nil {
+		t.Fatal("expected missing feed reload to fail")
+	}
+	if f.Len() != before {
+		t.Fatalf("len after failed reload: got %d, want %d", f.Len(), before)
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("previous exact IP entry should survive failed reload")
+	}
+	if !f.Contains(net.ParseIP("5.6.7.100")) {
+		t.Error("previous CIDR entry should survive failed reload")
+	}
+}
+
 func TestFeedIPv4Only(t *testing.T) {
 	f := feed.New()
 	if err := f.Load("../../testdata/threat-feed.txt"); err != nil {
@@ -64,4 +139,13 @@ func TestFeedIPv4Only(t *testing.T) {
 	if f.Contains(net.ParseIP("::1")) {
 		t.Error("IPv6 loopback should not match feed")
 	}
+}
+
+func writeFeed(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "feed.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

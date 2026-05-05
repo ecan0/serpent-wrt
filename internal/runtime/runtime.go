@@ -58,11 +58,14 @@ type Stats struct {
 	StartedAt        time.Time         `json:"started_at"`
 }
 
-// dedupKey identifies a unique (detector, src, dst) combination for suppression.
+// dedupKey identifies a detector signal for suppression. Detectors that set a
+// destination port dedup per service; detectors that leave it zero, such as
+// fanout, continue to collapse at detector/src/dst precision.
 type dedupKey struct {
 	detType string
 	srcIP   string
 	dstIP   string
+	dstPort uint16
 }
 
 // Engine is the core detection and enforcement pipeline.
@@ -225,7 +228,12 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 
 func (e *Engine) handleDetection(det *detector.Detection) {
 	det.Normalize()
-	key := dedupKey{det.Type, ipStr(det.SrcIP), ipStr(det.DstIP)}
+	key := dedupKey{
+		detType: det.Type,
+		srcIP:   ipStr(det.SrcIP),
+		dstIP:   ipStr(det.DstIP),
+		dstPort: det.DstPort,
+	}
 	now := time.Now()
 
 	e.dedupMu.Lock()
@@ -339,12 +347,13 @@ func (e *Engine) GetStats() Stats {
 	}
 }
 
-// RecentDetections returns up to recentCap detections from the ring buffer.
+// RecentDetections returns up to recentCap detections in chronological order.
 func (e *Engine) RecentDetections() []DetectionRecord {
 	e.recentMu.Lock()
 	defer e.recentMu.Unlock()
-	var out []DetectionRecord
-	for _, r := range e.recent {
+	out := make([]DetectionRecord, 0, recentCap)
+	for i := 0; i < recentCap; i++ {
+		r := e.recent[(e.rHead+i)%recentCap]
 		if !r.Time.IsZero() {
 			out = append(out, r)
 		}

@@ -12,12 +12,23 @@ import (
 
 // Server is a lightweight HTTP server bound to localhost.
 type Server struct {
-	eng *runtime.Engine
+	eng engine
 	srv *http.Server
+}
+
+type engine interface {
+	GetStats() runtime.Stats
+	ReloadFeed() error
+	RecentDetections() []runtime.DetectionRecord
+	GetBlocked() ([]string, error)
 }
 
 // New creates a Server bound to addr backed by the given Engine.
 func New(addr string, eng *runtime.Engine) *Server {
+	return newServer(addr, eng)
+}
+
+func newServer(addr string, eng engine) *Server {
 	s := &Server{eng: eng}
 
 	mux := http.NewServeMux()
