@@ -68,7 +68,7 @@ func parseFile(path string) (map[string]struct{}, []*net.IPNet, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open feed %q: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	ips := make(map[string]struct{})
 	var cidrs []*net.IPNet

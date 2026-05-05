@@ -21,7 +21,7 @@ const procPath = "/proc/net/nf_conntrack"
 func Collect() ([]flow.FlowRecord, error) {
 	f, err := os.Open(procPath)
 	if err == nil {
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		return parse(bufio.NewScanner(f))
 	}
 	return collectCmd()
