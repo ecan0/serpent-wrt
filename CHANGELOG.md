@@ -14,6 +14,7 @@ changes are grouped under `Unreleased`.
 - Build metadata through `serpent-wrt -version`.
 - Cross-build checks for representative OpenWrt router architectures.
 - Runtime smoke test against the current OpenWrt x86/generic lab VM.
+- Detection events now include severity, confidence, and stable reason metadata.
 
 ### Changed
 

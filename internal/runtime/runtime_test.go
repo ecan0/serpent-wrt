@@ -361,6 +361,38 @@ func TestDedupWindowSuppression(t *testing.T) {
 	}
 }
 
+func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.10"),
+		DstIP:      net.ParseIP("1.2.3.4"),
+		DstPort:    443,
+		Message:    "test",
+	})
+
+	recent := e.RecentDetections()
+	if len(recent) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(recent))
+	}
+	rec := recent[0]
+	if rec.Severity != "high" {
+		t.Fatalf("severity: got %q, want high", rec.Severity)
+	}
+	if rec.Confidence != 95 {
+		t.Fatalf("confidence: got %d, want 95", rec.Confidence)
+	}
+	if rec.Reason != "threat_feed_destination" {
+		t.Fatalf("reason: got %q, want threat_feed_destination", rec.Reason)
+	}
+}
+
 // --- ReloadFeed ---
 
 func TestReloadFeedMissingFile(t *testing.T) {

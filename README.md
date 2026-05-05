@@ -72,6 +72,7 @@ The Linux kernel already maintains a compact per-flow state table in `nf_conntra
 - Direction-aware routing: LAN→WAN detectors (fanout, port scan, beacon, feed match) run independently from WAN→LAN detectors (ext_scan, brute_force)
 - Broadcast, loopback, link-local, and router-self traffic automatically filtered before any detector sees it
 - Dedup suppression collapses repeated alerts from the same source within a configurable window
+- Detection events include stable severity, confidence, and reason metadata for SIEM rules
 - nftables enforcement via named sets with kernel-managed timeouts
 - Structured NDJSON logging to stdout
 - Optional remote syslog forwarding (UDP/TCP) for SIEM integration — auto-reconnects on failure
@@ -254,7 +255,7 @@ Available when `api_enabled: true`. Bound to localhost only.
 NDJSON to stdout, one event per line:
 
 ```json
-{"time":"2025-01-01T00:00:00Z","level":"warn","type":"detection","detector":"feed_match","src_ip":"192.168.1.5","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
+{"time":"2025-01-01T00:00:00Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
 {"time":"2025-01-01T00:00:00Z","level":"warn","type":"enforcement","src_ip":"192.168.1.5","message":"blocked 192.168.1.5 triggered by feed_match"}
 ```
 

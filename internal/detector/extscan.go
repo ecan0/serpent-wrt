@@ -32,12 +32,15 @@ func (d *ExtScan) Check(r flow.FlowRecord) *Detection {
 		return nil
 	}
 	return &Detection{
-		Type:    "ext_scan",
-		SrcIP:   r.SrcIP,
-		DstIP:   r.DstIP,
-		DstPort: r.DstPort,
-		Message: fmt.Sprintf("%s scanned %d distinct ports on internal host %s", r.SrcIP, count, r.DstIP),
-		At:      time.Now(),
+		Type:       "ext_scan",
+		Severity:   SeverityMedium,
+		Confidence: thresholdConfidence(count, d.threshold),
+		Reason:     ReasonInboundDistinctPorts,
+		SrcIP:      r.SrcIP,
+		DstIP:      r.DstIP,
+		DstPort:    r.DstPort,
+		Message:    fmt.Sprintf("%s scanned %d distinct ports on internal host %s", r.SrcIP, count, r.DstIP),
+		At:         time.Now(),
 	}
 }
 

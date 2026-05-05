@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 )
@@ -69,4 +70,36 @@ func TestLogAllLevels(t *testing.T) {
 	log.Log(Event{Level: LevelInfo, Type: TypeSystem, Message: "info"})
 	log.Log(Event{Level: LevelWarn, Type: TypeDetection, Message: "warn"})
 	log.Log(Event{Level: LevelError, Type: TypeSystem, Message: "error"})
+}
+
+func TestDetectionEventMetadataJSON(t *testing.T) {
+	e := Event{
+		Level:      LevelWarn,
+		Type:       TypeDetection,
+		Detector:   "feed_match",
+		Severity:   "high",
+		Confidence: 95,
+		Reason:     "threat_feed_destination",
+		SrcIP:      "192.168.1.10",
+		DstIP:      "1.2.3.4",
+		DstPort:    443,
+		Message:    "hit",
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["severity"] != "high" {
+		t.Fatalf("severity: got %v, want high", got["severity"])
+	}
+	if got["confidence"] != float64(95) {
+		t.Fatalf("confidence: got %v, want 95", got["confidence"])
+	}
+	if got["reason"] != "threat_feed_destination" {
+		t.Fatalf("reason: got %v, want threat_feed_destination", got["reason"])
+	}
 }

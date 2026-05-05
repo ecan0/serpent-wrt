@@ -21,6 +21,19 @@ func makeFlow(src, dst string, dstPort uint16, state string) flow.FlowRecord {
 	}
 }
 
+func assertDetectionMeta(t *testing.T, det *detector.Detection, severity detector.Severity, reason detector.Reason) {
+	t.Helper()
+	if det.Severity != severity {
+		t.Fatalf("severity: got %q, want %q", det.Severity, severity)
+	}
+	if det.Reason != reason {
+		t.Fatalf("reason: got %q, want %q", det.Reason, reason)
+	}
+	if det.Confidence == 0 || det.Confidence > 100 {
+		t.Fatalf("confidence: got %d, want 1..100", det.Confidence)
+	}
+}
+
 // --- FeedMatch ---
 
 func TestFeedMatchHit(t *testing.T) {
@@ -37,6 +50,7 @@ func TestFeedMatchHit(t *testing.T) {
 	if det.Type != "feed_match" {
 		t.Errorf("type: got %q, want feed_match", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityHigh, detector.ReasonThreatFeedDestination)
 }
 
 func TestFeedMatchCIDR(t *testing.T) {
@@ -85,6 +99,10 @@ func TestFanoutThreshold(t *testing.T) {
 	if det.Type != "fanout" {
 		t.Errorf("type: got %q, want fanout", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityMedium, detector.ReasonOutboundDistinctDestinations)
+	if det.Confidence != 70 {
+		t.Errorf("confidence at threshold: got %d, want 70", det.Confidence)
+	}
 	// DstIP must be nil so dedup collapses repeated alerts to one per src.
 	if det.DstIP != nil {
 		t.Errorf("fanout DstIP should be nil for dedup collapse, got %v", det.DstIP)
@@ -119,6 +137,7 @@ func TestPortScanThreshold(t *testing.T) {
 	if det.Type != "port_scan" {
 		t.Errorf("type: got %q, want port_scan", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityMedium, detector.ReasonOutboundDistinctPorts)
 }
 
 func TestPortScanDuplicatePort(t *testing.T) {
@@ -203,6 +222,7 @@ func TestFeedMatchInboundSrc(t *testing.T) {
 	if det.Type != "feed_match" {
 		t.Errorf("type: got %q, want feed_match", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityHigh, detector.ReasonThreatFeedSource)
 }
 
 // --- PortScan per-dst ---
@@ -244,6 +264,7 @@ func TestExtScanThreshold(t *testing.T) {
 	if det.Type != "ext_scan" {
 		t.Errorf("type: got %q, want ext_scan", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityMedium, detector.ReasonInboundDistinctPorts)
 }
 
 func TestExtScanDifferentTargets(t *testing.T) {
@@ -280,6 +301,7 @@ func TestBruteForceThreshold(t *testing.T) {
 	if det.Type != "brute_force" {
 		t.Errorf("type: got %q, want brute_force", det.Type)
 	}
+	assertDetectionMeta(t, det, detector.SeverityHigh, detector.ReasonInboundServiceSpray)
 	// DstIP must be nil so dedup collapses spray alerts to one per (src, port).
 	if det.DstIP != nil {
 		t.Errorf("brute_force DstIP should be nil for dedup collapse, got %v", det.DstIP)

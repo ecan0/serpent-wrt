@@ -39,12 +39,15 @@ func isUnroutable(ip net.IP) bool {
 
 // DetectionRecord is a summarized detection for the API response.
 type DetectionRecord struct {
-	Time     time.Time `json:"time"`
-	Detector string    `json:"detector"`
-	SrcIP    string    `json:"src_ip"`
-	DstIP    string    `json:"dst_ip,omitempty"`
-	DstPort  uint16    `json:"dst_port,omitempty"`
-	Message  string    `json:"message"`
+	Time       time.Time `json:"time"`
+	Detector   string    `json:"detector"`
+	Severity   string    `json:"severity"`
+	Confidence uint8     `json:"confidence"`
+	Reason     string    `json:"reason"`
+	SrcIP      string    `json:"src_ip"`
+	DstIP      string    `json:"dst_ip,omitempty"`
+	DstPort    uint16    `json:"dst_port,omitempty"`
+	Message    string    `json:"message"`
 }
 
 // Stats holds runtime counters exposed via the API.
@@ -221,6 +224,7 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 }
 
 func (e *Engine) handleDetection(det *detector.Detection) {
+	det.Normalize()
 	key := dedupKey{det.Type, ipStr(det.SrcIP), ipStr(det.DstIP)}
 	now := time.Now()
 
@@ -236,14 +240,17 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.dedupMu.Unlock()
 
 	ev := events.Event{
-		Time:     now,
-		Level:    events.LevelWarn,
-		Type:     events.TypeDetection,
-		Detector: det.Type,
-		SrcIP:    ipStr(det.SrcIP),
-		DstIP:    ipStr(det.DstIP),
-		DstPort:  det.DstPort,
-		Message:  det.Message,
+		Time:       now,
+		Level:      events.LevelWarn,
+		Type:       events.TypeDetection,
+		Detector:   det.Type,
+		Severity:   string(det.Severity),
+		Confidence: det.Confidence,
+		Reason:     string(det.Reason),
+		SrcIP:      ipStr(det.SrcIP),
+		DstIP:      ipStr(det.DstIP),
+		DstPort:    det.DstPort,
+		Message:    det.Message,
 	}
 	e.log.Log(ev)
 
@@ -252,12 +259,15 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.detByTypeMu.Unlock()
 
 	rec := DetectionRecord{
-		Time:     now,
-		Detector: det.Type,
-		SrcIP:    ipStr(det.SrcIP),
-		DstIP:    ipStr(det.DstIP),
-		DstPort:  det.DstPort,
-		Message:  det.Message,
+		Time:       now,
+		Detector:   det.Type,
+		Severity:   string(det.Severity),
+		Confidence: det.Confidence,
+		Reason:     string(det.Reason),
+		SrcIP:      ipStr(det.SrcIP),
+		DstIP:      ipStr(det.DstIP),
+		DstPort:    det.DstPort,
+		Message:    det.Message,
 	}
 	e.recentMu.Lock()
 	e.recent[e.rHead] = rec

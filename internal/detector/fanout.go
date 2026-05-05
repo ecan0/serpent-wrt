@@ -32,10 +32,13 @@ func (d *Fanout) Check(r flow.FlowRecord) *Detection {
 	// source to one per refire window. Individual destinations are not meaningful
 	// at alert time; the count in Message carries the signal.
 	return &Detection{
-		Type:    "fanout",
-		SrcIP:   r.SrcIP,
-		Message: fmt.Sprintf("%s contacted %d distinct destinations (threshold %d)", r.SrcIP, count, d.threshold),
-		At:      time.Now(),
+		Type:       "fanout",
+		Severity:   SeverityMedium,
+		Confidence: thresholdConfidence(count, d.threshold),
+		Reason:     ReasonOutboundDistinctDestinations,
+		SrcIP:      r.SrcIP,
+		Message:    fmt.Sprintf("%s contacted %d distinct destinations (threshold %d)", r.SrcIP, count, d.threshold),
+		At:         time.Now(),
 	}
 }
 
