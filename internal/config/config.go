@@ -113,15 +113,34 @@ func (c *Config) applyDefaults() error {
 	if c.APIEnabled && c.APIBind == "" {
 		c.APIBind = "127.0.0.1:8080"
 	}
+	if c.APIEnabled {
+		if _, _, err := net.SplitHostPort(c.APIBind); err != nil {
+			return fmt.Errorf("api_bind must be host:port, got %q: %w", c.APIBind, err)
+		}
+	}
 	if c.SyslogTarget != "" && c.SyslogProto == "" {
 		c.SyslogProto = "udp"
+	}
+	if c.SyslogTarget != "" {
+		if _, _, err := net.SplitHostPort(c.SyslogTarget); err != nil {
+			return fmt.Errorf("syslog_target must be host:port, got %q: %w", c.SyslogTarget, err)
+		}
+		if c.SyslogProto != "udp" && c.SyslogProto != "tcp" {
+			return fmt.Errorf("syslog_proto must be udp or tcp, got %q", c.SyslogProto)
+		}
 	}
 	if c.DedupWindow <= 0 {
 		c.DedupWindow = 5 * time.Minute
 	}
-	for _, cidr := range c.LANCIDRs {
+	for i, cidr := range c.LANCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid lan_cidr %q: %w", cidr, err)
+			return fmt.Errorf("lan_cidrs[%d] must be valid CIDR, got %q: %w", i, cidr, err)
+		}
+	}
+	for i, selfIP := range c.SelfIPs {
+		ip := net.ParseIP(selfIP)
+		if ip == nil || ip.To4() == nil {
+			return fmt.Errorf("self_ips[%d] must be an IPv4 address, got %q", i, selfIP)
 		}
 	}
 	if c.Detectors.Fanout.DistinctDstThreshold <= 0 {

@@ -31,6 +31,12 @@ func New(table, set string, duration time.Duration) *Enforcer {
 	}
 }
 
+// Available reports whether the nft CLI is present in PATH.
+func (e *Enforcer) Available() bool {
+	_, err := exec.LookPath("nft")
+	return err == nil
+}
+
 // EnsureSet creates the nftables table and set if they do not already exist.
 // Uses nft -f - so the entire script is parsed atomically.
 func (e *Enforcer) EnsureSet() error {

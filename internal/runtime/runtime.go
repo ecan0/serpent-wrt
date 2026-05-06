@@ -25,6 +25,13 @@ const (
 	maxDedup   = 4096 // max dedup entries before accepting duplicates
 )
 
+const (
+	nftSetupDisabled     = "disabled"
+	nftSetupNotAttempted = "not_attempted"
+	nftSetupReady        = "ready"
+	nftSetupFailed       = "failed"
+)
+
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
 
 // isUnroutable reports whether ip should never appear as a threat actor —
@@ -104,6 +111,13 @@ type Engine struct {
 	dedup       map[dedupKey]time.Time
 	dedupWindow time.Duration
 
+	nftMu         sync.Mutex
+	nftSetupState string
+	nftSetupError string
+
+	buildMu   sync.Mutex
+	buildInfo BuildInfo
+
 	startedAt time.Time
 }
 
@@ -124,7 +138,13 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		detByType:   make(map[string]uint64),
 		dedup:       make(map[dedupKey]time.Time),
 		dedupWindow: cfg.DedupWindow,
+		buildInfo:   defaultBuildInfo(),
 		startedAt:   time.Now(),
+	}
+	if cfg.EnforcementEnabled {
+		e.nftSetupState = nftSetupNotAttempted
+	} else {
+		e.nftSetupState = nftSetupDisabled
 	}
 	for _, cidr := range cfg.LANCIDRs {
 		if _, network, err := net.ParseCIDR(cidr); err == nil {
@@ -147,7 +167,20 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	if e.cfg.EnforcementEnabled {
 		if err := e.enf.EnsureSet(); err != nil {
-			e.log.Error(fmt.Sprintf("nftables setup failed (enforcement disabled): %v", err))
+			e.setNftSetupState(nftSetupFailed, err)
+			e.log.System(events.LevelError, events.SystemFields{
+				Component: "nft",
+				Action:    "setup",
+				Status:    "failure",
+				Error:     err.Error(),
+			}, fmt.Sprintf("nftables setup failed: %v", err))
+		} else {
+			e.setNftSetupState(nftSetupReady, nil)
+			e.log.System(events.LevelInfo, events.SystemFields{
+				Component: "nft",
+				Action:    "setup",
+				Status:    "success",
+			}, "nftables set ready")
 		}
 	}
 
@@ -173,7 +206,12 @@ func (e *Engine) Run(ctx context.Context) error {
 func (e *Engine) poll() {
 	flows, err := collector.Collect()
 	if err != nil {
-		e.log.Error(fmt.Sprintf("collect: %v", err))
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "collector",
+			Action:    "collect",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("collector failed: %v", err))
 		return
 	}
 	atomic.AddUint64(&e.flowsSeen, uint64(len(flows)))
@@ -307,18 +345,42 @@ func (e *Engine) prune() {
 
 func (e *Engine) loadFeed() error {
 	if err := e.feed.Load(e.cfg.ThreatFeedPath); err != nil {
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "feed",
+			Action:    "load",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("load threat feed failed: %v", err))
 		return err
 	}
-	e.log.Info(fmt.Sprintf("loaded threat feed: %d entries", e.feed.Len()))
+	count := e.feed.Len()
+	e.log.System(events.LevelInfo, events.SystemFields{
+		Component: "feed",
+		Action:    "load",
+		Status:    "success",
+		FeedCount: &count,
+	}, fmt.Sprintf("loaded threat feed: %d entries", count))
 	return nil
 }
 
 // ReloadFeed reloads the threat feed from disk. Safe to call concurrently.
 func (e *Engine) ReloadFeed() error {
 	if err := e.feed.Load(e.cfg.ThreatFeedPath); err != nil {
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "feed",
+			Action:    "reload",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("reload threat feed failed: %v", err))
 		return err
 	}
-	e.log.Info(fmt.Sprintf("reloaded threat feed: %d entries", e.feed.Len()))
+	count := e.feed.Len()
+	e.log.System(events.LevelInfo, events.SystemFields{
+		Component: "feed",
+		Action:    "reload",
+		Status:    "success",
+		FeedCount: &count,
+	}, fmt.Sprintf("reloaded threat feed: %d entries", count))
 	return nil
 }
 
@@ -390,4 +452,15 @@ func ipStr(ip net.IP) string {
 		return ""
 	}
 	return ip.String()
+}
+
+func (e *Engine) setNftSetupState(state string, err error) {
+	e.nftMu.Lock()
+	e.nftSetupState = state
+	if err != nil {
+		e.nftSetupError = err.Error()
+	} else {
+		e.nftSetupError = ""
+	}
+	e.nftMu.Unlock()
 }

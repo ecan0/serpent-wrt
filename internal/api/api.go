@@ -22,6 +22,7 @@ func New(addr string, eng *runtime.Engine) *Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/detections/recent", s.handleRecentDetections)
@@ -49,6 +50,10 @@ func (s *Server) Stop(ctx context.Context) error {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, s.eng.GetStatus())
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request) {

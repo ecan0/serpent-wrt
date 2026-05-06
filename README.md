@@ -244,6 +244,7 @@ Available when `api_enabled: true`. Bound to localhost only.
 | Endpoint | Method | Description |
 |---|---|---|
 | `/healthz` | GET | `{"status":"ok"}` |
+| `/status` | GET | Operational snapshot (feed count, enforcement/nft state, uptime, detector config, build metadata) |
 | `/stats` | GET | Runtime counters (flows seen, detections by type, blocks applied) |
 | `/reload` | POST | Hot-reload threat feed from disk |
 | `/detections/recent` | GET | Last 100 detections |
@@ -255,6 +256,7 @@ Available when `api_enabled: true`. Bound to localhost only.
 NDJSON to stdout, one event per line:
 
 ```json
+{"time":"2025-01-01T00:00:00Z","level":"info","type":"system","component":"feed","action":"reload","status":"success","feed_count":42,"message":"reloaded threat feed: 42 entries"}
 {"time":"2025-01-01T00:00:00Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
 {"time":"2025-01-01T00:00:00Z","level":"warn","type":"enforcement","src_ip":"192.168.1.5","message":"blocked 192.168.1.5 triggered by feed_match"}
 ```

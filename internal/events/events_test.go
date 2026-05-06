@@ -103,3 +103,44 @@ func TestDetectionEventMetadataJSON(t *testing.T) {
 		t.Fatalf("reason: got %v, want threat_feed_destination", got["reason"])
 	}
 }
+
+func TestSystemEventFieldsJSON(t *testing.T) {
+	feedCount := 42
+	e := Event{
+		Level:     LevelError,
+		Type:      TypeSystem,
+		Component: "feed",
+		Action:    "reload",
+		Status:    "failure",
+		Error:     "open feed: missing",
+		FeedCount: &feedCount,
+		Addr:      "127.0.0.1:8080",
+		Message:   "reload threat feed failed",
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["component"] != "feed" {
+		t.Fatalf("component: got %v, want feed", got["component"])
+	}
+	if got["action"] != "reload" {
+		t.Fatalf("action: got %v, want reload", got["action"])
+	}
+	if got["status"] != "failure" {
+		t.Fatalf("status: got %v, want failure", got["status"])
+	}
+	if got["error"] != "open feed: missing" {
+		t.Fatalf("error: got %v, want open feed: missing", got["error"])
+	}
+	if got["feed_count"] != float64(42) {
+		t.Fatalf("feed_count: got %v, want 42", got["feed_count"])
+	}
+	if got["addr"] != "127.0.0.1:8080" {
+		t.Fatalf("addr: got %v, want 127.0.0.1:8080", got["addr"])
+	}
+}
