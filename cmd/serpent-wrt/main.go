@@ -49,10 +49,19 @@ func main() {
 
 	log := events.NewLogger(remote)
 
-	log.Info(fmt.Sprintf("serpent-wrt starting (poll=%s enforcement=%v api=%v syslog=%v)",
+	log.System(events.LevelInfo, events.SystemFields{
+		Component: "runtime",
+		Action:    "start",
+		Status:    "starting",
+	}, fmt.Sprintf("serpent-wrt starting (poll=%s enforcement=%v api=%v syslog=%v)",
 		cfg.PollInterval, cfg.EnforcementEnabled, cfg.APIEnabled, cfg.SyslogTarget != ""))
 
 	eng := runtime.NewEngine(cfg, log)
+	eng.SetBuildInfo(runtime.BuildInfo{
+		Version:   version,
+		Commit:    commit,
+		BuildDate: buildDate,
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -61,9 +70,7 @@ func main() {
 	signal.Notify(sighup, syscall.SIGHUP)
 	go func() {
 		for range sighup {
-			if err := eng.ReloadFeed(); err != nil {
-				log.Error(fmt.Sprintf("feed reload: %v", err))
-			}
+			_ = eng.ReloadFeed()
 		}
 	}()
 
@@ -72,9 +79,20 @@ func main() {
 	if cfg.APIEnabled {
 		apiSrv = api.New(cfg.APIBind, eng)
 		go func() {
-			log.Info(fmt.Sprintf("API listening on %s", cfg.APIBind))
+			log.System(events.LevelInfo, events.SystemFields{
+				Component: "api",
+				Action:    "listen",
+				Status:    "starting",
+				Addr:      cfg.APIBind,
+			}, fmt.Sprintf("API listening on %s", cfg.APIBind))
 			if err := apiSrv.Start(); err != nil && err != http.ErrServerClosed {
-				log.Error(fmt.Sprintf("API: %v", err))
+				log.System(events.LevelError, events.SystemFields{
+					Component: "api",
+					Action:    "listen",
+					Status:    "failure",
+					Error:     err.Error(),
+					Addr:      cfg.APIBind,
+				}, fmt.Sprintf("API listen failed: %v", err))
 			}
 		}()
 	}
@@ -84,7 +102,11 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGTERM, os.Interrupt)
 	go func() {
 		<-sigCh
-		log.Info("shutting down")
+		log.System(events.LevelInfo, events.SystemFields{
+			Component: "runtime",
+			Action:    "shutdown",
+			Status:    "starting",
+		}, "shutting down")
 		cancel()
 		if apiSrv != nil {
 			shutCtx, done := context.WithTimeout(context.Background(), 3*time.Second)
@@ -94,7 +116,12 @@ func main() {
 	}()
 
 	if err := eng.Run(ctx); err != nil {
-		log.Error(fmt.Sprintf("engine: %v", err))
+		log.System(events.LevelError, events.SystemFields{
+			Component: "runtime",
+			Action:    "run",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("engine failed: %v", err))
 		os.Exit(1)
 	}
 }
