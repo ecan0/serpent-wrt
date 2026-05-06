@@ -14,10 +14,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code_changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        name: Check changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="$(git rev-parse "$head^" 2>/dev/null || true)"
+            fi
+          fi
+
+          if [ -n "${base:-}" ]; then
+            changed="$(git diff --name-only "$base" "$head")"
+          else
+            changed="$(git ls-tree -r --name-only "$head")"
+          fi
+
+          echo "$changed"
+
+          code_changed=false
+          if printf '%s\n' "$changed" | grep -Eq '^(\.github/workflows/|cmd/|internal/|configs/|contrib/|openwrt/|scripts/|testdata/|go\.mod$|go\.sum$|Makefile$)'; then
+            code_changed=true
+          fi
+
+          echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
+          echo "code_changed=$code_changed"
+
   build:
     name: Build
     runs-on: self-hosted
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -39,6 +85,8 @@ jobs:
     name: Test
     runs-on: self-hosted
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -57,6 +105,8 @@ jobs:
     name: Lint
     runs-on: self-hosted
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -76,6 +126,8 @@ jobs:
     name: Scan
     runs-on: self-hosted
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -94,8 +146,8 @@ jobs:
     name: Runtime test (openwrt-x86-generic)
     runs-on: self-hosted
     timeout-minutes: 15
-    needs: [build, test, lint, scan]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    needs: [changes, build, test, lint, scan]
+    if: always() && needs.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
       OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
       OPENWRT_USER: root
@@ -105,7 +157,7 @@ jobs:
           if [ -n "$OPENWRT_HOST" ]; then
             echo "DEPLOY_ENABLED=true" >> "$GITHUB_ENV"
           else
-            echo "OPENWRT_HOST secret not set — skipping deploy"
+            echo "OPENWRT_HOST secret not set - skipping deploy"
           fi
 
       - uses: actions/checkout@v6
@@ -143,3 +195,43 @@ jobs:
       - name: Clean up SSH key
         if: always() && env.DEPLOY_ENABLED == 'true'
         run: rm -f ~/.ssh/deploy_key
+
+  ci-gate:
+    name: CI Gate
+    runs-on: self-hosted
+    timeout-minutes: 5
+    needs: [changes, build, test, lint, scan]
+    if: always()
+    steps:
+      - name: Summarize CI requirement
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ needs.changes.outputs.code_changed }}" != "true" ]; then
+            echo "No code/runtime paths changed; full CI is not required."
+            exit 0
+          fi
+
+          failed=false
+          for result in \
+            "${{ needs.build.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.lint.result }}" \
+            "${{ needs.scan.result }}"
+          do
+            if [ "$result" != "success" ]; then
+              failed=true
+            fi
+          done
+
+          if [ "$failed" = "true" ]; then
+            echo "One or more required CI jobs failed or did not complete successfully."
+            echo "Build: ${{ needs.build.result }}"
+            echo "Test:  ${{ needs.test.result }}"
+            echo "Lint:  ${{ needs.lint.result }}"
+            echo "Scan:  ${{ needs.scan.result }}"
+            exit 1
+          fi
+
+          echo "Required CI jobs passed."
