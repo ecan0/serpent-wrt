@@ -14,11 +14,16 @@ import (
 )
 
 type fakeEngine struct {
+	status     runtime.Status
 	stats      runtime.Stats
 	reloadErr  error
 	recent     []runtime.DetectionRecord
 	blocked    []string
 	blockedErr error
+}
+
+func (f *fakeEngine) GetStatus() runtime.Status {
+	return f.status
 }
 
 func (f *fakeEngine) GetStats() runtime.Stats {

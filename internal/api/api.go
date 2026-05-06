@@ -17,6 +17,7 @@ type Server struct {
 }
 
 type engine interface {
+	GetStatus() runtime.Status
 	GetStats() runtime.Stats
 	ReloadFeed() error
 	RecentDetections() []runtime.DetectionRecord
