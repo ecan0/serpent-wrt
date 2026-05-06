@@ -13,6 +13,30 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/runtime"
 )
 
+type fakeEngine struct {
+	stats      runtime.Stats
+	reloadErr  error
+	recent     []runtime.DetectionRecord
+	blocked    []string
+	blockedErr error
+}
+
+func (f *fakeEngine) GetStats() runtime.Stats {
+	return f.stats
+}
+
+func (f *fakeEngine) ReloadFeed() error {
+	return f.reloadErr
+}
+
+func (f *fakeEngine) RecentDetections() []runtime.DetectionRecord {
+	return f.recent
+}
+
+func (f *fakeEngine) GetBlocked() ([]string, error) {
+	return f.blocked, f.blockedErr
+}
+
 func testServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := &config.Config{
@@ -164,5 +188,66 @@ func TestHandleRecentDetections(t *testing.T) {
 	var body []any
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response (expected array): %v", err)
+	}
+}
+
+func TestHandleRecentDetectionsSchema(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		recent: []runtime.DetectionRecord{
+			{
+				Time:       time.Unix(1, 0).UTC(),
+				Detector:   "feed_match",
+				Severity:   "high",
+				Confidence: 95,
+				Reason:     "threat_feed_destination",
+				SrcIP:      "192.168.1.10",
+				DstIP:      "1.2.3.4",
+				DstPort:    443,
+				Message:    "hit",
+			},
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/detections/recent", nil)
+	w := httptest.NewRecorder()
+	s.handleRecentDetections(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+	var body []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(body))
+	}
+	got := body[0]
+	wantKeys := map[string]bool{
+		"time":       true,
+		"detector":   true,
+		"severity":   true,
+		"confidence": true,
+		"reason":     true,
+		"src_ip":     true,
+		"dst_ip":     true,
+		"dst_port":   true,
+		"message":    true,
+	}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("schema fields: got %d (%v), want %d", len(got), got, len(wantKeys))
+	}
+	for key := range wantKeys {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("schema missing field %q in %v", key, got)
+		}
+	}
+	if got["detector"] != "feed_match" || got["severity"] != "high" || got["confidence"] != float64(95) || got["reason"] != "threat_feed_destination" {
+		t.Fatalf("metadata fields changed: %v", got)
+	}
+	if got["src_ip"] != "192.168.1.10" || got["dst_ip"] != "1.2.3.4" || got["dst_port"] != float64(443) {
+		t.Fatalf("flow fields changed: %v", got)
 	}
 }

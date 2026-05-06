@@ -93,6 +93,27 @@ func TestDetectionEventMetadataJSON(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("unmarshal event: %v", err)
 	}
+	wantKeys := map[string]bool{
+		"time":       true,
+		"level":      true,
+		"type":       true,
+		"detector":   true,
+		"severity":   true,
+		"confidence": true,
+		"reason":     true,
+		"src_ip":     true,
+		"dst_ip":     true,
+		"dst_port":   true,
+		"message":    true,
+	}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("schema fields: got %d (%v), want %d", len(got), got, len(wantKeys))
+	}
+	for key := range wantKeys {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("schema missing field %q in %v", key, got)
+		}
+	}
 	if got["severity"] != "high" {
 		t.Fatalf("severity: got %v, want high", got["severity"])
 	}

@@ -24,7 +24,7 @@ type Config struct {
 	APIBind            string          `yaml:"api_bind"`
 	SyslogTarget       string          `yaml:"syslog_target"` // host:port, e.g. 10.0.0.10:514
 	SyslogProto        string          `yaml:"syslog_proto"`  // "udp" (default) or "tcp"
-	DedupWindow        time.Duration   `yaml:"dedup_window"`  // suppress duplicate (type,src,dst) alerts within this window
+	DedupWindow        time.Duration   `yaml:"dedup_window"`  // suppress duplicate detector/src/dst/port alerts within this window
 	Detectors          DetectorsConfig `yaml:"detectors"`
 }
 
