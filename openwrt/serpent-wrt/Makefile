@@ -1,10 +1,10 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=serpent-wrt
-# Development custom-feed source. For tagged releases, refresh the source date,
-# source version, and mirror hash after the release commit is final.
-PKG_SOURCE_DATE:=2026-05-03
-PKG_SOURCE_VERSION:=d21578b08f21890395b6b4e438fb11fbb8a466c1
+# v0.1 custom-feed source pin. For upstream package submission, switch to the
+# final release commit or tag archive and replace the mirror hash.
+PKG_SOURCE_DATE:=2026-05-13
+PKG_SOURCE_VERSION:=0cc28d7affb576c79b5519d2158b6120f5e93baf
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git

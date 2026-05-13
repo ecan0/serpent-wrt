@@ -2,10 +2,9 @@
 
 All notable changes to serpent-wrt will be documented in this file.
 
-This project follows semantic versioning once tagged releases begin. Until then,
-changes are grouped under `Unreleased`.
+This project follows semantic versioning for tagged releases.
 
-## Unreleased
+## v0.1.0 - 2026-05-13
 
 ### Added
 

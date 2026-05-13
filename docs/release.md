@@ -5,22 +5,27 @@ This checklist is for project releases and OpenWrt package refreshes.
 ## Project Release
 
 1. Confirm `main` is green in CI.
-2. Run local tests:
+2. Run local tests from a clean worktree:
 
    ```sh
    go test ./...
    go vet ./...
+   git diff --check
    make build-openwrt-targets
    ```
 
-3. Run the OpenWrt runtime smoke test against the lab target:
+3. Run the OpenWrt runtime smoke test from `mgmt-01` against the lab target.
+   The current x86/generic lab image reports `i386_pentium4`, so keep using
+   the 32-bit x86 build:
 
    ```sh
-   make deploy-x86 DEPLOY_HOST=root@openwrt-x86-64
+   SSH_KEY_PATH=$HOME/.ssh/toghouse_ops_ed25519 \
+     make deploy-x86 DEPLOY_HOST=root@openwrt-x86-test.ecan.pro
    ```
 
-4. Update `CHANGELOG.md`.
-5. Tag the release:
+4. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata.
+5. Open a release PR from `dev` to `main` and require `CI Gate`.
+6. After the release PR merges, tag the release from `main`:
 
    ```sh
    git tag -s vX.Y.Z
@@ -31,7 +36,8 @@ This checklist is for project releases and OpenWrt package refreshes.
 
 1. Prefer a tagged release archive plus a fixed hash for public releases. The
    current package Makefile is acceptable for custom-feed development, but
-   `PKG_MIRROR_HASH:=skip` should not be used for a public package submission.
+   `PKG_MIRROR_HASH:=skip` should not be used for an upstream or public package
+   submission.
 2. Update `openwrt/serpent-wrt/Makefile`:
 
    - `PKG_SOURCE_DATE`
