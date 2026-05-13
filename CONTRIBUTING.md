@@ -8,9 +8,9 @@ go test ./...
 
 All tests must pass before committing. No external services or hardware required.
 
-## Cross-compiling for OpenWRT
+## Cross-compiling for OpenWrt
 
-serpent-wrt builds as a static binary for common OpenWRT targets:
+serpent-wrt builds as a static binary for common OpenWrt targets:
 
 ```sh
 make cross
@@ -22,8 +22,11 @@ This produces binaries under `bin/` for:
 |--------|-------------|
 | MIPS (big-endian) | `linux/mips` |
 | MIPS (little-endian) | `linux/mipsle` |
+| ARMv5 | `linux/arm` (GOARM=5) |
 | ARMv7 | `linux/arm` (GOARM=7) |
 | ARM64 / AArch64 | `linux/arm64` |
+| RISC-V 64 | `linux/riscv64` |
+| x86 | `linux/386` |
 | x86-64 | `linux/amd64` |
 
 To build a single target manually:
@@ -62,10 +65,13 @@ This guarantees memory stays bounded on devices with as little as 64MB RAM. When
 
 ## What not to add
 
-Read `CONSTRAINTS.md` before proposing changes. In short:
+serpent-wrt is designed for constrained OpenWrt routers. In short:
 
 - No packet capture or deep packet inspection.
 - No database or persistent event store.
 - No heavy dependencies.
 - No unbounded memory growth.
 - No abstractions for one-off operations.
+
+For security issues, follow `SECURITY.md` and avoid posting sensitive details in
+public issues.

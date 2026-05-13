@@ -2,6 +2,9 @@ package feed_test
 
 import (
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ecan0/serpent-wrt/internal/feed"
@@ -55,6 +58,96 @@ func TestFeedReload(t *testing.T) {
 	}
 }
 
+func TestFeedLoadIgnoresCommentsBlankAndMalformedEntries(t *testing.T) {
+	path := writeFeed(t, `
+# comment
+
+1.2.3.4
+not-an-ip
+300.300.300.300
+5.6.7.0/24
+bad/cidr
+::1
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 2 {
+		t.Fatalf("len: got %d, want 2", f.Len())
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("expected exact IPv4 entry to match")
+	}
+	if !f.Contains(net.ParseIP("5.6.7.100")) {
+		t.Error("expected IPv4 CIDR entry to match")
+	}
+	if f.Contains(net.ParseIP("9.9.9.9")) {
+		t.Error("unexpected match for absent IPv4")
+	}
+	if f.Contains(net.ParseIP("::1")) {
+		t.Error("IPv6 entries should be ignored")
+	}
+}
+
+func TestFeedLoadIgnoresIPv6CIDR(t *testing.T) {
+	path := writeFeed(t, `
+2001:db8::/32
+1.2.3.4
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 1 {
+		t.Fatalf("len: got %d, want 1", f.Len())
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("expected exact IPv4 entry to match")
+	}
+}
+
+func TestFeedLoadDeduplicatesExactIPs(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+1.2.3.4
+5.6.7.0/24
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 2 {
+		t.Fatalf("len: got %d, want 2", f.Len())
+	}
+}
+
+func TestFeedFailedReloadKeepsPreviousEntries(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+5.6.7.0/24
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	before := f.Len()
+
+	missingPath := filepath.Join(t.TempDir(), "missing-feed.txt")
+	if err := f.Load(missingPath); err == nil {
+		t.Fatal("expected missing feed reload to fail")
+	}
+	if f.Len() != before {
+		t.Fatalf("len after failed reload: got %d, want %d", f.Len(), before)
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("previous exact IP entry should survive failed reload")
+	}
+	if !f.Contains(net.ParseIP("5.6.7.100")) {
+		t.Error("previous CIDR entry should survive failed reload")
+	}
+}
+
 func TestFeedIPv4Only(t *testing.T) {
 	f := feed.New()
 	if err := f.Load("../../testdata/threat-feed.txt"); err != nil {
@@ -64,4 +157,64 @@ func TestFeedIPv4Only(t *testing.T) {
 	if f.Contains(net.ParseIP("::1")) {
 		t.Error("IPv6 loopback should not match feed")
 	}
+}
+
+func TestValidateFileSuccess(t *testing.T) {
+	path := writeFeed(t, `
+# comment
+1.2.3.4
+5.6.7.0/24
+`)
+	count, err := feed.ValidateFile(path)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count: got %d, want 2", count)
+	}
+}
+
+func TestValidateFileRejectsMalformedEntry(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+not-an-ip
+`)
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected malformed entry error")
+	}
+	if !strings.Contains(err.Error(), "line 3") || !strings.Contains(err.Error(), "not-an-ip") {
+		t.Fatalf("error: got %q, want line and entry context", err)
+	}
+}
+
+func TestValidateFileRejectsIPv6(t *testing.T) {
+	path := writeFeed(t, "::1\n")
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected IPv6 error")
+	}
+	if !strings.Contains(err.Error(), "invalid IPv4 address") {
+		t.Fatalf("error: got %q, want IPv4 context", err)
+	}
+}
+
+func TestValidateFileRejectsIPv6CIDR(t *testing.T) {
+	path := writeFeed(t, "2001:db8::/32\n")
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected IPv6 CIDR error")
+	}
+	if !strings.Contains(err.Error(), "IPv6 CIDR") {
+		t.Fatalf("error: got %q, want IPv6 CIDR context", err)
+	}
+}
+
+func writeFeed(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "feed.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

@@ -27,14 +27,33 @@ const (
 
 // Event is a structured JSON log entry written to stdout.
 type Event struct {
-	Time     time.Time `json:"time"`
-	Level    Level     `json:"level"`
-	Type     EventType `json:"type"`
-	Detector string    `json:"detector,omitempty"`
-	SrcIP    string    `json:"src_ip,omitempty"`
-	DstIP    string    `json:"dst_ip,omitempty"`
-	DstPort  uint16    `json:"dst_port,omitempty"`
-	Message  string    `json:"message"`
+	Time       time.Time `json:"time"`
+	Level      Level     `json:"level"`
+	Type       EventType `json:"type"`
+	Component  string    `json:"component,omitempty"`
+	Action     string    `json:"action,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	FeedCount  *int      `json:"feed_count,omitempty"`
+	Addr       string    `json:"addr,omitempty"`
+	Detector   string    `json:"detector,omitempty"`
+	Severity   string    `json:"severity,omitempty"`
+	Confidence uint8     `json:"confidence,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+	SrcIP      string    `json:"src_ip,omitempty"`
+	DstIP      string    `json:"dst_ip,omitempty"`
+	DstPort    uint16    `json:"dst_port,omitempty"`
+	Message    string    `json:"message"`
+}
+
+// SystemFields carries structured context for operational system events.
+type SystemFields struct {
+	Component string
+	Action    string
+	Status    string
+	Error     string
+	FeedCount *int
+	Addr      string
 }
 
 // UDPSyslog is a self-healing RFC 3164 syslog sender over UDP.
@@ -133,22 +152,39 @@ func (l *Logger) Log(e Event) {
 }
 
 func (l *Logger) Info(msg string) {
-	l.Log(Event{Level: LevelInfo, Type: TypeSystem, Message: msg})
+	l.System(LevelInfo, SystemFields{}, msg)
 }
 
 func (l *Logger) Error(msg string) {
-	l.Log(Event{Level: LevelError, Type: TypeSystem, Message: msg})
+	l.System(LevelError, SystemFields{}, msg)
+}
+
+func (l *Logger) System(level Level, fields SystemFields, msg string) {
+	l.Log(Event{
+		Level:     level,
+		Type:      TypeSystem,
+		Component: fields.Component,
+		Action:    fields.Action,
+		Status:    fields.Status,
+		Error:     fields.Error,
+		FeedCount: fields.FeedCount,
+		Addr:      fields.Addr,
+		Message:   msg,
+	})
 }
 
 func (l *Logger) Detection(detector, msg string, src, dst net.IP, dstPort uint16) {
 	l.Log(Event{
-		Level:    LevelWarn,
-		Type:     TypeDetection,
-		Detector: detector,
-		SrcIP:    ipStr(src),
-		DstIP:    ipStr(dst),
-		DstPort:  dstPort,
-		Message:  msg,
+		Level:      LevelWarn,
+		Type:       TypeDetection,
+		Detector:   detector,
+		Severity:   "medium",
+		Confidence: 50,
+		Reason:     "heuristic_match",
+		SrcIP:      ipStr(src),
+		DstIP:      ipStr(dst),
+		DstPort:    dstPort,
+		Message:    msg,
 	})
 }
 

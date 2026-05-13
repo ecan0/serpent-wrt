@@ -80,16 +80,26 @@ func (d *Beacon) Check(r flow.FlowRecord) *Detection {
 	if len(times) < d.minHits {
 		return nil
 	}
-	if !isBeaconing(times, d.tolerance, d.minInterval) {
+	ok, confidence := beaconScore(times, d.tolerance, d.minInterval)
+	if !ok {
 		return nil
 	}
+	if len(times) >= d.minHits+2 && confidence < 95 {
+		confidence += 3
+		if confidence > 95 {
+			confidence = 95
+		}
+	}
 	return &Detection{
-		Type:    "beacon",
-		SrcIP:   r.SrcIP,
-		DstIP:   r.DstIP,
-		DstPort: r.DstPort,
-		Message: fmt.Sprintf("%s beaconing to %s (%d observations in window)", r.SrcIP, r.DstIP, len(times)),
-		At:      now,
+		Type:       "beacon",
+		Severity:   SeverityHigh,
+		Confidence: confidence,
+		Reason:     ReasonBeaconCadence,
+		SrcIP:      r.SrcIP,
+		DstIP:      r.DstIP,
+		DstPort:    r.DstPort,
+		Message:    fmt.Sprintf("%s beaconing to %s (%d observations in window)", r.SrcIP, r.DstIP, len(times)),
+		At:         now,
 	}
 }
 
@@ -121,8 +131,13 @@ func (d *Beacon) evictOldestLocked(now time.Time) {
 // isBeaconing returns true when the timestamp sequence shows a regular
 // inter-arrival interval with standard deviation within tolerance.
 func isBeaconing(times []time.Time, tolerance, minInterval time.Duration) bool {
+	ok, _ := beaconScore(times, tolerance, minInterval)
+	return ok
+}
+
+func beaconScore(times []time.Time, tolerance, minInterval time.Duration) (bool, uint8) {
 	if len(times) < 2 {
-		return false
+		return false, 0
 	}
 	sorted := make([]time.Time, len(times))
 	copy(sorted, times)
@@ -139,7 +154,7 @@ func isBeaconing(times []time.Time, tolerance, minInterval time.Duration) bool {
 
 	// Reject burst traffic — real beaconing has intervals of seconds/minutes.
 	if time.Duration(mean) < minInterval {
-		return false
+		return false, 0
 	}
 
 	var variance float64
@@ -148,7 +163,23 @@ func isBeaconing(times []time.Time, tolerance, minInterval time.Duration) bool {
 		variance += d * d
 	}
 	stddev := math.Sqrt(variance / float64(len(intervals)))
-	return stddev <= float64(tolerance)
+	if stddev > float64(tolerance) {
+		return false, 0
+	}
+	if tolerance <= 0 {
+		return true, 80
+	}
+	ratio := stddev / float64(tolerance)
+	switch {
+	case ratio <= 0.25:
+		return true, 95
+	case ratio <= 0.50:
+		return true, 90
+	case ratio <= 0.75:
+		return true, 82
+	default:
+		return true, 72
+	}
 }
 
 func trimBefore(times []time.Time, cutoff time.Time) []time.Time {

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -187,6 +188,40 @@ func TestRecentDetectionsRingBuffer(t *testing.T) {
 	}
 }
 
+func TestRecentDetectionsChronologicalAfterWrap(t *testing.T) {
+	e := testEngine(t)
+
+	base := time.Now()
+	for i := 0; i < recentCap+3; i++ {
+		e.recentMu.Lock()
+		e.recent[e.rHead] = DetectionRecord{
+			Time:     base.Add(time.Duration(i) * time.Second),
+			Detector: "feed_match",
+			SrcIP:    "192.168.1.10",
+			DstPort:  uint16(i),
+			Message:  "test",
+		}
+		e.rHead = (e.rHead + 1) % recentCap
+		e.recentMu.Unlock()
+	}
+
+	dets := e.RecentDetections()
+	if len(dets) != recentCap {
+		t.Fatalf("RecentDetections: got %d, want %d", len(dets), recentCap)
+	}
+	if dets[0].DstPort != 3 {
+		t.Fatalf("oldest retained detection port: got %d, want 3", dets[0].DstPort)
+	}
+	if dets[len(dets)-1].DstPort != recentCap+2 {
+		t.Fatalf("newest detection port: got %d, want %d", dets[len(dets)-1].DstPort, recentCap+2)
+	}
+	for i := 1; i < len(dets); i++ {
+		if !dets[i-1].Time.Before(dets[i].Time) {
+			t.Fatalf("detections not chronological at %d: %s then %s", i, dets[i-1].Time, dets[i].Time)
+		}
+	}
+}
+
 // --- ReloadFeed ---
 
 // --- Direction classification (processFlow) ---
@@ -260,6 +295,64 @@ func TestInboundFlowSkipsOutboundDetectors(t *testing.T) {
 	})
 	if det != nil {
 		t.Error("inbound flow should not have incremented port_scan state")
+	}
+}
+
+func TestProcessFlowRecordsFeedMatchDetections(t *testing.T) {
+	cases := []struct {
+		name       string
+		src        string
+		dst        string
+		wantReason string
+	}{
+		{
+			name:       "outbound destination hit",
+			src:        "192.168.1.10",
+			dst:        "1.2.3.4",
+			wantReason: "threat_feed_destination",
+		},
+		{
+			name:       "inbound source hit",
+			src:        "1.2.3.4",
+			dst:        "192.168.1.10",
+			wantReason: "threat_feed_source",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := testEngine(t)
+			if err := e.ReloadFeed(); err != nil {
+				t.Fatalf("reload feed: %v", err)
+			}
+
+			e.processFlow(flow.FlowRecord{
+				Proto:   "tcp",
+				SrcIP:   net.ParseIP(tc.src),
+				DstIP:   net.ParseIP(tc.dst),
+				SrcPort: 40000,
+				DstPort: 443,
+				SeenAt:  time.Now(),
+			})
+
+			stats := e.GetStats()
+			if stats.DetectionsByType["feed_match"] != 1 {
+				t.Fatalf("feed_match count: got %d, want 1", stats.DetectionsByType["feed_match"])
+			}
+			recent := e.RecentDetections()
+			if len(recent) != 1 {
+				t.Fatalf("recent detections: got %d, want 1", len(recent))
+			}
+			rec := recent[0]
+			if rec.Detector != "feed_match" {
+				t.Fatalf("detector: got %q, want feed_match", rec.Detector)
+			}
+			if rec.Severity != "high" || rec.Confidence != 95 || rec.Reason != tc.wantReason {
+				t.Fatalf("metadata: got severity=%q confidence=%d reason=%q", rec.Severity, rec.Confidence, rec.Reason)
+			}
+			if rec.SrcIP != tc.src || rec.DstIP != tc.dst || rec.DstPort != 443 {
+				t.Fatalf("flow fields: got src=%q dst=%q port=%d", rec.SrcIP, rec.DstIP, rec.DstPort)
+			}
+		})
 	}
 }
 
@@ -358,6 +451,140 @@ func TestDedupWindowSuppression(t *testing.T) {
 	s3 := e.GetStats()
 	if s3.DetectionsByType["feed_match"] != 2 {
 		t.Fatalf("post-window detection not counted: got %d", s3.DetectionsByType["feed_match"])
+	}
+}
+
+func TestDedupIncludesDstPortForBruteForce(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	base := detector.Detection{
+		Type:       "brute_force",
+		Severity:   detector.SeverityHigh,
+		Confidence: 70,
+		Reason:     detector.ReasonInboundServiceSpray,
+		SrcIP:      net.ParseIP("203.0.113.10"),
+		Message:    "service spray",
+	}
+	ssh := base
+	ssh.DstPort = 22
+	http := base
+	http.DstPort = 80
+
+	e.handleDetection(&ssh)
+	e.handleDetection(&http)
+	e.handleDetection(&http)
+
+	stats := e.GetStats()
+	if stats.DetectionsByType["brute_force"] != 2 {
+		t.Fatalf("brute_force detections: got %d, want 2", stats.DetectionsByType["brute_force"])
+	}
+	recent := e.RecentDetections()
+	if len(recent) != 2 {
+		t.Fatalf("recent detections: got %d, want 2", len(recent))
+	}
+	if recent[0].DstPort != 22 || recent[1].DstPort != 80 {
+		t.Fatalf("recent ports: got [%d %d], want [22 80]", recent[0].DstPort, recent[1].DstPort)
+	}
+}
+
+func TestDedupKeepsFanoutCollapsedBySrc(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	det := detector.Detection{
+		Type:       "fanout",
+		Severity:   detector.SeverityMedium,
+		Confidence: 70,
+		Reason:     detector.ReasonOutboundDistinctDestinations,
+		SrcIP:      net.ParseIP("192.168.1.20"),
+		Message:    "fanout",
+	}
+
+	e.handleDetection(&det)
+	e.handleDetection(&det)
+
+	stats := e.GetStats()
+	if stats.DetectionsByType["fanout"] != 1 {
+		t.Fatalf("fanout detections: got %d, want 1", stats.DetectionsByType["fanout"])
+	}
+}
+
+func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.10"),
+		DstIP:      net.ParseIP("1.2.3.4"),
+		DstPort:    443,
+		Message:    "test",
+	})
+
+	recent := e.RecentDetections()
+	if len(recent) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(recent))
+	}
+	rec := recent[0]
+	if rec.Severity != "high" {
+		t.Fatalf("severity: got %q, want high", rec.Severity)
+	}
+	if rec.Confidence != 95 {
+		t.Fatalf("confidence: got %d, want 95", rec.Confidence)
+	}
+	if rec.Reason != "threat_feed_destination" {
+		t.Fatalf("reason: got %q, want threat_feed_destination", rec.Reason)
+	}
+}
+
+func TestDetectionRecordJSONSchema(t *testing.T) {
+	rec := DetectionRecord{
+		Time:       time.Unix(1, 0).UTC(),
+		Detector:   "feed_match",
+		Severity:   "high",
+		Confidence: 95,
+		Reason:     "threat_feed_destination",
+		SrcIP:      "192.168.1.10",
+		DstIP:      "1.2.3.4",
+		DstPort:    443,
+		Message:    "hit",
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal record: %v", err)
+	}
+	wantKeys := map[string]bool{
+		"time":       true,
+		"detector":   true,
+		"severity":   true,
+		"confidence": true,
+		"reason":     true,
+		"src_ip":     true,
+		"dst_ip":     true,
+		"dst_port":   true,
+		"message":    true,
+	}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("schema fields: got %d (%v), want %d", len(got), got, len(wantKeys))
+	}
+	for key := range wantKeys {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("schema missing field %q in %v", key, got)
+		}
+	}
+	if got["severity"] != "high" || got["confidence"] != float64(95) || got["reason"] != "threat_feed_destination" {
+		t.Fatalf("metadata fields changed: %v", got)
 	}
 }
 

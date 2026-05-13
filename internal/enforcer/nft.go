@@ -31,14 +31,16 @@ func New(table, set string, duration time.Duration) *Enforcer {
 	}
 }
 
+// Available reports whether the nft CLI is present in PATH.
+func (e *Enforcer) Available() bool {
+	_, err := exec.LookPath("nft")
+	return err == nil
+}
+
 // EnsureSet creates the nftables table and set if they do not already exist.
 // Uses nft -f - so the entire script is parsed atomically.
 func (e *Enforcer) EnsureSet() error {
-	script := fmt.Sprintf(
-		"add table inet %s\nadd set inet %s %s { type ipv4_addr; flags timeout; }\n",
-		e.table, e.table, e.set,
-	)
-	return e.runScript(script)
+	return e.runScript(ensureSetScript(e.table, e.set))
 }
 
 // Block adds ip to the nftables blocked set with a timeout.
@@ -58,11 +60,7 @@ func (e *Enforcer) Block(ip net.IP) error {
 	e.blocked[key] = time.Now().Add(e.duration)
 	e.mu.Unlock()
 
-	script := fmt.Sprintf(
-		"add element inet %s %s { %s timeout %s }\n",
-		e.table, e.set, key, formatDuration(e.duration),
-	)
-	return e.runScript(script)
+	return e.runScript(blockScript(e.table, e.set, key, e.duration))
 }
 
 // IsBlocked reports whether ip is currently tracked as blocked.
@@ -139,6 +137,20 @@ func (e *Enforcer) runScript(script string) error {
 		return fmt.Errorf("nft: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func ensureSetScript(table, set string) string {
+	return fmt.Sprintf(
+		"add table inet %s\nadd set inet %s %s { type ipv4_addr; flags timeout; }\n",
+		table, table, set,
+	)
+}
+
+func blockScript(table, set, ip string, duration time.Duration) string {
+	return fmt.Sprintf(
+		"add element inet %s %s { %s timeout %s }\n",
+		table, set, ip, formatDuration(duration),
+	)
 }
 
 // formatDuration produces an nft-compatible timeout string (e.g. "1h", "30m", "90s").

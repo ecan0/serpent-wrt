@@ -24,7 +24,7 @@ type Config struct {
 	APIBind            string          `yaml:"api_bind"`
 	SyslogTarget       string          `yaml:"syslog_target"` // host:port, e.g. 10.0.0.10:514
 	SyslogProto        string          `yaml:"syslog_proto"`  // "udp" (default) or "tcp"
-	DedupWindow        time.Duration   `yaml:"dedup_window"`  // suppress duplicate (type,src,dst) alerts within this window
+	DedupWindow        time.Duration   `yaml:"dedup_window"`  // suppress duplicate detector/src/dst/port alerts within this window
 	Detectors          DetectorsConfig `yaml:"detectors"`
 }
 
@@ -76,7 +76,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var cfg Config
 	dec := yaml.NewDecoder(f)
@@ -107,21 +107,46 @@ func (c *Config) applyDefaults() error {
 	if c.NftSet == "" {
 		c.NftSet = "blocked_ips"
 	}
+	if err := validateNftIdentifier("nft_table", c.NftTable); err != nil {
+		return err
+	}
+	if err := validateNftIdentifier("nft_set", c.NftSet); err != nil {
+		return err
+	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
 	}
 	if c.APIEnabled && c.APIBind == "" {
 		c.APIBind = "127.0.0.1:8080"
 	}
+	if c.APIEnabled {
+		if _, _, err := net.SplitHostPort(c.APIBind); err != nil {
+			return fmt.Errorf("api_bind must be host:port, got %q: %w", c.APIBind, err)
+		}
+	}
 	if c.SyslogTarget != "" && c.SyslogProto == "" {
 		c.SyslogProto = "udp"
+	}
+	if c.SyslogTarget != "" {
+		if _, _, err := net.SplitHostPort(c.SyslogTarget); err != nil {
+			return fmt.Errorf("syslog_target must be host:port, got %q: %w", c.SyslogTarget, err)
+		}
+		if c.SyslogProto != "udp" && c.SyslogProto != "tcp" {
+			return fmt.Errorf("syslog_proto must be udp or tcp, got %q", c.SyslogProto)
+		}
 	}
 	if c.DedupWindow <= 0 {
 		c.DedupWindow = 5 * time.Minute
 	}
-	for _, cidr := range c.LANCIDRs {
+	for i, cidr := range c.LANCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid lan_cidr %q: %w", cidr, err)
+			return fmt.Errorf("lan_cidrs[%d] must be valid CIDR, got %q: %w", i, cidr, err)
+		}
+	}
+	for i, selfIP := range c.SelfIPs {
+		ip := net.ParseIP(selfIP)
+		if ip == nil || ip.To4() == nil {
+			return fmt.Errorf("self_ips[%d] must be an IPv4 address, got %q", i, selfIP)
 		}
 	}
 	if c.Detectors.Fanout.DistinctDstThreshold <= 0 {
@@ -159,6 +184,22 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Detectors.BruteForce.Window <= 0 {
 		c.Detectors.BruteForce.Window = 60 * time.Second
+	}
+	return nil
+}
+
+func validateNftIdentifier(field, value string) error {
+	for i, r := range value {
+		if i == 0 {
+			if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				continue
+			}
+			return fmt.Errorf("%s must start with a letter or underscore, got %q", field, value)
+		}
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return fmt.Errorf("%s must contain only letters, numbers, and underscores, got %q", field, value)
 	}
 	return nil
 }

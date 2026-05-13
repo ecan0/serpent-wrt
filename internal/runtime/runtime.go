@@ -25,6 +25,13 @@ const (
 	maxDedup   = 4096 // max dedup entries before accepting duplicates
 )
 
+const (
+	nftSetupDisabled     = "disabled"
+	nftSetupNotAttempted = "not_attempted"
+	nftSetupReady        = "ready"
+	nftSetupFailed       = "failed"
+)
+
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
 
 // isUnroutable reports whether ip should never appear as a threat actor —
@@ -39,12 +46,15 @@ func isUnroutable(ip net.IP) bool {
 
 // DetectionRecord is a summarized detection for the API response.
 type DetectionRecord struct {
-	Time     time.Time `json:"time"`
-	Detector string    `json:"detector"`
-	SrcIP    string    `json:"src_ip"`
-	DstIP    string    `json:"dst_ip,omitempty"`
-	DstPort  uint16    `json:"dst_port,omitempty"`
-	Message  string    `json:"message"`
+	Time       time.Time `json:"time"`
+	Detector   string    `json:"detector"`
+	Severity   string    `json:"severity"`
+	Confidence uint8     `json:"confidence"`
+	Reason     string    `json:"reason"`
+	SrcIP      string    `json:"src_ip"`
+	DstIP      string    `json:"dst_ip,omitempty"`
+	DstPort    uint16    `json:"dst_port,omitempty"`
+	Message    string    `json:"message"`
 }
 
 // Stats holds runtime counters exposed via the API.
@@ -55,11 +65,14 @@ type Stats struct {
 	StartedAt        time.Time         `json:"started_at"`
 }
 
-// dedupKey identifies a unique (detector, src, dst) combination for suppression.
+// dedupKey identifies a detector signal for suppression. Detectors that set a
+// destination port dedup per service; detectors that leave it zero, such as
+// fanout, continue to collapse at detector/src/dst precision.
 type dedupKey struct {
 	detType string
 	srcIP   string
 	dstIP   string
+	dstPort uint16
 }
 
 // Engine is the core detection and enforcement pipeline.
@@ -73,6 +86,8 @@ type Engine struct {
 	feed *feed.Feed
 	log  *events.Logger
 	enf  *enforcer.Enforcer
+
+	feedFileMu sync.Mutex
 
 	// outbound detectors
 	feedMatch *detector.FeedMatch
@@ -101,6 +116,13 @@ type Engine struct {
 	dedup       map[dedupKey]time.Time
 	dedupWindow time.Duration
 
+	nftMu         sync.Mutex
+	nftSetupState string
+	nftSetupError string
+
+	buildMu   sync.Mutex
+	buildInfo BuildInfo
+
 	startedAt time.Time
 }
 
@@ -121,7 +143,13 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		detByType:   make(map[string]uint64),
 		dedup:       make(map[dedupKey]time.Time),
 		dedupWindow: cfg.DedupWindow,
+		buildInfo:   defaultBuildInfo(),
 		startedAt:   time.Now(),
+	}
+	if cfg.EnforcementEnabled {
+		e.nftSetupState = nftSetupNotAttempted
+	} else {
+		e.nftSetupState = nftSetupDisabled
 	}
 	for _, cidr := range cfg.LANCIDRs {
 		if _, network, err := net.ParseCIDR(cidr); err == nil {
@@ -144,7 +172,20 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	if e.cfg.EnforcementEnabled {
 		if err := e.enf.EnsureSet(); err != nil {
-			e.log.Error(fmt.Sprintf("nftables setup failed (enforcement disabled): %v", err))
+			e.setNftSetupState(nftSetupFailed, err)
+			e.log.System(events.LevelError, events.SystemFields{
+				Component: "nft",
+				Action:    "setup",
+				Status:    "failure",
+				Error:     err.Error(),
+			}, fmt.Sprintf("nftables setup failed: %v", err))
+		} else {
+			e.setNftSetupState(nftSetupReady, nil)
+			e.log.System(events.LevelInfo, events.SystemFields{
+				Component: "nft",
+				Action:    "setup",
+				Status:    "success",
+			}, "nftables set ready")
 		}
 	}
 
@@ -170,7 +211,12 @@ func (e *Engine) Run(ctx context.Context) error {
 func (e *Engine) poll() {
 	flows, err := collector.Collect()
 	if err != nil {
-		e.log.Error(fmt.Sprintf("collect: %v", err))
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "collector",
+			Action:    "collect",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("collector failed: %v", err))
 		return
 	}
 	atomic.AddUint64(&e.flowsSeen, uint64(len(flows)))
@@ -221,7 +267,13 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 }
 
 func (e *Engine) handleDetection(det *detector.Detection) {
-	key := dedupKey{det.Type, ipStr(det.SrcIP), ipStr(det.DstIP)}
+	det.Normalize()
+	key := dedupKey{
+		detType: det.Type,
+		srcIP:   ipStr(det.SrcIP),
+		dstIP:   ipStr(det.DstIP),
+		dstPort: det.DstPort,
+	}
 	now := time.Now()
 
 	e.dedupMu.Lock()
@@ -236,14 +288,17 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.dedupMu.Unlock()
 
 	ev := events.Event{
-		Time:     now,
-		Level:    events.LevelWarn,
-		Type:     events.TypeDetection,
-		Detector: det.Type,
-		SrcIP:    ipStr(det.SrcIP),
-		DstIP:    ipStr(det.DstIP),
-		DstPort:  det.DstPort,
-		Message:  det.Message,
+		Time:       now,
+		Level:      events.LevelWarn,
+		Type:       events.TypeDetection,
+		Detector:   det.Type,
+		Severity:   string(det.Severity),
+		Confidence: det.Confidence,
+		Reason:     string(det.Reason),
+		SrcIP:      ipStr(det.SrcIP),
+		DstIP:      ipStr(det.DstIP),
+		DstPort:    det.DstPort,
+		Message:    det.Message,
 	}
 	e.log.Log(ev)
 
@@ -252,12 +307,15 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.detByTypeMu.Unlock()
 
 	rec := DetectionRecord{
-		Time:     now,
-		Detector: det.Type,
-		SrcIP:    ipStr(det.SrcIP),
-		DstIP:    ipStr(det.DstIP),
-		DstPort:  det.DstPort,
-		Message:  det.Message,
+		Time:       now,
+		Detector:   det.Type,
+		Severity:   string(det.Severity),
+		Confidence: det.Confidence,
+		Reason:     string(det.Reason),
+		SrcIP:      ipStr(det.SrcIP),
+		DstIP:      ipStr(det.DstIP),
+		DstPort:    det.DstPort,
+		Message:    det.Message,
 	}
 	e.recentMu.Lock()
 	e.recent[e.rHead] = rec
@@ -297,18 +355,48 @@ func (e *Engine) prune() {
 
 func (e *Engine) loadFeed() error {
 	if err := e.feed.Load(e.cfg.ThreatFeedPath); err != nil {
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "feed",
+			Action:    "load",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("load threat feed failed: %v", err))
 		return err
 	}
-	e.log.Info(fmt.Sprintf("loaded threat feed: %d entries", e.feed.Len()))
+	count := e.feed.Len()
+	e.log.System(events.LevelInfo, events.SystemFields{
+		Component: "feed",
+		Action:    "load",
+		Status:    "success",
+		FeedCount: &count,
+	}, fmt.Sprintf("loaded threat feed: %d entries", count))
 	return nil
 }
 
 // ReloadFeed reloads the threat feed from disk. Safe to call concurrently.
 func (e *Engine) ReloadFeed() error {
+	e.feedFileMu.Lock()
+	defer e.feedFileMu.Unlock()
+	return e.reloadFeedLocked()
+}
+
+func (e *Engine) reloadFeedLocked() error {
 	if err := e.feed.Load(e.cfg.ThreatFeedPath); err != nil {
+		e.log.System(events.LevelError, events.SystemFields{
+			Component: "feed",
+			Action:    "reload",
+			Status:    "failure",
+			Error:     err.Error(),
+		}, fmt.Sprintf("reload threat feed failed: %v", err))
 		return err
 	}
-	e.log.Info(fmt.Sprintf("reloaded threat feed: %d entries", e.feed.Len()))
+	count := e.feed.Len()
+	e.log.System(events.LevelInfo, events.SystemFields{
+		Component: "feed",
+		Action:    "reload",
+		Status:    "success",
+		FeedCount: &count,
+	}, fmt.Sprintf("reloaded threat feed: %d entries", count))
 	return nil
 }
 
@@ -329,12 +417,13 @@ func (e *Engine) GetStats() Stats {
 	}
 }
 
-// RecentDetections returns up to recentCap detections from the ring buffer.
+// RecentDetections returns up to recentCap detections in chronological order.
 func (e *Engine) RecentDetections() []DetectionRecord {
 	e.recentMu.Lock()
 	defer e.recentMu.Unlock()
-	var out []DetectionRecord
-	for _, r := range e.recent {
+	out := make([]DetectionRecord, 0, recentCap)
+	for i := 0; i < recentCap; i++ {
+		r := e.recent[(e.rHead+i)%recentCap]
 		if !r.Time.IsZero() {
 			out = append(out, r)
 		}
@@ -380,4 +469,15 @@ func ipStr(ip net.IP) string {
 		return ""
 	}
 	return ip.String()
+}
+
+func (e *Engine) setNftSetupState(state string, err error) {
+	e.nftMu.Lock()
+	e.nftSetupState = state
+	if err != nil {
+		e.nftSetupError = err.Error()
+	} else {
+		e.nftSetupError = ""
+	}
+	e.nftMu.Unlock()
 }

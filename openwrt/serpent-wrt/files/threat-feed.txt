@@ -1,0 +1,4 @@
+# Add one IPv4 address or CIDR per line.
+# Example:
+# 198.51.100.10
+# 203.0.113.0/24

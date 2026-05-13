@@ -42,3 +42,30 @@ func TestIsBeaconingTooFewPoints(t *testing.T) {
 		t.Fatal("empty slice should not trigger beaconing")
 	}
 }
+
+func TestBeaconScoreConfidenceTracksCadenceQuality(t *testing.T) {
+	base := time.Now()
+	tight := []time.Time{
+		base,
+		base.Add(10 * time.Second),
+		base.Add(20 * time.Second),
+		base.Add(30 * time.Second),
+		base.Add(40 * time.Second),
+	}
+	loose := []time.Time{
+		base,
+		base.Add(10 * time.Second),
+		base.Add(19 * time.Second),
+		base.Add(31 * time.Second),
+		base.Add(40 * time.Second),
+	}
+
+	tightOK, tightConfidence := beaconScore(tight, 3*time.Second, 1*time.Second)
+	looseOK, looseConfidence := beaconScore(loose, 3*time.Second, 1*time.Second)
+	if !tightOK || !looseOK {
+		t.Fatal("expected both sequences to remain within tolerance")
+	}
+	if tightConfidence <= looseConfidence {
+		t.Fatalf("tight cadence confidence should exceed loose cadence: tight=%d loose=%d", tightConfidence, looseConfidence)
+	}
+}

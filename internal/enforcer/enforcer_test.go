@@ -53,6 +53,23 @@ func TestFormatDurationSeconds(t *testing.T) {
 	}
 }
 
+func TestEnsureSetScript(t *testing.T) {
+	got := ensureSetScript("serpent_wrt", "blocked_ips")
+	want := "add table inet serpent_wrt\n" +
+		"add set inet serpent_wrt blocked_ips { type ipv4_addr; flags timeout; }\n"
+	if got != want {
+		t.Fatalf("ensureSetScript:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+func TestBlockScript(t *testing.T) {
+	got := blockScript("serpent_wrt", "blocked_ips", "1.2.3.4", 90*time.Second)
+	want := "add element inet serpent_wrt blocked_ips { 1.2.3.4 timeout 90s }\n"
+	if got != want {
+		t.Fatalf("blockScript:\ngot  %q\nwant %q", got, want)
+	}
+}
+
 func TestNew(t *testing.T) {
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
 	if e == nil {

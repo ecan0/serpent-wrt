@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,20 @@ func TestLoadInvalidCIDR(t *testing.T) {
 	_, err := config.Load(f)
 	if err == nil {
 		t.Fatal("expected error for invalid lan_cidr")
+	}
+	if !strings.Contains(err.Error(), "lan_cidrs[0]") {
+		t.Fatalf("error: got %q, want lan_cidrs[0] context", err)
+	}
+}
+
+func TestLoadInvalidSelfIP(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./f.txt\nself_ips:\n  - not-an-ip\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid self_ips")
+	}
+	if !strings.Contains(err.Error(), "self_ips[0]") {
+		t.Fatalf("error: got %q, want self_ips[0] context", err)
 	}
 }
 
@@ -129,16 +144,73 @@ func TestLoadAPIBindDefault(t *testing.T) {
 	}
 }
 
+func TestLoadInvalidAPIBind(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\napi_enabled: true\napi_bind: bad-bind\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid api_bind")
+	}
+	if !strings.Contains(err.Error(), "api_bind") {
+		t.Fatalf("error: got %q, want api_bind context", err)
+	}
+}
+
+func TestLoadInvalidSyslogTarget(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsyslog_target: bad-target\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid syslog_target")
+	}
+	if !strings.Contains(err.Error(), "syslog_target") {
+		t.Fatalf("error: got %q, want syslog_target context", err)
+	}
+}
+
+func TestLoadInvalidSyslogProto(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsyslog_target: \"10.0.0.1:514\"\nsyslog_proto: quic\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid syslog_proto")
+	}
+	if !strings.Contains(err.Error(), "syslog_proto") {
+		t.Fatalf("error: got %q, want syslog_proto context", err)
+	}
+}
+
+func TestLoadInvalidNftTable(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_table: \"bad; flush ruleset\"\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid nft_table")
+	}
+	if !strings.Contains(err.Error(), "nft_table") {
+		t.Fatalf("error: got %q, want nft_table context", err)
+	}
+}
+
+func TestLoadInvalidNftSet(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_set: \"blocked-ips\"\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid nft_set")
+	}
+	if !strings.Contains(err.Error(), "nft_set") {
+		t.Fatalf("error: got %q, want nft_set context", err)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cfg*.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return f.Name()
 }

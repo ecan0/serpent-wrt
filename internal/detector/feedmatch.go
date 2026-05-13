@@ -20,22 +20,28 @@ func NewFeedMatch(f *feed.Feed) *FeedMatch {
 func (d *FeedMatch) Check(r flow.FlowRecord) *Detection {
 	if r.DstIP != nil && d.feed.Contains(r.DstIP) {
 		return &Detection{
-			Type:    "feed_match",
-			SrcIP:   r.SrcIP,
-			DstIP:   r.DstIP,
-			DstPort: r.DstPort,
-			Message: fmt.Sprintf("connection to threat feed entry %s", r.DstIP),
-			At:      time.Now(),
+			Type:       "feed_match",
+			Severity:   SeverityHigh,
+			Confidence: 95,
+			Reason:     ReasonThreatFeedDestination,
+			SrcIP:      r.SrcIP,
+			DstIP:      r.DstIP,
+			DstPort:    r.DstPort,
+			Message:    fmt.Sprintf("connection to threat feed entry %s", r.DstIP),
+			At:         time.Now(),
 		}
 	}
 	if r.SrcIP != nil && d.feed.Contains(r.SrcIP) {
 		return &Detection{
-			Type:    "feed_match",
-			SrcIP:   r.SrcIP,
-			DstIP:   r.DstIP,
-			DstPort: r.DstPort,
-			Message: fmt.Sprintf("connection from threat feed entry %s", r.SrcIP),
-			At:      time.Now(),
+			Type:       "feed_match",
+			Severity:   SeverityHigh,
+			Confidence: 95,
+			Reason:     ReasonThreatFeedSource,
+			SrcIP:      r.SrcIP,
+			DstIP:      r.DstIP,
+			DstPort:    r.DstPort,
+			Message:    fmt.Sprintf("connection from threat feed entry %s", r.SrcIP),
+			At:         time.Now(),
 		}
 	}
 	return nil

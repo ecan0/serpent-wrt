@@ -32,12 +32,15 @@ func (d *PortScan) Check(r flow.FlowRecord) *Detection {
 		return nil
 	}
 	return &Detection{
-		Type:    "port_scan",
-		SrcIP:   r.SrcIP,
-		DstIP:   r.DstIP,
-		DstPort: r.DstPort,
-		Message: fmt.Sprintf("%s scanned %d distinct ports on %s (threshold %d)", r.SrcIP, count, r.DstIP, d.threshold),
-		At:      time.Now(),
+		Type:       "port_scan",
+		Severity:   SeverityMedium,
+		Confidence: thresholdConfidence(count, d.threshold),
+		Reason:     ReasonOutboundDistinctPorts,
+		SrcIP:      r.SrcIP,
+		DstIP:      r.DstIP,
+		DstPort:    r.DstPort,
+		Message:    fmt.Sprintf("%s scanned %d distinct ports on %s (threshold %d)", r.SrcIP, count, r.DstIP, d.threshold),
+		At:         time.Now(),
 	}
 }
 

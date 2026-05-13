@@ -4,41 +4,93 @@ on:
   push:
     branches: [dev]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      code_changed: ${{ steps.filter.outputs.code_changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        name: Check changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base="$(git rev-parse "$head^" 2>/dev/null || true)"
+            fi
+          fi
+
+          if [ -n "${base:-}" ]; then
+            changed="$(git diff --name-only "$base" "$head")"
+          else
+            changed="$(git ls-tree -r --name-only "$head")"
+          fi
+
+          echo "$changed"
+
+          code_changed=false
+          if printf '%s\n' "$changed" | grep -Eq '^(\.github/workflows/|cmd/|internal/|configs/|contrib/|openwrt/|scripts/|testdata/|go\.mod$|go\.sum$|Makefile$)'; then
+            code_changed=true
+          fi
+
+          echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
+          echo "code_changed=$code_changed"
+
   build:
     name: Build
     runs-on: self-hosted
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
 
       - name: Build (native)
-        run: go build ./cmd/serpent-wrt
+        run: make build
 
-      - name: Build (linux/386 — openwrt-x86 target)
-        run: GOOS=linux GOARCH=386 go build -o /dev/null ./cmd/serpent-wrt
+      - name: Check version output
+        run: bin/serpent-wrt -version
 
-      # Uncomment when targeting additional OpenWRT architectures
-      # - name: Build (linux/mips)
-      #   run: GOOS=linux GOARCH=mips go build -o /dev/null ./cmd/serpent-wrt
-      # - name: Build (linux/mipsle)
-      #   run: GOOS=linux GOARCH=mipsle go build -o /dev/null ./cmd/serpent-wrt
-      # - name: Build (linux/arm v7)
-      #   run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/serpent-wrt
+      - name: Build OpenWrt router targets
+        run: make build-openwrt-targets
 
   test:
     name: Test
     runs-on: self-hosted
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -52,10 +104,13 @@ jobs:
   lint:
     name: Lint
     runs-on: self-hosted
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -63,18 +118,20 @@ jobs:
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          install-mode: goinstall
+          version: v2.11
 
   scan:
     name: Scan
     runs-on: self-hosted
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -86,25 +143,27 @@ jobs:
         run: govulncheck ./...
 
   deploy-test:
-    name: Deploy (openwrt-x86)
+    name: Runtime test (openwrt-x86-generic)
     runs-on: self-hosted
-    needs: [build, test, lint, scan]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    timeout-minutes: 15
+    needs: [changes, build, test, lint, scan]
+    if: always() && needs.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
       OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
+      OPENWRT_USER: root
     steps:
       - name: Check deploy target configured
         run: |
           if [ -n "$OPENWRT_HOST" ]; then
             echo "DEPLOY_ENABLED=true" >> "$GITHUB_ENV"
           else
-            echo "OPENWRT_HOST secret not set — skipping deploy"
+            echo "OPENWRT_HOST secret not set - skipping deploy"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: env.DEPLOY_ENABLED == 'true'
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         if: env.DEPLOY_ENABLED == 'true'
         with:
           go-version-file: go.mod
@@ -121,27 +180,58 @@ jobs:
 
       - name: Check connectivity
         if: env.DEPLOY_ENABLED == 'true'
-        run: ping -c 2 "$OPENWRT_HOST"
+        run: ping -c 2 "${OPENWRT_HOST#*@}"
 
-      - name: Build (linux/386)
+      - name: Build OpenWrt x86 generic binary
         if: env.DEPLOY_ENABLED == 'true'
-        run: GOOS=linux GOARCH=386 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-linux-386 ./cmd/serpent-wrt
+        run: make build-openwrt-x86
 
-      - name: Deploy to openwrt-x86
+      - name: Install and verify on OpenWrt
         if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          scp -O -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            bin/serpent-wrt-linux-386 "root@$OPENWRT_HOST:/tmp/serpent-wrt"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
-            "mv /tmp/serpent-wrt /usr/sbin/serpent-wrt && /etc/init.d/serpent-wrt restart"
-
-      - name: Verify serpent-wrt started
-        if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          sleep 4
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@$OPENWRT_HOST" \
-            "/etc/init.d/serpent-wrt status && logread | grep serpent-wrt | tail -5"
+        env:
+          OPENWRT_BINARY: bin/serpent-wrt-openwrt-x86
+        run: SSH_KEY_PATH="$HOME/.ssh/deploy_key" sh scripts/openwrt-runtime-test.sh
 
       - name: Clean up SSH key
         if: always() && env.DEPLOY_ENABLED == 'true'
         run: rm -f ~/.ssh/deploy_key
+
+  ci-gate:
+    name: CI Gate
+    runs-on: self-hosted
+    timeout-minutes: 5
+    needs: [changes, build, test, lint, scan]
+    if: always()
+    steps:
+      - name: Summarize CI requirement
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ needs.changes.outputs.code_changed }}" != "true" ]; then
+            echo "No code/runtime paths changed; full CI is not required."
+            exit 0
+          fi
+
+          failed=false
+          for result in \
+            "${{ needs.build.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.lint.result }}" \
+            "${{ needs.scan.result }}"
+          do
+            if [ "$result" != "success" ]; then
+              failed=true
+            fi
+          done
+
+          if [ "$failed" = "true" ]; then
+            echo "One or more required CI jobs failed or did not complete successfully."
+            echo "Build: ${{ needs.build.result }}"
+            echo "Test:  ${{ needs.test.result }}"
+            echo "Lint:  ${{ needs.lint.result }}"
+            echo "Scan:  ${{ needs.scan.result }}"
+            exit 1
+          fi
+
+          echo "Required CI jobs passed."
