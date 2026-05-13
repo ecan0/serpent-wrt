@@ -20,12 +20,14 @@ api_get() {
 	path=$1
 	tries=10
 	while [ "$tries" -gt 0 ]; do
-		if wget -q -T 2 -O - "http://127.0.0.1:8080$path"; then
+		if body=$(wget -q -T 2 -O - "http://127.0.0.1:8080$path" 2>/dev/null); then
+			printf '%s\n' "$body"
 			return 0
 		fi
 		tries=$((tries - 1))
 		sleep 1
 	done
+	echo "API GET $path did not become ready" >&2
 	return 1
 }
 

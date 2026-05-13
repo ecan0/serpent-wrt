@@ -188,7 +188,7 @@ make package/serpent-wrt/compile V=s
 
 ```sh
 # Current lab VM is x86/generic, so this builds a 32-bit x86 binary.
-make deploy-x86 DEPLOY_HOST=root@openwrt-x86-64
+make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
 Manual install path:
@@ -392,13 +392,23 @@ docs/                   release and operational documentation
 
 ## Roadmap
 
-### v0.1 ship hardening
+### v0.1 status
 
-- OpenWrt SDK package validation and package metadata refresh.
-- `configtest` and procd start/reload hardening.
+The daemon/API is release-candidate ready for a first lightweight tag:
+
+- `configtest` and procd start/reload validation.
+- Runtime smoke checks for `configtest`, API health, `/status`, `/stats`,
+  `/reload`, service reload, and service restart.
 - nft command construction tests and fw4 ownership documentation.
-- Runtime smoke checks for `/status`, reload, service restart, and API health.
-- Changelog and release documentation cleanup.
+- Local feed management API for bounded list, validate, add, remove, and replace
+  operations.
+- Changelog and release documentation for v0.1.0.
+
+Before wider OpenWrt package publication:
+
+- Validate the package scaffold in a real OpenWrt SDK/buildroot.
+- Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
+  release source metadata and a fixed hash.
 
 ### Strong candidates after v0.1
 
@@ -438,7 +448,7 @@ make build-openwrt-targets
 Runtime lab validation is available through:
 
 ```sh
-make deploy-x86 DEPLOY_HOST=root@openwrt-x86-64
+make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
 The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
