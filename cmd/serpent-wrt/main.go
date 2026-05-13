@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +15,7 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/api"
 	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/events"
+	"github.com/ecan0/serpent-wrt/internal/feed"
 	"github.com/ecan0/serpent-wrt/internal/runtime"
 )
 
@@ -23,26 +26,101 @@ var (
 )
 
 func main() {
-	cfgPath := flag.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	if *showVersion {
-		fmt.Printf("serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
-		return
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "configtest" {
+		return runConfigtest(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	fs := flag.NewFlagSet("serpent-wrt", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
+	showVersion := fs.Bool("version", false, "print version and exit")
+	fs.Usage = func() {
+		writef(stderr, "Usage: serpent-wrt [--config path] [configtest]\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if *showVersion {
+		writef(stdout, "serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
+		return 0
+	}
+
+	if fs.NArg() > 0 {
+		switch fs.Arg(0) {
+		case "configtest":
+			return runConfigtest(fs.Args()[1:], stdout, stderr, *cfgPath)
+		default:
+			writef(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
+			return 2
+		}
+	}
+
+	return runDaemon(*cfgPath, stderr)
+}
+
+func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath string) int {
+	fs := flag.NewFlagSet("serpent-wrt configtest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
+	fs.Usage = func() {
+		writef(stderr, "Usage: serpent-wrt configtest [--config path]\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() > 0 {
+		writef(stderr, "serpent-wrt: configtest: unexpected argument %q\n", fs.Arg(0))
+		return 2
+	}
+
+	cfg, feedEntries, err := checkConfig(*cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "serpent-wrt: config: %v\n", err)
-		os.Exit(1)
+		writef(stderr, "serpent-wrt: configtest failed: %v\n", err)
+		return 1
+	}
+	writef(stdout, "serpent-wrt: config OK: %s (feed=%s entries=%d)\n",
+		*cfgPath, cfg.ThreatFeedPath, feedEntries)
+	return 0
+}
+
+func checkConfig(path string) (*config.Config, int, error) {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("config: %w", err)
+	}
+
+	feedEntries, err := feed.ValidateFile(cfg.ThreatFeedPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("threat feed: %w", err)
+	}
+	return cfg, feedEntries, nil
+}
+
+func runDaemon(cfgPath string, stderr io.Writer) int {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		writef(stderr, "serpent-wrt: config: %v\n", err)
+		return 1
 	}
 
 	var remote *events.UDPSyslog
 	if cfg.SyslogTarget != "" {
 		remote, err = events.NewUDPSyslog(cfg.SyslogProto, cfg.SyslogTarget)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
+			writef(stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
 				cfg.SyslogProto, cfg.SyslogTarget, err)
 		}
 	}
@@ -122,6 +200,11 @@ func main() {
 			Status:    "failure",
 			Error:     err.Error(),
 		}, fmt.Sprintf("engine failed: %v", err))
-		os.Exit(1)
+		return 1
 	}
+	return 0
+}
+
+func writef(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }

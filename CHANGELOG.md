@@ -15,11 +15,21 @@ changes are grouped under `Unreleased`.
 - Cross-build checks for representative OpenWrt router architectures.
 - Runtime smoke test against the current OpenWrt x86/generic lab VM.
 - Detection events now include severity, confidence, and stable reason metadata.
+- `serpent-wrt configtest` for validating the YAML config and referenced threat
+  feed before starting or reloading.
+- OpenWrt smoke coverage for `configtest`, API liveness, `/status`, `/stats`,
+  `/reload`, and service reload/restart behavior.
 
 ### Changed
 
 - CI now validates common OpenWrt target builds and the lab runtime install path.
+- OpenWrt init scripts now fail start/reload clearly when config validation
+  fails.
+- Release docs now call out the custom-feed package metadata refresh and the
+  need for fixed source hashes before public package submission.
 
 ### Security
 
 - Public repository hygiene and security reporting policy.
+- nftables table and set names are constrained to conservative identifiers
+  before they are used to construct nft commands.

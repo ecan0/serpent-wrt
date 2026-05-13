@@ -177,6 +177,28 @@ func TestLoadInvalidSyslogProto(t *testing.T) {
 	}
 }
 
+func TestLoadInvalidNftTable(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_table: \"bad; flush ruleset\"\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid nft_table")
+	}
+	if !strings.Contains(err.Error(), "nft_table") {
+		t.Fatalf("error: got %q, want nft_table context", err)
+	}
+}
+
+func TestLoadInvalidNftSet(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_set: \"blocked-ips\"\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid nft_set")
+	}
+	if !strings.Contains(err.Error(), "nft_set") {
+		t.Fatalf("error: got %q, want nft_set context", err)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cfg*.yaml")

@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ecan0/serpent-wrt/internal/feed"
@@ -89,6 +90,23 @@ bad/cidr
 	}
 }
 
+func TestFeedLoadIgnoresIPv6CIDR(t *testing.T) {
+	path := writeFeed(t, `
+2001:db8::/32
+1.2.3.4
+`)
+	f := feed.New()
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if f.Len() != 1 {
+		t.Fatalf("len: got %d, want 1", f.Len())
+	}
+	if !f.Contains(net.ParseIP("1.2.3.4")) {
+		t.Error("expected exact IPv4 entry to match")
+	}
+}
+
 func TestFeedLoadDeduplicatesExactIPs(t *testing.T) {
 	path := writeFeed(t, `
 1.2.3.4
@@ -138,6 +156,57 @@ func TestFeedIPv4Only(t *testing.T) {
 	// IPv6 addresses should never match
 	if f.Contains(net.ParseIP("::1")) {
 		t.Error("IPv6 loopback should not match feed")
+	}
+}
+
+func TestValidateFileSuccess(t *testing.T) {
+	path := writeFeed(t, `
+# comment
+1.2.3.4
+5.6.7.0/24
+`)
+	count, err := feed.ValidateFile(path)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count: got %d, want 2", count)
+	}
+}
+
+func TestValidateFileRejectsMalformedEntry(t *testing.T) {
+	path := writeFeed(t, `
+1.2.3.4
+not-an-ip
+`)
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected malformed entry error")
+	}
+	if !strings.Contains(err.Error(), "line 3") || !strings.Contains(err.Error(), "not-an-ip") {
+		t.Fatalf("error: got %q, want line and entry context", err)
+	}
+}
+
+func TestValidateFileRejectsIPv6(t *testing.T) {
+	path := writeFeed(t, "::1\n")
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected IPv6 error")
+	}
+	if !strings.Contains(err.Error(), "invalid IPv4 address") {
+		t.Fatalf("error: got %q, want IPv4 context", err)
+	}
+}
+
+func TestValidateFileRejectsIPv6CIDR(t *testing.T) {
+	path := writeFeed(t, "2001:db8::/32\n")
+	_, err := feed.ValidateFile(path)
+	if err == nil {
+		t.Fatal("expected IPv6 CIDR error")
+	}
+	if !strings.Contains(err.Error(), "IPv6 CIDR") {
+		t.Fatalf("error: got %q, want IPv6 CIDR context", err)
 	}
 }
 

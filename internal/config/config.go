@@ -107,6 +107,12 @@ func (c *Config) applyDefaults() error {
 	if c.NftSet == "" {
 		c.NftSet = "blocked_ips"
 	}
+	if err := validateNftIdentifier("nft_table", c.NftTable); err != nil {
+		return err
+	}
+	if err := validateNftIdentifier("nft_set", c.NftSet); err != nil {
+		return err
+	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
 	}
@@ -178,6 +184,22 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Detectors.BruteForce.Window <= 0 {
 		c.Detectors.BruteForce.Window = 60 * time.Second
+	}
+	return nil
+}
+
+func validateNftIdentifier(field, value string) error {
+	for i, r := range value {
+		if i == 0 {
+			if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				continue
+			}
+			return fmt.Errorf("%s must start with a letter or underscore, got %q", field, value)
+		}
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return fmt.Errorf("%s must contain only letters, numbers, and underscores, got %q", field, value)
 	}
 	return nil
 }
