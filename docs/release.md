@@ -29,16 +29,25 @@ This checklist is for project releases and OpenWrt package refreshes.
 
 ## OpenWrt Package Refresh
 
-1. Prefer a tagged release archive over a moving Git commit.
+1. Prefer a tagged release archive plus a fixed hash for public releases. The
+   current package Makefile is acceptable for custom-feed development, but
+   `PKG_MIRROR_HASH:=skip` should not be used for a public package submission.
 2. Update `openwrt/serpent-wrt/Makefile`:
 
    - `PKG_SOURCE_DATE`
-   - `PKG_SOURCE_VERSION`
-   - `PKG_MIRROR_HASH`
+   - `PKG_SOURCE_VERSION` to the full release commit SHA, or switch to a tag
+     archive source after the tag exists
+   - `PKG_MIRROR_HASH` / `PKG_HASH` to a fixed value for release packaging
    - `PKG_RELEASE`
    - `PKG_MAINTAINER`
 
-3. Validate with a real OpenWrt SDK:
+3. Run local package scaffold checks:
+
+   ```sh
+   go test ./internal/packagecheck
+   ```
+
+4. Validate with a real OpenWrt SDK:
 
    ```sh
    ./scripts/feeds update -a
@@ -47,10 +56,11 @@ This checklist is for project releases and OpenWrt package refreshes.
    make package/serpent-wrt/compile V=s
    ```
 
-4. Install the resulting package on an OpenWrt test target.
-5. Run:
+5. Install the resulting package on an OpenWrt test target.
+6. Run:
 
    ```sh
+   /etc/init.d/serpent-wrt configtest
    /bin/sh /tmp/serpent-wrt-ci/test.sh
    /etc/init.d/serpent-wrt status
    ```

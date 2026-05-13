@@ -172,7 +172,9 @@ for that target.
 
 The OpenWrt package scaffold lives in [openwrt/serpent-wrt](openwrt/serpent-wrt).
 It is intended for a custom feed today. Before a tagged release, validate it in
-a real OpenWrt SDK and refresh package source metadata.
+a real OpenWrt SDK and refresh package source metadata. Public release
+packaging should use a final commit or tag source and a fixed source hash rather
+than the development `PKG_MIRROR_HASH:=skip` setting.
 
 ```sh
 # From an OpenWrt SDK/buildroot with this package added to a feed:
@@ -262,6 +264,8 @@ Important fields:
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.
 - `enforcement_enabled` defaults deployments toward detect-only operation.
+- `nft_table` and `nft_set` must use conservative nft identifiers: letters,
+  numbers, and underscores, with a letter or underscore first.
 - `dedup_window` suppresses repeated alerts from the same detector/source/target
   combination.
 - `syslog_target` and `syslog_proto` can forward JSON events to a SIEM.
@@ -275,7 +279,16 @@ Common OpenWrt commands:
 /etc/init.d/serpent-wrt stop
 /etc/init.d/serpent-wrt restart
 /etc/init.d/serpent-wrt status
+/etc/init.d/serpent-wrt configtest
 /etc/init.d/serpent-wrt reload_feed
+```
+
+Validate the YAML config and referenced threat feed before starting or
+reloading:
+
+```sh
+serpent-wrt configtest
+serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
 ```
 
 Hot-reload the threat feed without restarting:
@@ -324,6 +337,12 @@ deployment alongside syslog forwarding.
 When enforcement is enabled, detections can add IPv4 addresses to a named
 nftables set with a timeout. The kernel expires those entries; the daemon also
 keeps a bounded local map so it avoids repeatedly adding the same IP.
+
+On OpenWrt, firewall4 (`fw4`) owns the generated firewall ruleset. `serpent-wrt`
+uses its own `inet` table and set for dynamic blocks; do not point it at a
+fw4-managed table unless you are deliberately integrating custom firewall
+includes. After a firewall reload, restart `serpent-wrt` before relying on
+enforcement so the daemon can recreate its table and set if fw4 flushed them.
 
 Before enabling enforcement on a real router:
 
@@ -411,6 +430,9 @@ Runtime lab validation is available through:
 ```sh
 make deploy-x86 DEPLOY_HOST=root@openwrt-x86-64
 ```
+
+The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
+`/reload`, and service reload/restart behavior against the deployed daemon.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
 [docs/release.md](docs/release.md) for project workflow, security reporting, and

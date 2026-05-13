@@ -63,7 +63,22 @@ func (f *Feed) Len() int {
 	return len(f.ips) + len(f.cidrs)
 }
 
+// ValidateFile strictly validates a threat feed without mutating a Feed.
+// Unlike Load, malformed entries are returned as errors so configtest can fail
+// before the daemon starts or reloads with an unintended feed.
+func ValidateFile(path string) (int, error) {
+	ips, cidrs, err := parseFileMode(path, true)
+	if err != nil {
+		return 0, err
+	}
+	return len(ips) + len(cidrs), nil
+}
+
 func parseFile(path string) (map[string]struct{}, []*net.IPNet, error) {
+	return parseFileMode(path, false)
+}
+
+func parseFileMode(path string, strict bool) (map[string]struct{}, []*net.IPNet, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open feed %q: %w", path, err)
@@ -74,20 +89,34 @@ func parseFile(path string) (map[string]struct{}, []*net.IPNet, error) {
 	var cidrs []*net.IPNet
 
 	scanner := bufio.NewScanner(file)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		if strings.Contains(line, "/") {
-			_, ipnet, err := net.ParseCIDR(line)
+			ip, ipnet, err := net.ParseCIDR(line)
 			if err != nil {
+				if strict {
+					return nil, nil, fmt.Errorf("line %d: invalid IPv4 CIDR %q: %w", lineNo, line, err)
+				}
 				continue // skip malformed entries
+			}
+			if ip.To4() == nil {
+				if strict {
+					return nil, nil, fmt.Errorf("line %d: IPv6 CIDR is not supported: %q", lineNo, line)
+				}
+				continue
 			}
 			cidrs = append(cidrs, ipnet)
 		} else {
 			ip := net.ParseIP(line)
-			if ip == nil {
+			if ip == nil || ip.To4() == nil {
+				if strict {
+					return nil, nil, fmt.Errorf("line %d: invalid IPv4 address %q", lineNo, line)
+				}
 				continue
 			}
 			if ip4 := ip.To4(); ip4 != nil {
