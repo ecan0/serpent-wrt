@@ -87,6 +87,8 @@ type Engine struct {
 	log  *events.Logger
 	enf  *enforcer.Enforcer
 
+	feedFileMu sync.Mutex
+
 	// outbound detectors
 	feedMatch *detector.FeedMatch
 	fanout    *detector.Fanout
@@ -373,6 +375,12 @@ func (e *Engine) loadFeed() error {
 
 // ReloadFeed reloads the threat feed from disk. Safe to call concurrently.
 func (e *Engine) ReloadFeed() error {
+	e.feedFileMu.Lock()
+	defer e.feedFileMu.Unlock()
+	return e.reloadFeedLocked()
+}
+
+func (e *Engine) reloadFeedLocked() error {
 	if err := e.feed.Load(e.cfg.ThreatFeedPath); err != nil {
 		e.log.System(events.LevelError, events.SystemFields{
 			Component: "feed",
