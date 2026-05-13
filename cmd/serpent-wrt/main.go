@@ -39,7 +39,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cfgPath := fs.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: serpent-wrt [--config path] [configtest]\n\n")
+		writef(stderr, "Usage: serpent-wrt [--config path] [configtest]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -50,7 +50,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
+		writef(stdout, "serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
 		return 0
 	}
 
@@ -59,7 +59,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case "configtest":
 			return runConfigtest(fs.Args()[1:], stdout, stderr, *cfgPath)
 		default:
-			fmt.Fprintf(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
+			writef(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
 			return 2
 		}
 	}
@@ -72,7 +72,7 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: serpent-wrt configtest [--config path]\n\n")
+		writef(stderr, "Usage: serpent-wrt configtest [--config path]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -82,16 +82,16 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 		return 2
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "serpent-wrt: configtest: unexpected argument %q\n", fs.Arg(0))
+		writef(stderr, "serpent-wrt: configtest: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
 
 	cfg, feedEntries, err := checkConfig(*cfgPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "serpent-wrt: configtest failed: %v\n", err)
+		writef(stderr, "serpent-wrt: configtest failed: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "serpent-wrt: config OK: %s (feed=%s entries=%d)\n",
+	writef(stdout, "serpent-wrt: config OK: %s (feed=%s entries=%d)\n",
 		*cfgPath, cfg.ThreatFeedPath, feedEntries)
 	return 0
 }
@@ -112,7 +112,7 @@ func checkConfig(path string) (*config.Config, int, error) {
 func runDaemon(cfgPath string, stderr io.Writer) int {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "serpent-wrt: config: %v\n", err)
+		writef(stderr, "serpent-wrt: config: %v\n", err)
 		return 1
 	}
 
@@ -120,7 +120,7 @@ func runDaemon(cfgPath string, stderr io.Writer) int {
 	if cfg.SyslogTarget != "" {
 		remote, err = events.NewUDPSyslog(cfg.SyslogProto, cfg.SyslogTarget)
 		if err != nil {
-			fmt.Fprintf(stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
+			writef(stderr, "serpent-wrt: syslog dial %s://%s: %v (continuing without remote logging)\n",
 				cfg.SyslogProto, cfg.SyslogTarget, err)
 		}
 	}
@@ -203,4 +203,8 @@ func runDaemon(cfgPath string, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func writef(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }
