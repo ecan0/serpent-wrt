@@ -19,6 +19,8 @@ changes are grouped under `Unreleased`.
   feed before starting or reloading.
 - OpenWrt smoke coverage for `configtest`, API liveness, `/status`, `/stats`,
   `/reload`, and service reload/restart behavior.
+- Local threat-feed management API for listing, validating, adding, removing,
+  and replacing flat-file feed entries.
 
 ### Changed
 

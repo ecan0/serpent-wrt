@@ -307,12 +307,22 @@ HTTP API, available when `api_enabled: true`:
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
 | `/reload` | POST | Reload threat feed from disk. |
+| `/feed` | GET | List normalized local threat feed entries. |
+| `/feed` | PUT | Replace the local threat feed with validated entries. |
+| `/feed/validate` | POST | Validate one entry or a candidate entry list without writing. |
+| `/feed/add` | POST | Add one IPv4/IP-CIDR feed entry and reload if changed. |
+| `/feed/remove` | POST | Remove one feed entry and reload if changed. |
 
 Example:
 
 ```sh
 curl http://127.0.0.1:8080/status
 curl -X POST http://127.0.0.1:8080/reload
+curl http://127.0.0.1:8080/feed
+curl -X POST http://127.0.0.1:8080/feed/add \
+  -d '{"entry":"198.51.100.1"}'
+curl -X PUT http://127.0.0.1:8080/feed \
+  -d '{"entries":["198.51.100.1","203.0.113.0/24"]}'
 ```
 
 ## Events And SIEM Integration

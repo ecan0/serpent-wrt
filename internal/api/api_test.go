@@ -10,6 +10,7 @@ import (
 
 	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/events"
+	"github.com/ecan0/serpent-wrt/internal/feed"
 	"github.com/ecan0/serpent-wrt/internal/runtime"
 )
 
@@ -20,6 +21,9 @@ type fakeEngine struct {
 	recent     []runtime.DetectionRecord
 	blocked    []string
 	blockedErr error
+	feedSnap   feed.Snapshot
+	feedResult feed.UpdateResult
+	feedErr    error
 }
 
 func (f *fakeEngine) GetStatus() runtime.Status {
@@ -40,6 +44,29 @@ func (f *fakeEngine) RecentDetections() []runtime.DetectionRecord {
 
 func (f *fakeEngine) GetBlocked() ([]string, error) {
 	return f.blocked, f.blockedErr
+}
+
+func (f *fakeEngine) ListFeedEntries() (feed.Snapshot, error) {
+	return f.feedSnap, f.feedErr
+}
+
+func (f *fakeEngine) ValidateFeedEntries(entries []string) (feed.Snapshot, error) {
+	if f.feedErr != nil {
+		return feed.Snapshot{}, f.feedErr
+	}
+	return feed.ValidateEntries(entries)
+}
+
+func (f *fakeEngine) AddFeedEntry(_ string) (feed.UpdateResult, error) {
+	return f.feedResult, f.feedErr
+}
+
+func (f *fakeEngine) RemoveFeedEntry(_ string) (feed.UpdateResult, error) {
+	return f.feedResult, f.feedErr
+}
+
+func (f *fakeEngine) ReplaceFeedEntries(_ []string) (feed.UpdateResult, error) {
+	return f.feedResult, f.feedErr
 }
 
 func testServer(t *testing.T) *Server {
@@ -254,5 +281,119 @@ func TestHandleRecentDetectionsSchema(t *testing.T) {
 	}
 	if got["src_ip"] != "192.168.1.10" || got["dst_ip"] != "1.2.3.4" || got["dst_port"] != float64(443) {
 		t.Fatalf("flow fields changed: %v", got)
+	}
+}
+
+func TestHandleFeedGet(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		feedSnap: feed.Snapshot{
+			Path:       "/etc/serpent-wrt/threat-feed.txt",
+			Count:      1,
+			MaxEntries: feed.MaxManagedEntries,
+			Entries:    []feed.Entry{{Value: "1.2.3.4", Type: "ip"}},
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/feed", nil)
+	w := httptest.NewRecorder()
+	s.handleFeed(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	var body feed.Snapshot
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Count != 1 || body.Entries[0].Value != "1.2.3.4" {
+		t.Fatalf("body: %+v", body)
+	}
+}
+
+func TestHandleFeedValidate(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{})
+	req := httptest.NewRequest(http.MethodPost, "/feed/validate", strings.NewReader(`{"entries":["1.2.3.4","5.6.7.9/24"]}`))
+	w := httptest.NewRecorder()
+	s.handleFeedValidate(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 body=%q", w.Code, w.Body.String())
+	}
+	var body feed.Snapshot
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Count != 2 || body.Entries[1].Value != "5.6.7.0/24" {
+		t.Fatalf("body: %+v", body)
+	}
+}
+
+func TestHandleFeedValidateRejectsBadEntry(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{})
+	req := httptest.NewRequest(http.MethodPost, "/feed/validate", strings.NewReader(`{"entry":"not-an-ip"}`))
+	w := httptest.NewRecorder()
+	s.handleFeedValidate(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+}
+
+func TestHandleFeedAdd(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		feedResult: feed.UpdateResult{Path: "/feed.txt", Count: 2, Changed: true},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/feed/add", strings.NewReader(`{"entry":"1.2.3.4"}`))
+	w := httptest.NewRecorder()
+	s.handleFeedAdd(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 body=%q", w.Code, w.Body.String())
+	}
+	var body feed.UpdateResult
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Changed || body.Count != 2 {
+		t.Fatalf("body: %+v", body)
+	}
+}
+
+func TestHandleFeedRemove(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		feedResult: feed.UpdateResult{Path: "/feed.txt", Count: 1, Changed: true},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/feed/remove", strings.NewReader(`{"entry":"1.2.3.4"}`))
+	w := httptest.NewRecorder()
+	s.handleFeedRemove(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 body=%q", w.Code, w.Body.String())
+	}
+	var body feed.UpdateResult
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Changed || body.Count != 1 {
+		t.Fatalf("body: %+v", body)
+	}
+}
+
+func TestHandleFeedReplace(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		feedResult: feed.UpdateResult{Path: "/feed.txt", Count: 2, Changed: true},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/feed", strings.NewReader(`{"entries":["1.2.3.4","5.6.7.0/24"]}`))
+	w := httptest.NewRecorder()
+	s.handleFeed(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 body=%q", w.Code, w.Body.String())
+	}
+	var body feed.UpdateResult
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Changed || body.Count != 2 {
+		t.Fatalf("body: %+v", body)
 	}
 }

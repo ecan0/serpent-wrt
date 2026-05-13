@@ -59,6 +59,46 @@ Or use the API if enabled:
 curl -X POST http://127.0.0.1:8080/reload
 ```
 
+## Local API management
+
+The localhost API can manage the configured flat feed file. Entries are
+validated as IPv4 addresses or IPv4 CIDRs, duplicate imports are collapsed, and
+writes are bounded to 20,000 entries. Successful add/remove/replace operations
+reload the daemon feed automatically.
+
+List normalized entries:
+
+```sh
+curl http://127.0.0.1:8080/feed
+```
+
+Validate one entry or a candidate replacement list without writing:
+
+```sh
+curl -X POST http://127.0.0.1:8080/feed/validate \
+  -d '{"entry":"198.51.100.1"}'
+
+curl -X POST http://127.0.0.1:8080/feed/validate \
+  -d '{"entries":["198.51.100.1","203.0.113.0/24"]}'
+```
+
+Add or remove one entry:
+
+```sh
+curl -X POST http://127.0.0.1:8080/feed/add \
+  -d '{"entry":"198.51.100.1"}'
+
+curl -X POST http://127.0.0.1:8080/feed/remove \
+  -d '{"entry":"198.51.100.1"}'
+```
+
+Replace/import the full feed:
+
+```sh
+curl -X PUT http://127.0.0.1:8080/feed \
+  -d '{"entries":["198.51.100.1","203.0.113.0/24"]}'
+```
+
 To automate, add a cron job:
 
 ```sh
