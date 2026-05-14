@@ -81,7 +81,8 @@ router-friendly detection layer for signals that do not need payload inspection.
   destination-port differences.
 - Structured NDJSON logs with severity, confidence, and reason metadata.
 - Optional remote syslog forwarding for SIEM ingestion.
-- Optional nftables blocking through named sets and kernel-managed timeouts.
+- Optional nftables blocking through named sets, kernel-managed timeouts, and
+  status diagnostics for missing enforcement state.
 - Localhost HTTP API for health, status, stats, reloads, detections, and blocks.
 - OpenWrt package scaffold, procd init script, and CI runtime smoke coverage.
 
@@ -320,7 +321,7 @@ HTTP API, available when `api_enabled: true`:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
-| `/status` | GET | Feed count/path, enforcement/nft state, uptime, detector config, build metadata. |
+| `/status` | GET | Feed count/path, enforcement/nft diagnostics, uptime, detector config, build metadata. |
 | `/stats` | GET | Flow, detection, suppression, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
@@ -369,12 +370,15 @@ keeps a bounded local map so it avoids repeatedly adding the same IP.
 On OpenWrt, firewall4 (`fw4`) owns the generated firewall ruleset. `serpent-wrt`
 uses its own `inet` table and set for dynamic blocks; do not point it at a
 fw4-managed table unless you are deliberately integrating custom firewall
-includes. After a firewall reload, restart `serpent-wrt` before relying on
-enforcement so the daemon can recreate its table and set if fw4 flushed them.
+includes. After a firewall reload, check `/status`: `check_state` reports
+`missing_table` or `missing_set` if fw4 removed the enforcement resources.
+Restart `serpent-wrt` before relying on enforcement so the daemon can recreate
+its table and set.
 
 Before enabling enforcement on a real router:
 
-1. Confirm `/status` reports nft availability and setup state.
+1. Confirm `/status` reports nft availability, setup state, and `check_state:
+   ready`.
 2. Confirm your firewall policy uses the `nft_table` and `nft_set` you expect.
 3. Start with a short `block_duration`.
 4. Keep console or SSH access available for rollback.

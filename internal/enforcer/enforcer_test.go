@@ -1,6 +1,7 @@
 package enforcer
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -104,6 +105,62 @@ func TestBlockIPv6NoOp(t *testing.T) {
 	}
 }
 
+func TestCheckUnavailable(t *testing.T) {
+	restore := stubNft(t, errors.New("missing"), nil)
+	defer restore()
+
+	e := New("serpent_wrt", "blocked_ips", time.Hour)
+	check := e.Check()
+	if check.Available {
+		t.Fatal("expected nft to be unavailable")
+	}
+	if check.Error != "nft not found in PATH" {
+		t.Fatalf("error: got %q, want nft not found in PATH", check.Error)
+	}
+}
+
+func TestCheckReady(t *testing.T) {
+	var calls [][]string
+	restore := stubNft(t, nil, func(args ...string) error {
+		calls = append(calls, append([]string(nil), args...))
+		return nil
+	})
+	defer restore()
+
+	e := New("serpent_wrt", "blocked_ips", time.Hour)
+	check := e.Check()
+	if !check.Available || !check.TablePresent || !check.SetPresent || check.Error != "" {
+		t.Fatalf("check: got %+v, want ready", check)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("nft calls: got %d, want 2", len(calls))
+	}
+	wantTable := []string{"list", "table", "inet", "serpent_wrt"}
+	wantSet := []string{"list", "set", "inet", "serpent_wrt", "blocked_ips"}
+	if !sameStrings(calls[0], wantTable) || !sameStrings(calls[1], wantSet) {
+		t.Fatalf("calls: got %#v, want %#v then %#v", calls, wantTable, wantSet)
+	}
+}
+
+func TestCheckMissingSet(t *testing.T) {
+	restore := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "set" {
+			return errors.New("set missing")
+		}
+		return nil
+	})
+	defer restore()
+
+	e := New("serpent_wrt", "blocked_ips", time.Hour)
+	check := e.Check()
+	if !check.Available || !check.TablePresent || check.SetPresent {
+		t.Fatalf("check: got %+v, want missing set", check)
+	}
+	if check.Error != "set missing" {
+		t.Fatalf("error: got %q, want set missing", check.Error)
+	}
+}
+
 func TestPruneEmpty(t *testing.T) {
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
 	e.Prune() // must not panic on empty map
@@ -152,4 +209,38 @@ func TestIsBlockedAfterDirectInject(t *testing.T) {
 	if !e.IsBlocked(ip) {
 		t.Error("IsBlocked should return true for injected active entry")
 	}
+}
+
+func stubNft(t *testing.T, lookPathErr error, runner func(args ...string) error) func() {
+	t.Helper()
+	oldLookPath := lookPath
+	oldRunNftCommand := runNftCommand
+	lookPath = func(file string) (string, error) {
+		if file != "nft" {
+			t.Fatalf("lookPath called with %q, want nft", file)
+		}
+		if lookPathErr != nil {
+			return "", lookPathErr
+		}
+		return "/usr/sbin/nft", nil
+	}
+	if runner != nil {
+		runNftCommand = runner
+	}
+	return func() {
+		lookPath = oldLookPath
+		runNftCommand = oldRunNftCommand
+	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

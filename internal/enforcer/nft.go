@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+var (
+	lookPath      = exec.LookPath
+	runNftCommand = runNftCheck
+)
+
 // Enforcer manages a named nftables inet set for dynamically blocked IPs.
 // It is idempotent: blocking an already-blocked IP is a no-op.
 type Enforcer struct {
@@ -19,6 +24,14 @@ type Enforcer struct {
 
 	mu      sync.Mutex
 	blocked map[string]time.Time // ip string → unblock time
+}
+
+// NftCheck reports whether the configured nftables resources are visible.
+type NftCheck struct {
+	Available    bool
+	TablePresent bool
+	SetPresent   bool
+	Error        string
 }
 
 // New creates an Enforcer targeting the given nftables table and set.
@@ -33,8 +46,37 @@ func New(table, set string, duration time.Duration) *Enforcer {
 
 // Available reports whether the nft CLI is present in PATH.
 func (e *Enforcer) Available() bool {
-	_, err := exec.LookPath("nft")
+	_, err := lookPath("nft")
 	return err == nil
+}
+
+// Check returns a cheap status snapshot for the configured nftables resources.
+func (e *Enforcer) Check() NftCheck {
+	if !e.Available() {
+		return NftCheck{
+			Available: false,
+			Error:     "nft not found in PATH",
+		}
+	}
+
+	if err := runNftCommand("list", "table", "inet", e.table); err != nil {
+		return NftCheck{
+			Available: true,
+			Error:     err.Error(),
+		}
+	}
+	if err := runNftCommand("list", "set", "inet", e.table, e.set); err != nil {
+		return NftCheck{
+			Available:    true,
+			TablePresent: true,
+			Error:        err.Error(),
+		}
+	}
+	return NftCheck{
+		Available:    true,
+		TablePresent: true,
+		SetPresent:   true,
+	}
 }
 
 // EnsureSet creates the nftables table and set if they do not already exist.
@@ -135,6 +177,15 @@ func (e *Enforcer) runScript(script string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nft: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func runNftCheck(args ...string) error {
+	cmd := exec.Command("nft", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft %s: %w (output: %s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

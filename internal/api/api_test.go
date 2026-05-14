@@ -172,6 +172,12 @@ func TestHandleStatus(t *testing.T) {
 	if body.Enforcement.Nft.SetupState != "disabled" {
 		t.Errorf("nft setup_state: got %q, want disabled", body.Enforcement.Nft.SetupState)
 	}
+	if body.Enforcement.Nft.Checked {
+		t.Error("nft check should be skipped when enforcement is disabled")
+	}
+	if body.Enforcement.Nft.CheckState != "disabled" {
+		t.Errorf("nft check_state: got %q, want disabled", body.Enforcement.Nft.CheckState)
+	}
 	if body.Runtime.Version == "" || body.Runtime.Commit == "" || body.Runtime.BuildDate == "" {
 		t.Fatalf("runtime build metadata missing: %+v", body.Runtime)
 	}

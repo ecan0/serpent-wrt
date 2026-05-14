@@ -10,6 +10,8 @@ This project follows semantic versioning for tagged releases.
 
 - Config-only suppression rules for expected scanner, monitor, or noisy service
   detections, with a `/stats` counter for suppressed detections.
+- `/status` nft diagnostics for missing enforcement table/set state, including
+  firewall-reload hints when resources disappear after setup.
 
 ## v0.1.0 - 2026-05-13
 

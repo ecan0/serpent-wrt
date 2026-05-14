@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/enforcer"
 	"github.com/ecan0/serpent-wrt/internal/events"
 )
 
@@ -28,6 +29,12 @@ func TestGetStatusInitial(t *testing.T) {
 	}
 	if s.Enforcement.Nft.SetupState != nftSetupDisabled {
 		t.Errorf("nft setup state: got %q, want %q", s.Enforcement.Nft.SetupState, nftSetupDisabled)
+	}
+	if s.Enforcement.Nft.Checked {
+		t.Error("nft check should be skipped when enforcement is disabled")
+	}
+	if s.Enforcement.Nft.CheckState != "disabled" {
+		t.Errorf("nft check state: got %q, want disabled", s.Enforcement.Nft.CheckState)
 	}
 	if s.Runtime.Version != "dev" {
 		t.Errorf("Runtime.Version: got %q, want dev", s.Runtime.Version)
@@ -57,6 +64,61 @@ func TestGetStatusSuppressionRuleCount(t *testing.T) {
 	s := e.GetStatus()
 	if s.Runtime.SuppressionRules != 2 {
 		t.Errorf("Runtime.SuppressionRules: got %d, want 2", s.Runtime.SuppressionRules)
+	}
+}
+
+func TestNftCheckState(t *testing.T) {
+	cases := []struct {
+		name           string
+		setupState     string
+		check          enforcer.NftCheck
+		wantState      string
+		wantDiagnostic string
+	}{
+		{
+			name:           "unavailable",
+			check:          enforcer.NftCheck{Available: false},
+			wantState:      "unavailable",
+			wantDiagnostic: "nft CLI is unavailable; enforcement cannot apply blocks",
+		},
+		{
+			name:           "missing table before setup",
+			check:          enforcer.NftCheck{Available: true},
+			wantState:      "missing_table",
+			wantDiagnostic: "nft table is not present yet",
+		},
+		{
+			name:       "missing set after setup",
+			setupState: nftSetupReady,
+			check: enforcer.NftCheck{
+				Available:    true,
+				TablePresent: true,
+			},
+			wantState:      "missing_set",
+			wantDiagnostic: "nft set is missing after setup; a firewall reload may have removed serpent-wrt enforcement state",
+		},
+		{
+			name:       "ready",
+			setupState: nftSetupReady,
+			check: enforcer.NftCheck{
+				Available:    true,
+				TablePresent: true,
+				SetPresent:   true,
+			},
+			wantState:      "ready",
+			wantDiagnostic: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotDiagnostic := nftCheckState(tc.setupState, tc.check)
+			if gotState != tc.wantState {
+				t.Fatalf("state: got %q, want %q", gotState, tc.wantState)
+			}
+			if gotDiagnostic != tc.wantDiagnostic {
+				t.Fatalf("diagnostic: got %q, want %q", gotDiagnostic, tc.wantDiagnostic)
+			}
+		})
 	}
 }
 

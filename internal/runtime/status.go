@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/enforcer"
 )
 
 // BuildInfo describes the daemon build backing the running API.
@@ -39,11 +40,17 @@ type EnforcementStatus struct {
 
 // NftStatus describes cheap nft CLI availability and setup state.
 type NftStatus struct {
-	Available  bool   `json:"available"`
-	Table      string `json:"table"`
-	Set        string `json:"set"`
-	SetupState string `json:"setup_state"`
-	LastError  string `json:"last_error,omitempty"`
+	Available    bool   `json:"available"`
+	Checked      bool   `json:"checked"`
+	Table        string `json:"table"`
+	Set          string `json:"set"`
+	TablePresent bool   `json:"table_present"`
+	SetPresent   bool   `json:"set_present"`
+	SetupState   string `json:"setup_state"`
+	CheckState   string `json:"check_state"`
+	Diagnostic   string `json:"diagnostic,omitempty"`
+	CheckError   string `json:"check_error,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
 }
 
 // RuntimeStatus exposes API/runtime config and build metadata.
@@ -135,13 +142,7 @@ func (e *Engine) GetStatus() Status {
 		Enforcement: EnforcementStatus{
 			Enabled:       e.cfg.EnforcementEnabled,
 			BlockDuration: e.cfg.BlockDuration.String(),
-			Nft: NftStatus{
-				Available:  e.enf.Available(),
-				Table:      e.cfg.NftTable,
-				Set:        e.cfg.NftSet,
-				SetupState: nftState,
-				LastError:  nftErr,
-			},
+			Nft:           e.nftStatus(nftState, nftErr),
 		},
 		Runtime: RuntimeStatus{
 			Version:          build.Version,
@@ -155,6 +156,50 @@ func (e *Engine) GetStatus() Status {
 		},
 		Detectors: detectorConfigStatus(e.cfg.Detectors),
 	}
+}
+
+func (e *Engine) nftStatus(setupState, setupErr string) NftStatus {
+	status := NftStatus{
+		Available:  e.enf.Available(),
+		Checked:    false,
+		Table:      e.cfg.NftTable,
+		Set:        e.cfg.NftSet,
+		SetupState: setupState,
+		CheckState: "disabled",
+		LastError:  setupErr,
+	}
+	if !e.cfg.EnforcementEnabled {
+		return status
+	}
+
+	check := e.enf.Check()
+	status.Available = check.Available
+	status.Checked = true
+	status.TablePresent = check.TablePresent
+	status.SetPresent = check.SetPresent
+	status.CheckState, status.Diagnostic = nftCheckState(setupState, check)
+	status.CheckError = check.Error
+	return status
+}
+
+func nftCheckState(setupState string, check enforcer.NftCheck) (string, string) {
+	if !check.Available {
+		return "unavailable", "nft CLI is unavailable; enforcement cannot apply blocks"
+	}
+	if !check.TablePresent {
+		return "missing_table", nftReloadDiagnostic(setupState, "table")
+	}
+	if !check.SetPresent {
+		return "missing_set", nftReloadDiagnostic(setupState, "set")
+	}
+	return "ready", ""
+}
+
+func nftReloadDiagnostic(setupState, missing string) string {
+	if setupState == nftSetupReady {
+		return "nft " + missing + " is missing after setup; a firewall reload may have removed serpent-wrt enforcement state"
+	}
+	return "nft " + missing + " is not present yet"
 }
 
 func defaultBuildInfo() BuildInfo {
