@@ -14,6 +14,8 @@ This project follows semantic versioning for tagged releases.
   firewall-reload hints when resources disappear after setup.
 - Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
   detector threshold presets with explicit per-detector overrides.
+- `serpent-wrt nftcheck` and an OpenWrt init helper for checking configured
+  nftables enforcement resources without starting the daemon.
 
 ## v0.1.0 - 2026-05-13
 

@@ -306,6 +306,7 @@ Common OpenWrt commands:
 /etc/init.d/serpent-wrt restart
 /etc/init.d/serpent-wrt status
 /etc/init.d/serpent-wrt configtest
+/etc/init.d/serpent-wrt nftcheck
 /etc/init.d/serpent-wrt reload_feed
 ```
 
@@ -315,6 +316,13 @@ reloading:
 ```sh
 serpent-wrt configtest
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
+```
+
+Check configured nftables enforcement resources without starting the daemon:
+
+```sh
+serpent-wrt nftcheck
+serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml nftcheck
 ```
 
 Hot-reload the threat feed without restarting:

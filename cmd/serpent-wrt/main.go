@@ -14,6 +14,7 @@ import (
 
 	"github.com/ecan0/serpent-wrt/internal/api"
 	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/enforcer"
 	"github.com/ecan0/serpent-wrt/internal/events"
 	"github.com/ecan0/serpent-wrt/internal/feed"
 	"github.com/ecan0/serpent-wrt/internal/runtime"
@@ -33,13 +34,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "configtest" {
 		return runConfigtest(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
+	if len(args) > 0 && args[0] == "nftcheck" {
+		return runNftcheck(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
+	}
 
 	fs := flag.NewFlagSet("serpent-wrt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt [--config path] [configtest]\n\n")
+		writef(stderr, "Usage: serpent-wrt [--config path] [configtest|nftcheck]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -58,6 +62,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		switch fs.Arg(0) {
 		case "configtest":
 			return runConfigtest(fs.Args()[1:], stdout, stderr, *cfgPath)
+		case "nftcheck":
+			return runNftcheck(fs.Args()[1:], stdout, stderr, *cfgPath)
 		default:
 			writef(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
 			return 2
@@ -65,6 +71,54 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	return runDaemon(*cfgPath, stderr)
+}
+
+func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath string) int {
+	fs := flag.NewFlagSet("serpent-wrt nftcheck", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
+	fs.Usage = func() {
+		writef(stderr, "Usage: serpent-wrt nftcheck [--config path]\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() > 0 {
+		writef(stderr, "serpent-wrt: nftcheck: unexpected argument %q\n", fs.Arg(0))
+		return 2
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		writef(stderr, "serpent-wrt: nftcheck failed: config: %v\n", err)
+		return 1
+	}
+	if !cfg.EnforcementEnabled {
+		writef(stdout, "serpent-wrt: nft check skipped: enforcement disabled (table=%s set=%s)\n", cfg.NftTable, cfg.NftSet)
+		return 0
+	}
+
+	enf := enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration)
+	check := enf.Check()
+	if !check.Available {
+		writef(stderr, "serpent-wrt: nft check failed: nft unavailable: %s\n", check.Error)
+		return 1
+	}
+	if !check.TablePresent {
+		writef(stderr, "serpent-wrt: nft check failed: missing table inet %s: %s\n", cfg.NftTable, check.Error)
+		return 1
+	}
+	if !check.SetPresent {
+		writef(stderr, "serpent-wrt: nft check failed: missing set inet %s %s: %s\n", cfg.NftTable, cfg.NftSet, check.Error)
+		return 1
+	}
+
+	writef(stdout, "serpent-wrt: nft OK: table=%s set=%s\n", cfg.NftTable, cfg.NftSet)
+	return 0
 }
 
 func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath string) int {

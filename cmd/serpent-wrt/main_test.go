@@ -96,6 +96,55 @@ func TestRunConfigtestFailsForInvalidFeed(t *testing.T) {
 	}
 }
 
+func TestRunNftcheckSkipsWhenEnforcementDisabled(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"nftcheck", "--config", cfg}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run nftcheck: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "nft check skipped") {
+		t.Fatalf("stdout=%q, want nft check skipped", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunNftcheckSupportsGlobalConfigFlag(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--config", cfg, "nftcheck"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run nftcheck: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "enforcement disabled") {
+		t.Fatalf("stdout=%q, want enforcement disabled", stdout.String())
+	}
+}
+
+func TestRunNftcheckFailsForInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	if err := os.WriteFile(cfg, []byte("poll_interval: 5s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"nftcheck", "--config", cfg}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run nftcheck: exit=%d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "threat_feed_path is required") {
+		t.Fatalf("stderr=%q, want missing feed path error", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
 func TestRunUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"bogus"}, &stdout, &stderr)
