@@ -77,6 +77,8 @@ router-friendly detection layer for signals that do not need payload inspection.
 - Broadcast, loopback, link-local, unroutable, and router-self filtering.
 - Config-only suppression rules for expected scanners, monitors, and other
   noisy but trusted traffic.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
+  threshold tuning without editing every detector.
 - Deduplication to suppress repeated alerts while preserving meaningful
   destination-port differences.
 - Structured NDJSON logs with severity, confidence, and reason metadata.
@@ -224,6 +226,7 @@ Minimal shape:
 ```yaml
 poll_interval: 5s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+profile: home
 
 enforcement_enabled: false
 block_duration: 1h
@@ -275,6 +278,10 @@ detectors:
 Important fields:
 
 - `lan_cidrs` tells the daemon which flows are outbound vs inbound.
+- `profile` applies detector defaults for common operating modes. `home`
+  preserves the baseline defaults, `homelab` and `quiet` raise thresholds for
+  noisier networks, and `paranoid` lowers thresholds for more aggressive
+  alerting. Explicit detector settings always override profile defaults.
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.
 - `enforcement_enabled` defaults deployments toward detect-only operation.

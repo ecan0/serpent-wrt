@@ -1,5 +1,6 @@
 poll_interval: 5s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+profile: home  # home, homelab, quiet, or paranoid
 
 enforcement_enabled: false  # set true after verifying nftables rules work correctly
 block_duration: 1h

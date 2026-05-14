@@ -14,6 +14,7 @@ import (
 type Config struct {
 	PollInterval       time.Duration     `yaml:"poll_interval"`
 	ThreatFeedPath     string            `yaml:"threat_feed_path"`
+	Profile            string            `yaml:"profile"`
 	EnforcementEnabled bool              `yaml:"enforcement_enabled"`
 	BlockDuration      time.Duration     `yaml:"block_duration"`
 	LANCIDRs           []string          `yaml:"lan_cidrs"`
@@ -72,6 +73,45 @@ type BruteForceConfig struct {
 	Window    time.Duration `yaml:"window"`
 }
 
+type detectorProfile struct {
+	Fanout     FanoutConfig
+	Scan       ScanConfig
+	Beacon     BeaconConfig
+	ExtScan    ExtScanConfig
+	BruteForce BruteForceConfig
+}
+
+var detectorProfiles = map[string]detectorProfile{
+	"home": {
+		Fanout:     FanoutConfig{DistinctDstThreshold: 50, Window: 60 * time.Second},
+		Scan:       ScanConfig{DistinctPortThreshold: 30, Window: 60 * time.Second},
+		Beacon:     BeaconConfig{MinHits: 5, Tolerance: 3 * time.Second, Window: 5 * time.Minute, MinInterval: 5 * time.Second},
+		ExtScan:    ExtScanConfig{DistinctPortThreshold: 20, Window: 60 * time.Second},
+		BruteForce: BruteForceConfig{Threshold: 5, Window: 60 * time.Second},
+	},
+	"homelab": {
+		Fanout:     FanoutConfig{DistinctDstThreshold: 75, Window: 60 * time.Second},
+		Scan:       ScanConfig{DistinctPortThreshold: 45, Window: 60 * time.Second},
+		Beacon:     BeaconConfig{MinHits: 6, Tolerance: 4 * time.Second, Window: 8 * time.Minute, MinInterval: 5 * time.Second},
+		ExtScan:    ExtScanConfig{DistinctPortThreshold: 30, Window: 60 * time.Second},
+		BruteForce: BruteForceConfig{Threshold: 8, Window: 60 * time.Second},
+	},
+	"quiet": {
+		Fanout:     FanoutConfig{DistinctDstThreshold: 100, Window: 90 * time.Second},
+		Scan:       ScanConfig{DistinctPortThreshold: 60, Window: 90 * time.Second},
+		Beacon:     BeaconConfig{MinHits: 7, Tolerance: 5 * time.Second, Window: 10 * time.Minute, MinInterval: 10 * time.Second},
+		ExtScan:    ExtScanConfig{DistinctPortThreshold: 40, Window: 90 * time.Second},
+		BruteForce: BruteForceConfig{Threshold: 10, Window: 90 * time.Second},
+	},
+	"paranoid": {
+		Fanout:     FanoutConfig{DistinctDstThreshold: 25, Window: 60 * time.Second},
+		Scan:       ScanConfig{DistinctPortThreshold: 15, Window: 60 * time.Second},
+		Beacon:     BeaconConfig{MinHits: 4, Tolerance: 2 * time.Second, Window: 4 * time.Minute, MinInterval: 5 * time.Second},
+		ExtScan:    ExtScanConfig{DistinctPortThreshold: 10, Window: 60 * time.Second},
+		BruteForce: BruteForceConfig{Threshold: 3, Window: 60 * time.Second},
+	},
+}
+
 // SuppressionRule drops expected detections before logging or enforcement.
 // Empty matcher fields act as wildcards; at least one matcher is required.
 type SuppressionRule struct {
@@ -106,6 +146,14 @@ func Load(path string) (*Config, error) {
 func (c *Config) applyDefaults() error {
 	if c.ThreatFeedPath == "" {
 		return fmt.Errorf("threat_feed_path is required")
+	}
+	c.Profile = strings.TrimSpace(c.Profile)
+	if c.Profile == "" {
+		c.Profile = "home"
+	}
+	profile, ok := detectorProfiles[c.Profile]
+	if !ok {
+		return fmt.Errorf("profile must be one of home, homelab, quiet, or paranoid, got %q", c.Profile)
 	}
 	if c.PollInterval <= 0 {
 		c.PollInterval = 5 * time.Second
@@ -161,46 +209,50 @@ func (c *Config) applyDefaults() error {
 			return fmt.Errorf("self_ips[%d] must be an IPv4 address, got %q", i, selfIP)
 		}
 	}
-	if c.Detectors.Fanout.DistinctDstThreshold <= 0 {
-		c.Detectors.Fanout.DistinctDstThreshold = 50
-	}
-	if c.Detectors.Fanout.Window <= 0 {
-		c.Detectors.Fanout.Window = 60 * time.Second
-	}
-	if c.Detectors.Scan.DistinctPortThreshold <= 0 {
-		c.Detectors.Scan.DistinctPortThreshold = 30
-	}
-	if c.Detectors.Scan.Window <= 0 {
-		c.Detectors.Scan.Window = 60 * time.Second
-	}
-	if c.Detectors.Beacon.MinHits <= 0 {
-		c.Detectors.Beacon.MinHits = 5
-	}
-	if c.Detectors.Beacon.Tolerance <= 0 {
-		c.Detectors.Beacon.Tolerance = 3 * time.Second
-	}
-	if c.Detectors.Beacon.Window <= 0 {
-		c.Detectors.Beacon.Window = 5 * time.Minute
-	}
-	if c.Detectors.Beacon.MinInterval <= 0 {
-		c.Detectors.Beacon.MinInterval = 5 * time.Second
-	}
-	if c.Detectors.ExtScan.DistinctPortThreshold <= 0 {
-		c.Detectors.ExtScan.DistinctPortThreshold = 20
-	}
-	if c.Detectors.ExtScan.Window <= 0 {
-		c.Detectors.ExtScan.Window = 60 * time.Second
-	}
-	if c.Detectors.BruteForce.Threshold <= 0 {
-		c.Detectors.BruteForce.Threshold = 5
-	}
-	if c.Detectors.BruteForce.Window <= 0 {
-		c.Detectors.BruteForce.Window = 60 * time.Second
-	}
+	c.applyDetectorProfile(profile)
 	if err := c.validateSuppressionRules(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (c *Config) applyDetectorProfile(profile detectorProfile) {
+	if c.Detectors.Fanout.DistinctDstThreshold <= 0 {
+		c.Detectors.Fanout.DistinctDstThreshold = profile.Fanout.DistinctDstThreshold
+	}
+	if c.Detectors.Fanout.Window <= 0 {
+		c.Detectors.Fanout.Window = profile.Fanout.Window
+	}
+	if c.Detectors.Scan.DistinctPortThreshold <= 0 {
+		c.Detectors.Scan.DistinctPortThreshold = profile.Scan.DistinctPortThreshold
+	}
+	if c.Detectors.Scan.Window <= 0 {
+		c.Detectors.Scan.Window = profile.Scan.Window
+	}
+	if c.Detectors.Beacon.MinHits <= 0 {
+		c.Detectors.Beacon.MinHits = profile.Beacon.MinHits
+	}
+	if c.Detectors.Beacon.Tolerance <= 0 {
+		c.Detectors.Beacon.Tolerance = profile.Beacon.Tolerance
+	}
+	if c.Detectors.Beacon.Window <= 0 {
+		c.Detectors.Beacon.Window = profile.Beacon.Window
+	}
+	if c.Detectors.Beacon.MinInterval <= 0 {
+		c.Detectors.Beacon.MinInterval = profile.Beacon.MinInterval
+	}
+	if c.Detectors.ExtScan.DistinctPortThreshold <= 0 {
+		c.Detectors.ExtScan.DistinctPortThreshold = profile.ExtScan.DistinctPortThreshold
+	}
+	if c.Detectors.ExtScan.Window <= 0 {
+		c.Detectors.ExtScan.Window = profile.ExtScan.Window
+	}
+	if c.Detectors.BruteForce.Threshold <= 0 {
+		c.Detectors.BruteForce.Threshold = profile.BruteForce.Threshold
+	}
+	if c.Detectors.BruteForce.Window <= 0 {
+		c.Detectors.BruteForce.Window = profile.BruteForce.Window
+	}
 }
 
 func (c *Config) validateSuppressionRules() error {

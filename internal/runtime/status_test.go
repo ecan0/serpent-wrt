@@ -39,6 +39,9 @@ func TestGetStatusInitial(t *testing.T) {
 	if s.Runtime.Version != "dev" {
 		t.Errorf("Runtime.Version: got %q, want dev", s.Runtime.Version)
 	}
+	if s.Runtime.Profile != "home" {
+		t.Errorf("Runtime.Profile: got %q, want home", s.Runtime.Profile)
+	}
 	if s.Runtime.SuppressionRules != 0 {
 		t.Errorf("Runtime.SuppressionRules: got %d, want 0", s.Runtime.SuppressionRules)
 	}

@@ -73,6 +73,7 @@ func testServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		ThreatFeedPath: "../../testdata/threat-feed.txt",
+		Profile:        "home",
 		PollInterval:   5 * time.Second,
 		BlockDuration:  time.Hour,
 		DedupWindow:    5 * time.Minute,
@@ -180,6 +181,9 @@ func TestHandleStatus(t *testing.T) {
 	}
 	if body.Runtime.Version == "" || body.Runtime.Commit == "" || body.Runtime.BuildDate == "" {
 		t.Fatalf("runtime build metadata missing: %+v", body.Runtime)
+	}
+	if body.Runtime.Profile != "home" {
+		t.Errorf("runtime profile: got %q, want home", body.Runtime.Profile)
 	}
 	if body.Detectors.Fanout.DistinctDstThreshold != 50 {
 		t.Errorf("fanout threshold: got %d, want 50", body.Detectors.Fanout.DistinctDstThreshold)

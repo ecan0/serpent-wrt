@@ -1,5 +1,6 @@
 poll_interval: 10s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+profile: home
 
 enforcement_enabled: false
 block_duration: 1h

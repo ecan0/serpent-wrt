@@ -12,6 +12,8 @@ This project follows semantic versioning for tagged releases.
   detections, with a `/stats` counter for suppressed detections.
 - `/status` nft diagnostics for missing enforcement table/set state, including
   firewall-reload hints when resources disappear after setup.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
+  detector threshold presets with explicit per-detector overrides.
 
 ## v0.1.0 - 2026-05-13
 

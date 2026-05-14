@@ -17,6 +17,9 @@ func TestLoadExample(t *testing.T) {
 	if cfg.PollInterval != 5*time.Second {
 		t.Errorf("poll_interval: got %v, want 5s", cfg.PollInterval)
 	}
+	if cfg.Profile != "home" {
+		t.Errorf("profile: got %q, want home", cfg.Profile)
+	}
 	if cfg.NftTable != "serpent_wrt" {
 		t.Errorf("nft_table: got %q, want serpent_wrt", cfg.NftTable)
 	}
@@ -42,6 +45,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.BlockDuration != time.Hour {
 		t.Errorf("default block_duration: got %v", cfg.BlockDuration)
+	}
+	if cfg.Profile != "home" {
+		t.Errorf("default profile: got %q, want home", cfg.Profile)
 	}
 }
 
@@ -108,6 +114,70 @@ func TestLoadDetectorDefaults(t *testing.T) {
 	}
 	if cfg.Detectors.Beacon.Window != 5*time.Minute {
 		t.Errorf("beacon window default: got %v, want 5m", cfg.Detectors.Beacon.Window)
+	}
+}
+
+func TestLoadQuietProfileDefaults(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nprofile: quiet\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load quiet profile: %v", err)
+	}
+	if cfg.Profile != "quiet" {
+		t.Errorf("profile: got %q, want quiet", cfg.Profile)
+	}
+	if cfg.Detectors.Fanout.DistinctDstThreshold != 100 {
+		t.Errorf("fanout threshold: got %d, want 100", cfg.Detectors.Fanout.DistinctDstThreshold)
+	}
+	if cfg.Detectors.Fanout.Window != 90*time.Second {
+		t.Errorf("fanout window: got %v, want 90s", cfg.Detectors.Fanout.Window)
+	}
+	if cfg.Detectors.Scan.DistinctPortThreshold != 60 {
+		t.Errorf("scan threshold: got %d, want 60", cfg.Detectors.Scan.DistinctPortThreshold)
+	}
+	if cfg.Detectors.Beacon.MinHits != 7 {
+		t.Errorf("beacon min_hits: got %d, want 7", cfg.Detectors.Beacon.MinHits)
+	}
+	if cfg.Detectors.BruteForce.Threshold != 10 {
+		t.Errorf("brute_force threshold: got %d, want 10", cfg.Detectors.BruteForce.Threshold)
+	}
+}
+
+func TestLoadProfileAllowsExplicitDetectorOverrides(t *testing.T) {
+	f := writeTemp(t, `threat_feed_path: ./feed.txt
+profile: paranoid
+detectors:
+  fanout:
+    distinct_dst_threshold: 99
+  beacon:
+    window: 12m
+`)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load profile overrides: %v", err)
+	}
+	if cfg.Detectors.Fanout.DistinctDstThreshold != 99 {
+		t.Errorf("fanout threshold: got %d, want explicit 99", cfg.Detectors.Fanout.DistinctDstThreshold)
+	}
+	if cfg.Detectors.Fanout.Window != 60*time.Second {
+		t.Errorf("fanout window: got %v, want paranoid default 60s", cfg.Detectors.Fanout.Window)
+	}
+	if cfg.Detectors.Beacon.Window != 12*time.Minute {
+		t.Errorf("beacon window: got %v, want explicit 12m", cfg.Detectors.Beacon.Window)
+	}
+	if cfg.Detectors.Beacon.MinHits != 4 {
+		t.Errorf("beacon min_hits: got %d, want paranoid default 4", cfg.Detectors.Beacon.MinHits)
+	}
+}
+
+func TestLoadInvalidProfile(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nprofile: loud\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid profile")
+	}
+	if !strings.Contains(err.Error(), "profile") {
+		t.Fatalf("error: got %q, want profile context", err)
 	}
 }
 

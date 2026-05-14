@@ -58,6 +58,7 @@ type RuntimeStatus struct {
 	Version          string `json:"version"`
 	Commit           string `json:"commit"`
 	BuildDate        string `json:"build_date"`
+	Profile          string `json:"profile"`
 	PollInterval     string `json:"poll_interval"`
 	DedupWindow      string `json:"dedup_window"`
 	SuppressionRules int    `json:"suppression_rules"`
@@ -148,6 +149,7 @@ func (e *Engine) GetStatus() Status {
 			Version:          build.Version,
 			Commit:           build.Commit,
 			BuildDate:        build.BuildDate,
+			Profile:          e.cfg.Profile,
 			PollInterval:     e.cfg.PollInterval.String(),
 			DedupWindow:      e.cfg.DedupWindow.String(),
 			SuppressionRules: len(e.suppressionRules),

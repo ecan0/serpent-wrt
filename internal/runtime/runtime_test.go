@@ -15,6 +15,7 @@ import (
 func testConfig() *config.Config {
 	return &config.Config{
 		ThreatFeedPath: "../../testdata/threat-feed.txt",
+		Profile:        "home",
 		PollInterval:   5 * time.Second,
 		BlockDuration:  time.Hour,
 		NftTable:       "serpent_wrt",
