@@ -129,6 +129,9 @@ func TestHandleStats(t *testing.T) {
 	if _, ok := body["flows_seen"]; !ok {
 		t.Error("response missing flows_seen field")
 	}
+	if _, ok := body["suppressed_detections"]; !ok {
+		t.Error("response missing suppressed_detections field")
+	}
 }
 
 func TestHandleStatus(t *testing.T) {

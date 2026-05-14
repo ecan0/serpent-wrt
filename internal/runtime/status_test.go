@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/events"
 )
 
@@ -31,6 +32,9 @@ func TestGetStatusInitial(t *testing.T) {
 	if s.Runtime.Version != "dev" {
 		t.Errorf("Runtime.Version: got %q, want dev", s.Runtime.Version)
 	}
+	if s.Runtime.SuppressionRules != 0 {
+		t.Errorf("Runtime.SuppressionRules: got %d, want 0", s.Runtime.SuppressionRules)
+	}
 	if !s.Detectors.FeedMatch.Enabled {
 		t.Error("FeedMatch should report enabled")
 	}
@@ -39,6 +43,20 @@ func TestGetStatusInitial(t *testing.T) {
 	}
 	if s.Detectors.BruteForce.Threshold != 5 {
 		t.Errorf("BruteForce threshold: got %d, want 5", s.Detectors.BruteForce.Threshold)
+	}
+}
+
+func TestGetStatusSuppressionRuleCount(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{Detectors: []string{"beacon"}},
+		{SrcAddrs: []string{"192.168.1.50"}},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	s := e.GetStatus()
+	if s.Runtime.SuppressionRules != 2 {
+		t.Errorf("Runtime.SuppressionRules: got %d, want 2", s.Runtime.SuppressionRules)
 	}
 }
 

@@ -23,6 +23,19 @@ log_level: info
 # Suppress duplicate alerts for the same (type, src, dst) within this window.
 dedup_window: 5m
 
+# Config-only suppressions for expected/noisy detections. A rule matches only
+# when every configured dimension matches; omitted dimensions act as wildcards.
+# suppression_rules:
+#   - name: trusted vulnerability scanner
+#     detectors: [port_scan, ext_scan]
+#     src_addrs:
+#       - 192.168.1.50
+#   - name: external SSH health check
+#     detectors: [brute_force]
+#     src_addrs:
+#       - 198.51.100.10/32
+#     dst_ports: [22]
+
 api_enabled: true
 api_bind: 127.0.0.1:8080
 

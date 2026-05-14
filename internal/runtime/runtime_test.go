@@ -512,6 +512,67 @@ func TestDedupKeepsFanoutCollapsedBySrc(t *testing.T) {
 	}
 }
 
+func TestSuppressionRuleDropsMatchingDetection(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{
+			Name:      "trusted scanner",
+			Detectors: []string{"port_scan"},
+			SrcAddrs:  []string{"192.168.1.50"},
+			DstAddrs:  []string{"8.8.8.0/24"},
+			DstPorts:  []uint16{443},
+		},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:    "port_scan",
+		SrcIP:   net.ParseIP("192.168.1.50"),
+		DstIP:   net.ParseIP("8.8.8.8"),
+		DstPort: 443,
+		Message: "trusted scanner",
+	})
+
+	stats := e.GetStats()
+	if stats.SuppressedDetections != 1 {
+		t.Fatalf("suppressed detections: got %d, want 1", stats.SuppressedDetections)
+	}
+	if stats.DetectionsByType["port_scan"] != 0 {
+		t.Fatalf("port_scan detections: got %d, want 0", stats.DetectionsByType["port_scan"])
+	}
+	if len(e.RecentDetections()) != 0 {
+		t.Fatalf("suppressed detection should not be recorded as recent")
+	}
+}
+
+func TestSuppressionRuleRequiresAllConfiguredMatchers(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{
+			Detectors: []string{"port_scan"},
+			SrcAddrs:  []string{"192.168.1.50"},
+			DstPorts:  []uint16{443},
+		},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:    "port_scan",
+		SrcIP:   net.ParseIP("192.168.1.50"),
+		DstIP:   net.ParseIP("8.8.8.8"),
+		DstPort: 80,
+		Message: "different port",
+	})
+
+	stats := e.GetStats()
+	if stats.SuppressedDetections != 0 {
+		t.Fatalf("suppressed detections: got %d, want 0", stats.SuppressedDetections)
+	}
+	if stats.DetectionsByType["port_scan"] != 1 {
+		t.Fatalf("port_scan detections: got %d, want 1", stats.DetectionsByType["port_scan"])
+	}
+}
+
 func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute

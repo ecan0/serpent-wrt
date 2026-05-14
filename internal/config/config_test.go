@@ -199,6 +199,68 @@ func TestLoadInvalidNftSet(t *testing.T) {
 	}
 }
 
+func TestLoadSuppressionRules(t *testing.T) {
+	f := writeTemp(t, `threat_feed_path: ./feed.txt
+suppression_rules:
+  - name: trusted scanner
+    detectors: [port_scan, ext_scan]
+    src_addrs:
+      - 192.168.1.50
+      - 10.10.0.0/16
+    dst_ports: [22, 443]
+`)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.SuppressionRules) != 1 {
+		t.Fatalf("suppression_rules: got %d, want 1", len(cfg.SuppressionRules))
+	}
+	rule := cfg.SuppressionRules[0]
+	if rule.Name != "trusted scanner" {
+		t.Fatalf("rule name: got %q", rule.Name)
+	}
+	if len(rule.Detectors) != 2 || rule.Detectors[0] != "port_scan" || rule.Detectors[1] != "ext_scan" {
+		t.Fatalf("detectors: got %#v", rule.Detectors)
+	}
+	if len(rule.SrcAddrs) != 2 || rule.SrcAddrs[0] != "192.168.1.50" || rule.SrcAddrs[1] != "10.10.0.0/16" {
+		t.Fatalf("src_addrs: got %#v", rule.SrcAddrs)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsUnknownDetector(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - detectors: [made_up]\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for unknown suppression detector")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0].detectors[0]") {
+		t.Fatalf("error: got %q, want suppression detector context", err)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsInvalidAddress(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - src_addrs: [not-an-ip]\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid suppression address")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0].src_addrs[0]") {
+		t.Fatalf("error: got %q, want suppression address context", err)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsEmptyMatcher(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - name: empty\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for empty suppression matcher")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0]") {
+		t.Fatalf("error: got %q, want suppression rule context", err)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cfg*.yaml")

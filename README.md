@@ -75,6 +75,8 @@ router-friendly detection layer for signals that do not need payload inspection.
 - Six detectors: `feed_match`, `fanout`, `port_scan`, `beacon`, `ext_scan`, and
   `brute_force`.
 - Broadcast, loopback, link-local, unroutable, and router-self filtering.
+- Config-only suppression rules for expected scanners, monitors, and other
+  noisy but trusted traffic.
 - Deduplication to suppress repeated alerts while preserving meaningful
   destination-port differences.
 - Structured NDJSON logs with severity, confidence, and reason metadata.
@@ -239,6 +241,17 @@ api_bind: 127.0.0.1:8080
 
 dedup_window: 5m
 
+suppression_rules:
+  - name: trusted scanner
+    detectors: [port_scan, ext_scan]
+    src_addrs:
+      - 192.168.1.50
+  - name: external SSH health check
+    detectors: [brute_force]
+    src_addrs:
+      - 198.51.100.10/32
+    dst_ports: [22]
+
 detectors:
   fanout:
     distinct_dst_threshold: 50
@@ -268,6 +281,11 @@ Important fields:
   numbers, and underscores, with a letter or underscore first.
 - `dedup_window` suppresses repeated alerts from the same detector/source/target
   combination.
+- `suppression_rules` suppress expected detections before logging, recent-event
+  storage, stats-by-type increments, or enforcement. Each rule matches only when
+  every configured dimension matches. Supported matchers are `detectors`,
+  `src_addrs`, `dst_addrs`, and `dst_ports`; address matchers accept IPv4
+  addresses or CIDRs.
 - `syslog_target` and `syslog_proto` can forward JSON events to a SIEM.
 
 ## Operate The Daemon
@@ -303,7 +321,7 @@ HTTP API, available when `api_enabled: true`:
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
 | `/status` | GET | Feed count/path, enforcement/nft state, uptime, detector config, build metadata. |
-| `/stats` | GET | Flow, detection, and block counters. |
+| `/stats` | GET | Flow, detection, suppression, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
 | `/reload` | POST | Reload threat feed from disk. |
@@ -412,8 +430,6 @@ Before wider OpenWrt package publication:
 
 ### Strong candidates after v0.1
 
-- Allowlist and suppression rules for known scanners, monitors, and noisy
-  internal services.
 - Additional Wazuh rules for structured system events.
 - Operational runbook for install, detect-only mode, enforcement, and rollback.
 

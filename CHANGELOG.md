@@ -4,6 +4,13 @@ All notable changes to serpent-wrt will be documented in this file.
 
 This project follows semantic versioning for tagged releases.
 
+## Unreleased
+
+### Added
+
+- Config-only suppression rules for expected scanner, monitor, or noisy service
+  detections, with a `/stats` counter for suppressed detections.
+
 ## v0.1.0 - 2026-05-13
 
 ### Added

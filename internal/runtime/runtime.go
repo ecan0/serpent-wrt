@@ -59,10 +59,11 @@ type DetectionRecord struct {
 
 // Stats holds runtime counters exposed via the API.
 type Stats struct {
-	FlowsSeen        uint64            `json:"flows_seen"`
-	DetectionsByType map[string]uint64 `json:"detections_by_type"`
-	BlocksApplied    uint64            `json:"blocks_applied"`
-	StartedAt        time.Time         `json:"started_at"`
+	FlowsSeen            uint64            `json:"flows_seen"`
+	DetectionsByType     map[string]uint64 `json:"detections_by_type"`
+	BlocksApplied        uint64            `json:"blocks_applied"`
+	SuppressedDetections uint64            `json:"suppressed_detections"`
+	StartedAt            time.Time         `json:"started_at"`
 }
 
 // dedupKey identifies a detector signal for suppression. Detectors that set a
@@ -79,8 +80,9 @@ type dedupKey struct {
 // Atomic fields are placed first to guarantee 64-bit alignment on 32-bit targets.
 type Engine struct {
 	// atomic — must remain first in struct for 32-bit MIPS/ARM alignment
-	flowsSeen     uint64
-	blocksApplied uint64
+	flowsSeen            uint64
+	blocksApplied        uint64
+	suppressedDetections uint64
 
 	cfg  *config.Config
 	feed *feed.Feed
@@ -116,6 +118,9 @@ type Engine struct {
 	dedup       map[dedupKey]time.Time
 	dedupWindow time.Duration
 
+	// config-only suppression rules
+	suppressionRules []suppressionRule
+
 	nftMu         sync.Mutex
 	nftSetupState string
 	nftSetupError string
@@ -130,21 +135,22 @@ type Engine struct {
 func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 	f := feed.New()
 	e := &Engine{
-		cfg:         cfg,
-		feed:        f,
-		log:         log,
-		enf:         enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
-		feedMatch:   detector.NewFeedMatch(f),
-		fanout:      detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
-		portScan:    detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
-		beacon:      detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window, cfg.Detectors.Beacon.MinInterval, cfg.Detectors.Beacon.ExcludePorts),
-		extScan:     detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
-		bruteForce:  detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
-		detByType:   make(map[string]uint64),
-		dedup:       make(map[dedupKey]time.Time),
-		dedupWindow: cfg.DedupWindow,
-		buildInfo:   defaultBuildInfo(),
-		startedAt:   time.Now(),
+		cfg:              cfg,
+		feed:             f,
+		log:              log,
+		enf:              enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
+		feedMatch:        detector.NewFeedMatch(f),
+		fanout:           detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
+		portScan:         detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
+		beacon:           detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window, cfg.Detectors.Beacon.MinInterval, cfg.Detectors.Beacon.ExcludePorts),
+		extScan:          detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
+		bruteForce:       detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
+		detByType:        make(map[string]uint64),
+		dedup:            make(map[dedupKey]time.Time),
+		dedupWindow:      cfg.DedupWindow,
+		suppressionRules: buildSuppressionRules(cfg.SuppressionRules),
+		buildInfo:        defaultBuildInfo(),
+		startedAt:        time.Now(),
 	}
 	if cfg.EnforcementEnabled {
 		e.nftSetupState = nftSetupNotAttempted
@@ -268,6 +274,10 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 
 func (e *Engine) handleDetection(det *detector.Detection) {
 	det.Normalize()
+	if e.isSuppressed(det) {
+		atomic.AddUint64(&e.suppressedDetections, 1)
+		return
+	}
 	key := dedupKey{
 		detType: det.Type,
 		srcIP:   ipStr(det.SrcIP),
@@ -410,10 +420,11 @@ func (e *Engine) GetStats() Stats {
 	e.detByTypeMu.Unlock()
 
 	return Stats{
-		FlowsSeen:        atomic.LoadUint64(&e.flowsSeen),
-		DetectionsByType: byType,
-		BlocksApplied:    atomic.LoadUint64(&e.blocksApplied),
-		StartedAt:        e.startedAt,
+		FlowsSeen:            atomic.LoadUint64(&e.flowsSeen),
+		DetectionsByType:     byType,
+		BlocksApplied:        atomic.LoadUint64(&e.blocksApplied),
+		SuppressedDetections: atomic.LoadUint64(&e.suppressedDetections),
+		StartedAt:            e.startedAt,
 	}
 }
 
