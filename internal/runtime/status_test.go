@@ -45,6 +45,9 @@ func TestGetStatusInitial(t *testing.T) {
 	if s.Runtime.SuppressionRules != 0 {
 		t.Errorf("Runtime.SuppressionRules: got %d, want 0", s.Runtime.SuppressionRules)
 	}
+	if s.Runtime.LeaseEnrichment {
+		t.Error("Runtime.LeaseEnrichment should be false")
+	}
 	if !s.Detectors.FeedMatch.Enabled {
 		t.Error("FeedMatch should report enabled")
 	}
@@ -67,6 +70,21 @@ func TestGetStatusSuppressionRuleCount(t *testing.T) {
 	s := e.GetStatus()
 	if s.Runtime.SuppressionRules != 2 {
 		t.Errorf("Runtime.SuppressionRules: got %d, want 2", s.Runtime.SuppressionRules)
+	}
+}
+
+func TestGetStatusLeaseEnrichment(t *testing.T) {
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = "/tmp/dhcp.leases"
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	s := e.GetStatus()
+	if !s.Runtime.LeaseEnrichment {
+		t.Error("Runtime.LeaseEnrichment: got false, want true")
+	}
+	if s.Runtime.DnsmasqLeasesPath != "/tmp/dhcp.leases" {
+		t.Errorf("Runtime.DnsmasqLeasesPath: got %q", s.Runtime.DnsmasqLeasesPath)
 	}
 }
 

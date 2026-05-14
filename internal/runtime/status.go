@@ -55,15 +55,17 @@ type NftStatus struct {
 
 // RuntimeStatus exposes API/runtime config and build metadata.
 type RuntimeStatus struct {
-	Version          string `json:"version"`
-	Commit           string `json:"commit"`
-	BuildDate        string `json:"build_date"`
-	Profile          string `json:"profile"`
-	PollInterval     string `json:"poll_interval"`
-	DedupWindow      string `json:"dedup_window"`
-	SuppressionRules int    `json:"suppression_rules"`
-	APIEnabled       bool   `json:"api_enabled"`
-	APIBind          string `json:"api_bind,omitempty"`
+	Version           string `json:"version"`
+	Commit            string `json:"commit"`
+	BuildDate         string `json:"build_date"`
+	Profile           string `json:"profile"`
+	PollInterval      string `json:"poll_interval"`
+	DedupWindow       string `json:"dedup_window"`
+	SuppressionRules  int    `json:"suppression_rules"`
+	LeaseEnrichment   bool   `json:"lease_enrichment"`
+	DnsmasqLeasesPath string `json:"dnsmasq_leases_path,omitempty"`
+	APIEnabled        bool   `json:"api_enabled"`
+	APIBind           string `json:"api_bind,omitempty"`
 }
 
 // DetectorConfigStatus summarizes detector tuning without exposing live state.
@@ -146,15 +148,17 @@ func (e *Engine) GetStatus() Status {
 			Nft:           e.nftStatus(nftState, nftErr),
 		},
 		Runtime: RuntimeStatus{
-			Version:          build.Version,
-			Commit:           build.Commit,
-			BuildDate:        build.BuildDate,
-			Profile:          e.cfg.Profile,
-			PollInterval:     e.cfg.PollInterval.String(),
-			DedupWindow:      e.cfg.DedupWindow.String(),
-			SuppressionRules: len(e.suppressionRules),
-			APIEnabled:       e.cfg.APIEnabled,
-			APIBind:          e.cfg.APIBind,
+			Version:           build.Version,
+			Commit:            build.Commit,
+			BuildDate:         build.BuildDate,
+			Profile:           e.cfg.Profile,
+			PollInterval:      e.cfg.PollInterval.String(),
+			DedupWindow:       e.cfg.DedupWindow.String(),
+			SuppressionRules:  len(e.suppressionRules),
+			LeaseEnrichment:   e.cfg.LeaseEnrichment,
+			DnsmasqLeasesPath: e.cfg.DnsmasqLeasesPath,
+			APIEnabled:        e.cfg.APIEnabled,
+			APIBind:           e.cfg.APIBind,
 		},
 		Detectors: detectorConfigStatus(e.cfg.Detectors),
 	}

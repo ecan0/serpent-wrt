@@ -3,6 +3,8 @@ package runtime
 import (
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -606,6 +608,44 @@ func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	}
 }
 
+func TestHandleDetectionEnrichesFromDnsmasqLeases(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "dhcp.leases")
+	if err := os.WriteFile(leasePath, []byte("1710000000 aa:bb:cc:dd:ee:ff 192.168.1.10 laptop *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = leasePath
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.10"),
+		DstIP:      net.ParseIP("1.2.3.4"),
+		DstPort:    443,
+		Message:    "test",
+	})
+
+	recent := e.RecentDetections()
+	if len(recent) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(recent))
+	}
+	rec := recent[0]
+	if rec.SrcHostname != "laptop" {
+		t.Fatalf("src hostname: got %q, want laptop", rec.SrcHostname)
+	}
+	if rec.SrcMAC != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("src mac: got %q, want aa:bb:cc:dd:ee:ff", rec.SrcMAC)
+	}
+	if rec.DstHostname != "" || rec.DstMAC != "" {
+		t.Fatalf("unexpected dst enrichment: hostname=%q mac=%q", rec.DstHostname, rec.DstMAC)
+	}
+}
+
 func TestDetectionRecordJSONSchema(t *testing.T) {
 	rec := DetectionRecord{
 		Time:       time.Unix(1, 0).UTC(),
@@ -647,6 +687,38 @@ func TestDetectionRecordJSONSchema(t *testing.T) {
 	}
 	if got["severity"] != "high" || got["confidence"] != float64(95) || got["reason"] != "threat_feed_destination" {
 		t.Fatalf("metadata fields changed: %v", got)
+	}
+}
+
+func TestDetectionRecordJSONIncludesLeaseFields(t *testing.T) {
+	rec := DetectionRecord{
+		Time:        time.Unix(1, 0).UTC(),
+		Detector:    "feed_match",
+		Severity:    "high",
+		Confidence:  95,
+		Reason:      "threat_feed_destination",
+		SrcIP:       "192.168.1.10",
+		SrcHostname: "laptop",
+		SrcMAC:      "aa:bb:cc:dd:ee:ff",
+		DstIP:       "192.168.1.11",
+		DstHostname: "server",
+		DstMAC:      "11:22:33:44:55:66",
+		DstPort:     443,
+		Message:     "hit",
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal record: %v", err)
+	}
+	if got["src_hostname"] != "laptop" || got["src_mac"] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("src lease fields missing: %v", got)
+	}
+	if got["dst_hostname"] != "server" || got["dst_mac"] != "11:22:33:44:55:66" {
+		t.Fatalf("dst lease fields missing: %v", got)
 	}
 }
 

@@ -49,6 +49,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Profile != "home" {
 		t.Errorf("default profile: got %q, want home", cfg.Profile)
 	}
+	if cfg.LeaseEnrichment {
+		t.Error("lease_enrichment should default to false")
+	}
 }
 
 func TestLoadMissingFeedPath(t *testing.T) {
@@ -178,6 +181,31 @@ func TestLoadInvalidProfile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "profile") {
 		t.Fatalf("error: got %q, want profile context", err)
+	}
+}
+
+func TestLoadLeaseEnrichmentDefaultPath(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nlease_enrichment: true\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load lease enrichment config: %v", err)
+	}
+	if !cfg.LeaseEnrichment {
+		t.Fatal("lease_enrichment: got false, want true")
+	}
+	if cfg.DnsmasqLeasesPath != "/tmp/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %q, want /tmp/dhcp.leases", cfg.DnsmasqLeasesPath)
+	}
+}
+
+func TestLoadLeaseEnrichmentExplicitPath(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nlease_enrichment: true\ndnsmasq_leases_path: /var/run/dhcp.leases\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load lease enrichment config: %v", err)
+	}
+	if cfg.DnsmasqLeasesPath != "/var/run/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %q", cfg.DnsmasqLeasesPath)
 	}
 }
 

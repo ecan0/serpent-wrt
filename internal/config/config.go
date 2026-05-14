@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ecan0/serpent-wrt/internal/lease"
 )
 
 // Config holds all runtime configuration for serpent-wrt.
@@ -15,6 +17,8 @@ type Config struct {
 	PollInterval       time.Duration     `yaml:"poll_interval"`
 	ThreatFeedPath     string            `yaml:"threat_feed_path"`
 	Profile            string            `yaml:"profile"`
+	LeaseEnrichment    bool              `yaml:"lease_enrichment"`
+	DnsmasqLeasesPath  string            `yaml:"dnsmasq_leases_path"`
 	EnforcementEnabled bool              `yaml:"enforcement_enabled"`
 	BlockDuration      time.Duration     `yaml:"block_duration"`
 	LANCIDRs           []string          `yaml:"lan_cidrs"`
@@ -157,6 +161,9 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.PollInterval <= 0 {
 		c.PollInterval = 5 * time.Second
+	}
+	if c.LeaseEnrichment && c.DnsmasqLeasesPath == "" {
+		c.DnsmasqLeasesPath = lease.DefaultPath
 	}
 	if c.BlockDuration <= 0 {
 		c.BlockDuration = time.Hour

@@ -1,6 +1,8 @@
 poll_interval: 5s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 profile: home  # home, homelab, quiet, or paranoid
+lease_enrichment: true
+dnsmasq_leases_path: /tmp/dhcp.leases
 
 enforcement_enabled: false  # set true after verifying nftables rules work correctly
 block_duration: 1h

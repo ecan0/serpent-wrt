@@ -17,6 +17,7 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/events"
 	"github.com/ecan0/serpent-wrt/internal/feed"
 	"github.com/ecan0/serpent-wrt/internal/flow"
+	"github.com/ecan0/serpent-wrt/internal/lease"
 )
 
 const (
@@ -46,15 +47,19 @@ func isUnroutable(ip net.IP) bool {
 
 // DetectionRecord is a summarized detection for the API response.
 type DetectionRecord struct {
-	Time       time.Time `json:"time"`
-	Detector   string    `json:"detector"`
-	Severity   string    `json:"severity"`
-	Confidence uint8     `json:"confidence"`
-	Reason     string    `json:"reason"`
-	SrcIP      string    `json:"src_ip"`
-	DstIP      string    `json:"dst_ip,omitempty"`
-	DstPort    uint16    `json:"dst_port,omitempty"`
-	Message    string    `json:"message"`
+	Time        time.Time `json:"time"`
+	Detector    string    `json:"detector"`
+	Severity    string    `json:"severity"`
+	Confidence  uint8     `json:"confidence"`
+	Reason      string    `json:"reason"`
+	SrcIP       string    `json:"src_ip"`
+	SrcHostname string    `json:"src_hostname,omitempty"`
+	SrcMAC      string    `json:"src_mac,omitempty"`
+	DstIP       string    `json:"dst_ip,omitempty"`
+	DstHostname string    `json:"dst_hostname,omitempty"`
+	DstMAC      string    `json:"dst_mac,omitempty"`
+	DstPort     uint16    `json:"dst_port,omitempty"`
+	Message     string    `json:"message"`
 }
 
 // Stats holds runtime counters exposed via the API.
@@ -103,6 +108,7 @@ type Engine struct {
 
 	lanNets []*net.IPNet // pre-parsed from cfg.LANCIDRs
 	selfIPs []net.IP     // router's own IPs — excluded as detection sources
+	leases  *lease.Cache // optional read-only dnsmasq lease enrichment
 
 	// detection type counters
 	detByTypeMu sync.Mutex
@@ -151,6 +157,9 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		suppressionRules: buildSuppressionRules(cfg.SuppressionRules),
 		buildInfo:        defaultBuildInfo(),
 		startedAt:        time.Now(),
+	}
+	if cfg.LeaseEnrichment {
+		e.leases = lease.NewCache(cfg.DnsmasqLeasesPath)
 	}
 	if cfg.EnforcementEnabled {
 		e.nftSetupState = nftSetupNotAttempted
@@ -297,18 +306,23 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	}
 	e.dedupMu.Unlock()
 
+	enrichment := e.enrichment(det)
 	ev := events.Event{
-		Time:       now,
-		Level:      events.LevelWarn,
-		Type:       events.TypeDetection,
-		Detector:   det.Type,
-		Severity:   string(det.Severity),
-		Confidence: det.Confidence,
-		Reason:     string(det.Reason),
-		SrcIP:      ipStr(det.SrcIP),
-		DstIP:      ipStr(det.DstIP),
-		DstPort:    det.DstPort,
-		Message:    det.Message,
+		Time:        now,
+		Level:       events.LevelWarn,
+		Type:        events.TypeDetection,
+		Detector:    det.Type,
+		Severity:    string(det.Severity),
+		Confidence:  det.Confidence,
+		Reason:      string(det.Reason),
+		SrcIP:       ipStr(det.SrcIP),
+		SrcHostname: enrichment.srcHostname,
+		SrcMAC:      enrichment.srcMAC,
+		DstIP:       ipStr(det.DstIP),
+		DstHostname: enrichment.dstHostname,
+		DstMAC:      enrichment.dstMAC,
+		DstPort:     det.DstPort,
+		Message:     det.Message,
 	}
 	e.log.Log(ev)
 
@@ -317,15 +331,19 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.detByTypeMu.Unlock()
 
 	rec := DetectionRecord{
-		Time:       now,
-		Detector:   det.Type,
-		Severity:   string(det.Severity),
-		Confidence: det.Confidence,
-		Reason:     string(det.Reason),
-		SrcIP:      ipStr(det.SrcIP),
-		DstIP:      ipStr(det.DstIP),
-		DstPort:    det.DstPort,
-		Message:    det.Message,
+		Time:        now,
+		Detector:    det.Type,
+		Severity:    string(det.Severity),
+		Confidence:  det.Confidence,
+		Reason:      string(det.Reason),
+		SrcIP:       ipStr(det.SrcIP),
+		SrcHostname: enrichment.srcHostname,
+		SrcMAC:      enrichment.srcMAC,
+		DstIP:       ipStr(det.DstIP),
+		DstHostname: enrichment.dstHostname,
+		DstMAC:      enrichment.dstMAC,
+		DstPort:     det.DstPort,
+		Message:     det.Message,
 	}
 	e.recentMu.Lock()
 	e.recent[e.rHead] = rec
@@ -342,6 +360,27 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 			det.SrcIP,
 		)
 		atomic.AddUint64(&e.blocksApplied, 1)
+	}
+}
+
+type detectionEnrichment struct {
+	srcHostname string
+	srcMAC      string
+	dstHostname string
+	dstMAC      string
+}
+
+func (e *Engine) enrichment(det *detector.Detection) detectionEnrichment {
+	if e.leases == nil {
+		return detectionEnrichment{}
+	}
+	src, _ := e.leases.Lookup(det.SrcIP)
+	dst, _ := e.leases.Lookup(det.DstIP)
+	return detectionEnrichment{
+		srcHostname: src.Hostname,
+		srcMAC:      src.MAC,
+		dstHostname: dst.Hostname,
+		dstMAC:      dst.MAC,
 	}
 }
 

@@ -16,6 +16,8 @@ This project follows semantic versioning for tagged releases.
   detector threshold presets with explicit per-detector overrides.
 - `serpent-wrt nftcheck` and an OpenWrt init helper for checking configured
   nftables enforcement resources without starting the daemon.
+- Optional read-only dnsmasq lease enrichment for detection hostnames and MAC
+  addresses in logs and recent detection API responses.
 
 ## v0.1.0 - 2026-05-13
 

@@ -79,6 +79,8 @@ router-friendly detection layer for signals that do not need payload inspection.
   noisy but trusted traffic.
 - Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
   threshold tuning without editing every detector.
+- Optional read-only dnsmasq lease enrichment adds hostnames and MAC addresses
+  to LAN-side detections.
 - Deduplication to suppress repeated alerts while preserving meaningful
   destination-port differences.
 - Structured NDJSON logs with severity, confidence, and reason metadata.
@@ -227,6 +229,8 @@ Minimal shape:
 poll_interval: 5s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 profile: home
+lease_enrichment: true
+dnsmasq_leases_path: /tmp/dhcp.leases
 
 enforcement_enabled: false
 block_duration: 1h
@@ -282,6 +286,9 @@ Important fields:
   preserves the baseline defaults, `homelab` and `quiet` raise thresholds for
   noisier networks, and `paranoid` lowers thresholds for more aggressive
   alerting. Explicit detector settings always override profile defaults.
+- `lease_enrichment` reads the configured dnsmasq lease file and adds
+  `src_hostname`, `src_mac`, `dst_hostname`, and `dst_mac` when a detection IP
+  matches a current lease. Missing lease files are treated as empty.
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.
 - `enforcement_enabled` defaults deployments toward detect-only operation.
@@ -366,7 +373,7 @@ syslog.
 
 ```json
 {"time":"2026-01-01T00:00:00Z","level":"info","type":"system","component":"feed","action":"reload","status":"success","feed_count":42,"message":"reloaded threat feed: 42 entries"}
-{"time":"2026-01-01T00:00:01Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
+{"time":"2026-01-01T00:00:01Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","src_hostname":"laptop","src_mac":"aa:bb:cc:dd:ee:ff","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
 {"time":"2026-01-01T00:00:02Z","level":"warn","type":"enforcement","src_ip":"192.168.1.5","message":"blocked 192.168.1.5 triggered by feed_match"}
 ```
 
@@ -465,7 +472,7 @@ Before wider OpenWrt package publication:
 
 - IPv4 only for MVP.
 - Polling instead of netlink events.
-- No DNS/hostname correlation.
+- Hostname/MAC enrichment is limited to local dnsmasq lease data.
 - No payload inspection by design.
 - No persistent database or historical UI.
 - Local threat feed only.
