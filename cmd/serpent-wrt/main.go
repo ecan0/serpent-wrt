@@ -140,27 +140,30 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 		return 2
 	}
 
-	cfg, feedEntries, err := checkConfig(*cfgPath)
+	cfg, feedEntries, warnings, err := checkConfig(*cfgPath)
 	if err != nil {
 		writef(stderr, "serpent-wrt: configtest failed: %v\n", err)
 		return 1
 	}
 	writef(stdout, "serpent-wrt: config OK: %s (feed=%s entries=%d)\n",
 		*cfgPath, cfg.ThreatFeedPath, feedEntries)
+	for _, warning := range warnings {
+		writef(stdout, "serpent-wrt: config warning: %s\n", warning)
+	}
 	return 0
 }
 
-func checkConfig(path string) (*config.Config, int, error) {
+func checkConfig(path string) (*config.Config, int, []string, error) {
 	cfg, err := config.Load(path)
 	if err != nil {
-		return nil, 0, fmt.Errorf("config: %w", err)
+		return nil, 0, nil, fmt.Errorf("config: %w", err)
 	}
 
 	feedEntries, err := feed.ValidateFile(cfg.ThreatFeedPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("threat feed: %w", err)
+		return nil, 0, nil, fmt.Errorf("threat feed: %w", err)
 	}
-	return cfg, feedEntries, nil
+	return cfg, feedEntries, config.Warnings(cfg), nil
 }
 
 func runDaemon(cfgPath string, stderr io.Writer) int {

@@ -325,6 +325,11 @@ serpent-wrt configtest
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
 ```
 
+`configtest` exits non-zero for invalid configuration or feed files. It also
+prints advisory warnings for valid but risky settings such as missing
+`lan_cidrs`, non-loopback API binds, broad suppression rules, and aggressive
+enforcement combinations.
+
 Check configured nftables enforcement resources without starting the daemon:
 
 ```sh
