@@ -344,7 +344,7 @@ HTTP API, available when `api_enabled: true`:
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
 | `/status` | GET | Feed count/path, enforcement/nft diagnostics, uptime, detector config, build metadata. |
-| `/stats` | GET | Flow, detection, suppression, and block counters. |
+| `/stats` | GET | Flow, detection-by-type/severity/confidence, suppression, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
 | `/reload` | POST | Reload threat feed from disk. |
