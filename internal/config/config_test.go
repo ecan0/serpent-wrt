@@ -359,6 +359,70 @@ func TestLoadSuppressionRuleRejectsEmptyMatcher(t *testing.T) {
 	}
 }
 
+func TestWarningsEmptyDirectionInputs(t *testing.T) {
+	cfg := &config.Config{}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "lan_cidrs is empty") {
+		t.Fatalf("warnings=%q, want lan_cidrs warning", warnings)
+	}
+	if !strings.Contains(warnings, "self_ips is empty") {
+		t.Fatalf("warnings=%q, want self_ips warning", warnings)
+	}
+}
+
+func TestWarningsAPIBindLoopback(t *testing.T) {
+	cfg := &config.Config{
+		APIEnabled: true,
+		APIBind:    "127.0.0.1:8080",
+		LANCIDRs:   []string{"192.168.1.0/24"},
+		SelfIPs:    []string{"192.168.1.1"},
+	}
+	if warnings := config.Warnings(cfg); len(warnings) != 0 {
+		t.Fatalf("warnings=%q, want none", warnings)
+	}
+
+	cfg.APIBind = "0.0.0.0:8080"
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "not loopback-only") {
+		t.Fatalf("warnings=%q, want API bind warning", warnings)
+	}
+}
+
+func TestWarningsEnforcementFootguns(t *testing.T) {
+	cfg := &config.Config{
+		Profile:            "paranoid",
+		EnforcementEnabled: true,
+		BlockDuration:      48 * time.Hour,
+		LANCIDRs:           []string{"192.168.1.0/24"},
+		SelfIPs:            []string{"192.168.1.1"},
+	}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "paranoid with enforcement_enabled true") {
+		t.Fatalf("warnings=%q, want paranoid enforcement warning", warnings)
+	}
+	if !strings.Contains(warnings, "longer than 24h") {
+		t.Fatalf("warnings=%q, want block duration warning", warnings)
+	}
+}
+
+func TestWarningsBroadSuppressionRules(t *testing.T) {
+	cfg := &config.Config{
+		LANCIDRs: []string{"192.168.1.0/24"},
+		SelfIPs:  []string{"192.168.1.1"},
+		SuppressionRules: []config.SuppressionRule{
+			{Name: "all detectors on source", SrcAddrs: []string{"192.168.1.50"}},
+			{Name: "all scans", Detectors: []string{"port_scan"}},
+		},
+	}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "has no detectors matcher") {
+		t.Fatalf("warnings=%q, want missing detector warning", warnings)
+	}
+	if !strings.Contains(warnings, "matches only by detector") {
+		t.Fatalf("warnings=%q, want detector-only warning", warnings)
+	}
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cfg*.yaml")

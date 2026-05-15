@@ -41,6 +41,49 @@ func TestRunConfigtestSupportsGlobalConfigFlag(t *testing.T) {
 	}
 }
 
+func TestRunConfigtestPrintsWarnings(t *testing.T) {
+	dir := t.TempDir()
+	feedPath := filepath.Join(dir, "threat-feed.txt")
+	if err := os.WriteFile(feedPath, []byte("1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	content := fmt.Sprintf(`threat_feed_path: '%s'
+api_enabled: true
+api_bind: 0.0.0.0:8080
+enforcement_enabled: true
+profile: paranoid
+suppression_rules:
+  - name: broad scan silence
+    detectors: [port_scan]
+`, filepath.ToSlash(feedPath))
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run configtest: exit=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"config OK",
+		"config warning",
+		"lan_cidrs is empty",
+		"api_bind \"0.0.0.0:8080\" is not loopback-only",
+		"profile paranoid with enforcement_enabled true",
+		"matches only by detector",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout=%q, want %q", out, want)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
 func TestRunConfigtestFailsForInvalidConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "serpent-wrt.yaml")
@@ -164,7 +207,7 @@ func writeConfigWithFeed(t *testing.T, feedContent string) string {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(dir, "serpent-wrt.yaml")
-	content := fmt.Sprintf("threat_feed_path: '%s'\n", filepath.ToSlash(feedPath))
+	content := fmt.Sprintf("threat_feed_path: '%s'\nlan_cidrs:\n  - 192.168.1.0/24\nself_ips:\n  - 192.168.1.1\n", filepath.ToSlash(feedPath))
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
