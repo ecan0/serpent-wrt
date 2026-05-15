@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"errors"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ecan0/serpent-wrt/internal/config"
@@ -85,6 +88,47 @@ func TestGetStatusLeaseEnrichment(t *testing.T) {
 	}
 	if s.Runtime.DnsmasqLeasesPath != "/tmp/dhcp.leases" {
 		t.Errorf("Runtime.DnsmasqLeasesPath: got %q", s.Runtime.DnsmasqLeasesPath)
+	}
+	if s.Runtime.LeaseCache == nil {
+		t.Fatal("Runtime.LeaseCache: got nil, want cache status")
+	}
+	if s.Runtime.LeaseCache.Entries != 0 {
+		t.Errorf("Runtime.LeaseCache.Entries: got %d, want 0", s.Runtime.LeaseCache.Entries)
+	}
+	if s.Runtime.LeaseCache.RefreshInterval != "1m0s" {
+		t.Errorf("Runtime.LeaseCache.RefreshInterval: got %q, want 1m0s", s.Runtime.LeaseCache.RefreshInterval)
+	}
+	if s.Runtime.LeaseCache.LastRefresh != nil {
+		t.Errorf("Runtime.LeaseCache.LastRefresh: got %v, want nil before lookup", s.Runtime.LeaseCache.LastRefresh)
+	}
+}
+
+func TestGetStatusLeaseCacheAfterLookup(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "dhcp.leases")
+	if err := os.WriteFile(leasePath, []byte("1710000000 aa:bb:cc:dd:ee:ff 192.168.1.10 laptop *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = leasePath
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	if _, ok := e.leases.Lookup(net.ParseIP("192.168.1.10")); !ok {
+		t.Fatal("expected lease lookup hit")
+	}
+
+	s := e.GetStatus()
+	if s.Runtime.LeaseCache == nil {
+		t.Fatal("Runtime.LeaseCache: got nil, want cache status")
+	}
+	if s.Runtime.LeaseCache.Entries != 1 {
+		t.Fatalf("Runtime.LeaseCache.Entries: got %d, want 1", s.Runtime.LeaseCache.Entries)
+	}
+	if s.Runtime.LeaseCache.LastRefresh == nil {
+		t.Fatal("Runtime.LeaseCache.LastRefresh: got nil, want timestamp")
+	}
+	if s.Runtime.LeaseCache.LastError != "" {
+		t.Fatalf("Runtime.LeaseCache.LastError: got %q, want empty", s.Runtime.LeaseCache.LastError)
 	}
 }
 

@@ -288,7 +288,8 @@ Important fields:
   alerting. Explicit detector settings always override profile defaults.
 - `lease_enrichment` reads the configured dnsmasq lease file and adds
   `src_hostname`, `src_mac`, `dst_hostname`, and `dst_mac` when a detection IP
-  matches a current lease. Missing lease files are treated as empty.
+  matches a current lease. Missing lease files are treated as empty. `/status`
+  reports lightweight lease cache metadata when enrichment is enabled.
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.
 - `enforcement_enabled` defaults deployments toward detect-only operation.

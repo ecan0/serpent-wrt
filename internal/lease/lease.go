@@ -26,6 +26,15 @@ type Entry struct {
 	Hostname string
 }
 
+// CacheStats describes the current lease cache snapshot without refreshing it.
+type CacheStats struct {
+	Path            string
+	RefreshInterval time.Duration
+	LastRefresh     time.Time
+	Entries         int
+	LastError       string
+}
+
 // Cache keeps a bounded, periodically refreshed snapshot of dnsmasq leases.
 type Cache struct {
 	path     string
@@ -34,6 +43,7 @@ type Cache struct {
 	mu      sync.Mutex
 	last    time.Time
 	entries map[string]Entry
+	lastErr string
 }
 
 // NewCache creates a lease cache. Empty paths disable lookups.
@@ -63,6 +73,22 @@ func (c *Cache) Lookup(ip net.IP) (Entry, bool) {
 	return entry, ok
 }
 
+// Stats returns the current cache snapshot metadata without refreshing.
+func (c *Cache) Stats() CacheStats {
+	if c == nil {
+		return CacheStats{}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return CacheStats{
+		Path:            c.path,
+		RefreshInterval: c.interval,
+		LastRefresh:     c.last,
+		Entries:         len(c.entries),
+		LastError:       c.lastErr,
+	}
+}
+
 func (c *Cache) refreshIfStale(now time.Time) {
 	c.mu.Lock()
 	if !c.last.IsZero() && now.Sub(c.last) < c.interval {
@@ -74,11 +100,15 @@ func (c *Cache) refreshIfStale(now time.Time) {
 
 	entries, err := LoadFile(c.path)
 	if err != nil {
+		c.mu.Lock()
+		c.lastErr = err.Error()
+		c.mu.Unlock()
 		return
 	}
 
 	c.mu.Lock()
 	c.entries = entries
+	c.lastErr = ""
 	c.mu.Unlock()
 }
 

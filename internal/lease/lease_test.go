@@ -57,11 +57,39 @@ func TestCacheLookup(t *testing.T) {
 	if _, ok := cache.Lookup(net.ParseIP("192.168.1.99")); ok {
 		t.Fatal("unexpected lease lookup hit")
 	}
+
+	stats := cache.Stats()
+	if stats.Path != path {
+		t.Fatalf("stats path: got %q, want %q", stats.Path, path)
+	}
+	if stats.Entries != 1 {
+		t.Fatalf("stats entries: got %d, want 1", stats.Entries)
+	}
+	if stats.LastRefresh.IsZero() {
+		t.Fatal("stats last refresh should be set after lookup")
+	}
+	if stats.LastError != "" {
+		t.Fatalf("stats last error: got %q, want empty", stats.LastError)
+	}
 }
 
 func TestCacheLookupSkipsIPv6(t *testing.T) {
 	cache := NewCache("/tmp/does-not-matter")
 	if _, ok := cache.Lookup(net.ParseIP("2001:db8::1")); ok {
 		t.Fatal("IPv6 lookup should miss")
+	}
+}
+
+func TestCacheStatsRecordsLoadError(t *testing.T) {
+	cache := NewCache("bad\x00path")
+	if _, ok := cache.Lookup(net.ParseIP("192.168.1.20")); ok {
+		t.Fatal("invalid path should not produce lease hit")
+	}
+	stats := cache.Stats()
+	if stats.LastError == "" {
+		t.Fatal("stats last error should be set")
+	}
+	if stats.Entries != 0 {
+		t.Fatalf("stats entries: got %d, want 0", stats.Entries)
 	}
 }
