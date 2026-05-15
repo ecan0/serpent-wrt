@@ -73,6 +73,7 @@ func testServer(t *testing.T) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		ThreatFeedPath: "../../testdata/threat-feed.txt",
+		Profile:        "home",
 		PollInterval:   5 * time.Second,
 		BlockDuration:  time.Hour,
 		DedupWindow:    5 * time.Minute,
@@ -129,6 +130,15 @@ func TestHandleStats(t *testing.T) {
 	if _, ok := body["flows_seen"]; !ok {
 		t.Error("response missing flows_seen field")
 	}
+	if _, ok := body["suppressed_detections"]; !ok {
+		t.Error("response missing suppressed_detections field")
+	}
+	if _, ok := body["detections_by_severity"]; !ok {
+		t.Error("response missing detections_by_severity field")
+	}
+	if _, ok := body["detections_by_confidence_bucket"]; !ok {
+		t.Error("response missing detections_by_confidence_bucket field")
+	}
 }
 
 func TestHandleStatus(t *testing.T) {
@@ -169,8 +179,17 @@ func TestHandleStatus(t *testing.T) {
 	if body.Enforcement.Nft.SetupState != "disabled" {
 		t.Errorf("nft setup_state: got %q, want disabled", body.Enforcement.Nft.SetupState)
 	}
+	if body.Enforcement.Nft.Checked {
+		t.Error("nft check should be skipped when enforcement is disabled")
+	}
+	if body.Enforcement.Nft.CheckState != "disabled" {
+		t.Errorf("nft check_state: got %q, want disabled", body.Enforcement.Nft.CheckState)
+	}
 	if body.Runtime.Version == "" || body.Runtime.Commit == "" || body.Runtime.BuildDate == "" {
 		t.Fatalf("runtime build metadata missing: %+v", body.Runtime)
+	}
+	if body.Runtime.Profile != "home" {
+		t.Errorf("runtime profile: got %q, want home", body.Runtime.Profile)
 	}
 	if body.Detectors.Fanout.DistinctDstThreshold != 50 {
 		t.Errorf("fanout threshold: got %d, want 50", body.Detectors.Fanout.DistinctDstThreshold)

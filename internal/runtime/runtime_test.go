@@ -3,6 +3,8 @@ package runtime
 import (
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 func testConfig() *config.Config {
 	return &config.Config{
 		ThreatFeedPath: "../../testdata/threat-feed.txt",
+		Profile:        "home",
 		PollInterval:   5 * time.Second,
 		BlockDuration:  time.Hour,
 		NftTable:       "serpent_wrt",
@@ -152,6 +155,12 @@ func TestGetStatsInitial(t *testing.T) {
 	}
 	if s.DetectionsByType == nil {
 		t.Error("DetectionsByType should not be nil")
+	}
+	if s.DetectionsBySeverity == nil {
+		t.Error("DetectionsBySeverity should not be nil")
+	}
+	if s.DetectionsByConfidenceBucket == nil {
+		t.Error("DetectionsByConfidenceBucket should not be nil")
 	}
 }
 
@@ -512,6 +521,67 @@ func TestDedupKeepsFanoutCollapsedBySrc(t *testing.T) {
 	}
 }
 
+func TestSuppressionRuleDropsMatchingDetection(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{
+			Name:      "trusted scanner",
+			Detectors: []string{"port_scan"},
+			SrcAddrs:  []string{"192.168.1.50"},
+			DstAddrs:  []string{"8.8.8.0/24"},
+			DstPorts:  []uint16{443},
+		},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:    "port_scan",
+		SrcIP:   net.ParseIP("192.168.1.50"),
+		DstIP:   net.ParseIP("8.8.8.8"),
+		DstPort: 443,
+		Message: "trusted scanner",
+	})
+
+	stats := e.GetStats()
+	if stats.SuppressedDetections != 1 {
+		t.Fatalf("suppressed detections: got %d, want 1", stats.SuppressedDetections)
+	}
+	if stats.DetectionsByType["port_scan"] != 0 {
+		t.Fatalf("port_scan detections: got %d, want 0", stats.DetectionsByType["port_scan"])
+	}
+	if len(e.RecentDetections()) != 0 {
+		t.Fatalf("suppressed detection should not be recorded as recent")
+	}
+}
+
+func TestSuppressionRuleRequiresAllConfiguredMatchers(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{
+			Detectors: []string{"port_scan"},
+			SrcAddrs:  []string{"192.168.1.50"},
+			DstPorts:  []uint16{443},
+		},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:    "port_scan",
+		SrcIP:   net.ParseIP("192.168.1.50"),
+		DstIP:   net.ParseIP("8.8.8.8"),
+		DstPort: 80,
+		Message: "different port",
+	})
+
+	stats := e.GetStats()
+	if stats.SuppressedDetections != 0 {
+		t.Fatalf("suppressed detections: got %d, want 0", stats.SuppressedDetections)
+	}
+	if stats.DetectionsByType["port_scan"] != 1 {
+		t.Fatalf("port_scan detections: got %d, want 1", stats.DetectionsByType["port_scan"])
+	}
+}
+
 func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute
@@ -541,6 +611,106 @@ func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	}
 	if rec.Reason != "threat_feed_destination" {
 		t.Fatalf("reason: got %q, want threat_feed_destination", rec.Reason)
+	}
+}
+
+func TestHandleDetectionCountsSeverityAndConfidenceBuckets(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	detections := []detector.Detection{
+		{
+			Type:       "feed_match",
+			Severity:   detector.SeverityHigh,
+			Confidence: 95,
+			Reason:     detector.ReasonThreatFeedDestination,
+			SrcIP:      net.ParseIP("192.168.1.10"),
+			DstIP:      net.ParseIP("1.2.3.4"),
+			DstPort:    443,
+			Message:    "feed hit",
+		},
+		{
+			Type:       "fanout",
+			Severity:   detector.SeverityMedium,
+			Confidence: 70,
+			Reason:     detector.ReasonOutboundDistinctDestinations,
+			SrcIP:      net.ParseIP("192.168.1.11"),
+			Message:    "fanout",
+		},
+		{
+			Type:       "beacon",
+			Severity:   detector.SeverityLow,
+			Confidence: 45,
+			Reason:     detector.ReasonBeaconCadence,
+			SrcIP:      net.ParseIP("192.168.1.12"),
+			DstIP:      net.ParseIP("8.8.8.8"),
+			DstPort:    53,
+			Message:    "beacon",
+		},
+		{
+			Type:       "port_scan",
+			Severity:   detector.SeverityCritical,
+			Confidence: 50,
+			Reason:     detector.ReasonOutboundDistinctPorts,
+			SrcIP:      net.ParseIP("192.168.1.13"),
+			DstIP:      net.ParseIP("8.8.4.4"),
+			DstPort:    22,
+			Message:    "scan",
+		},
+	}
+	for i := range detections {
+		e.handleDetection(&detections[i])
+	}
+
+	stats := e.GetStats()
+	if stats.DetectionsBySeverity["high"] != 1 || stats.DetectionsBySeverity["medium"] != 1 ||
+		stats.DetectionsBySeverity["low"] != 1 || stats.DetectionsBySeverity["critical"] != 1 {
+		t.Fatalf("severity counters: %+v", stats.DetectionsBySeverity)
+	}
+	if stats.DetectionsByConfidenceBucket["0_49"] != 1 ||
+		stats.DetectionsByConfidenceBucket["50_69"] != 1 ||
+		stats.DetectionsByConfidenceBucket["70_84"] != 1 ||
+		stats.DetectionsByConfidenceBucket["85_100"] != 1 {
+		t.Fatalf("confidence bucket counters: %+v", stats.DetectionsByConfidenceBucket)
+	}
+}
+
+func TestHandleDetectionEnrichesFromDnsmasqLeases(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "dhcp.leases")
+	if err := os.WriteFile(leasePath, []byte("1710000000 aa:bb:cc:dd:ee:ff 192.168.1.10 laptop *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = leasePath
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.10"),
+		DstIP:      net.ParseIP("1.2.3.4"),
+		DstPort:    443,
+		Message:    "test",
+	})
+
+	recent := e.RecentDetections()
+	if len(recent) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(recent))
+	}
+	rec := recent[0]
+	if rec.SrcHostname != "laptop" {
+		t.Fatalf("src hostname: got %q, want laptop", rec.SrcHostname)
+	}
+	if rec.SrcMAC != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("src mac: got %q, want aa:bb:cc:dd:ee:ff", rec.SrcMAC)
+	}
+	if rec.DstHostname != "" || rec.DstMAC != "" {
+		t.Fatalf("unexpected dst enrichment: hostname=%q mac=%q", rec.DstHostname, rec.DstMAC)
 	}
 }
 
@@ -585,6 +755,38 @@ func TestDetectionRecordJSONSchema(t *testing.T) {
 	}
 	if got["severity"] != "high" || got["confidence"] != float64(95) || got["reason"] != "threat_feed_destination" {
 		t.Fatalf("metadata fields changed: %v", got)
+	}
+}
+
+func TestDetectionRecordJSONIncludesLeaseFields(t *testing.T) {
+	rec := DetectionRecord{
+		Time:        time.Unix(1, 0).UTC(),
+		Detector:    "feed_match",
+		Severity:    "high",
+		Confidence:  95,
+		Reason:      "threat_feed_destination",
+		SrcIP:       "192.168.1.10",
+		SrcHostname: "laptop",
+		SrcMAC:      "aa:bb:cc:dd:ee:ff",
+		DstIP:       "192.168.1.11",
+		DstHostname: "server",
+		DstMAC:      "11:22:33:44:55:66",
+		DstPort:     443,
+		Message:     "hit",
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal record: %v", err)
+	}
+	if got["src_hostname"] != "laptop" || got["src_mac"] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("src lease fields missing: %v", got)
+	}
+	if got["dst_hostname"] != "server" || got["dst_mac"] != "11:22:33:44:55:66" {
+		t.Fatalf("dst lease fields missing: %v", got)
 	}
 }
 

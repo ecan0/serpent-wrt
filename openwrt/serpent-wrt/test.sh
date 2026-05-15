@@ -14,7 +14,9 @@ test -f /etc/serpent-wrt/threat-feed.txt
 serpent-wrt -h 2>&1 | grep -q "path to config file"
 serpent-wrt -version | grep -q "serpent-wrt version="
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest | grep -q "config OK"
+serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml nftcheck | grep -q "enforcement disabled"
 /etc/init.d/serpent-wrt configtest | grep -q "config OK"
+/etc/init.d/serpent-wrt nftcheck | grep -q "enforcement disabled"
 
 api_get() {
 	path=$1
@@ -38,6 +40,7 @@ api_post() {
 
 api_get /healthz | grep -q '"status":"ok"'
 api_get /status | grep -q '"setup_state":"disabled"'
+api_get /status | grep -q '"check_state":"disabled"'
 api_get /stats | grep -q '"flows_seen"'
 api_post /reload | grep -q '"status":"reloaded"'
 

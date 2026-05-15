@@ -4,6 +4,21 @@ All notable changes to serpent-wrt will be documented in this file.
 
 This project follows semantic versioning for tagged releases.
 
+## Unreleased
+
+### Added
+
+- Config-only suppression rules for expected scanner, monitor, or noisy service
+  detections, with a `/stats` counter for suppressed detections.
+- `/status` nft diagnostics for missing enforcement table/set state, including
+  firewall-reload hints when resources disappear after setup.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
+  detector threshold presets with explicit per-detector overrides.
+- `serpent-wrt nftcheck` and an OpenWrt init helper for checking configured
+  nftables enforcement resources without starting the daemon.
+- Optional read-only dnsmasq lease enrichment for detection hostnames and MAC
+  addresses in logs and recent detection API responses.
+
 ## v0.1.0 - 2026-05-13
 
 ### Added

@@ -2,10 +2,12 @@ package feed
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -268,7 +270,15 @@ func writeFeedFile(path, content string) error {
 		return fmt.Errorf("chmod temp feed: %w", err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("replace feed: %w", err)
+		if runtime.GOOS != "windows" {
+			return fmt.Errorf("replace feed: %w", err)
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("remove feed before replace: %w", removeErr)
+		}
+		if renameErr := os.Rename(tmpName, path); renameErr != nil {
+			return fmt.Errorf("replace feed after removing destination: %w", renameErr)
+		}
 	}
 	return nil
 }

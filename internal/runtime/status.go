@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/enforcer"
 )
 
 // BuildInfo describes the daemon build backing the running API.
@@ -39,22 +40,41 @@ type EnforcementStatus struct {
 
 // NftStatus describes cheap nft CLI availability and setup state.
 type NftStatus struct {
-	Available  bool   `json:"available"`
-	Table      string `json:"table"`
-	Set        string `json:"set"`
-	SetupState string `json:"setup_state"`
-	LastError  string `json:"last_error,omitempty"`
+	Available    bool   `json:"available"`
+	Checked      bool   `json:"checked"`
+	Table        string `json:"table"`
+	Set          string `json:"set"`
+	TablePresent bool   `json:"table_present"`
+	SetPresent   bool   `json:"set_present"`
+	SetupState   string `json:"setup_state"`
+	CheckState   string `json:"check_state"`
+	Diagnostic   string `json:"diagnostic,omitempty"`
+	CheckError   string `json:"check_error,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
 }
 
 // RuntimeStatus exposes API/runtime config and build metadata.
 type RuntimeStatus struct {
-	Version      string `json:"version"`
-	Commit       string `json:"commit"`
-	BuildDate    string `json:"build_date"`
-	PollInterval string `json:"poll_interval"`
-	DedupWindow  string `json:"dedup_window"`
-	APIEnabled   bool   `json:"api_enabled"`
-	APIBind      string `json:"api_bind,omitempty"`
+	Version           string            `json:"version"`
+	Commit            string            `json:"commit"`
+	BuildDate         string            `json:"build_date"`
+	Profile           string            `json:"profile"`
+	PollInterval      string            `json:"poll_interval"`
+	DedupWindow       string            `json:"dedup_window"`
+	SuppressionRules  int               `json:"suppression_rules"`
+	LeaseEnrichment   bool              `json:"lease_enrichment"`
+	DnsmasqLeasesPath string            `json:"dnsmasq_leases_path,omitempty"`
+	LeaseCache        *LeaseCacheStatus `json:"lease_cache,omitempty"`
+	APIEnabled        bool              `json:"api_enabled"`
+	APIBind           string            `json:"api_bind,omitempty"`
+}
+
+// LeaseCacheStatus exposes cheap dnsmasq lease cache metadata.
+type LeaseCacheStatus struct {
+	Entries         int        `json:"entries"`
+	RefreshInterval string     `json:"refresh_interval"`
+	LastRefresh     *time.Time `json:"last_refresh,omitempty"`
+	LastError       string     `json:"last_error,omitempty"`
 }
 
 // DetectorConfigStatus summarizes detector tuning without exposing live state.
@@ -134,25 +154,86 @@ func (e *Engine) GetStatus() Status {
 		Enforcement: EnforcementStatus{
 			Enabled:       e.cfg.EnforcementEnabled,
 			BlockDuration: e.cfg.BlockDuration.String(),
-			Nft: NftStatus{
-				Available:  e.enf.Available(),
-				Table:      e.cfg.NftTable,
-				Set:        e.cfg.NftSet,
-				SetupState: nftState,
-				LastError:  nftErr,
-			},
+			Nft:           e.nftStatus(nftState, nftErr),
 		},
 		Runtime: RuntimeStatus{
-			Version:      build.Version,
-			Commit:       build.Commit,
-			BuildDate:    build.BuildDate,
-			PollInterval: e.cfg.PollInterval.String(),
-			DedupWindow:  e.cfg.DedupWindow.String(),
-			APIEnabled:   e.cfg.APIEnabled,
-			APIBind:      e.cfg.APIBind,
+			Version:           build.Version,
+			Commit:            build.Commit,
+			BuildDate:         build.BuildDate,
+			Profile:           e.cfg.Profile,
+			PollInterval:      e.cfg.PollInterval.String(),
+			DedupWindow:       e.cfg.DedupWindow.String(),
+			SuppressionRules:  len(e.suppressionRules),
+			LeaseEnrichment:   e.cfg.LeaseEnrichment,
+			DnsmasqLeasesPath: e.cfg.DnsmasqLeasesPath,
+			LeaseCache:        e.leaseCacheStatus(),
+			APIEnabled:        e.cfg.APIEnabled,
+			APIBind:           e.cfg.APIBind,
 		},
 		Detectors: detectorConfigStatus(e.cfg.Detectors),
 	}
+}
+
+func (e *Engine) leaseCacheStatus() *LeaseCacheStatus {
+	if e.leases == nil {
+		return nil
+	}
+	stats := e.leases.Stats()
+	var lastRefresh *time.Time
+	if !stats.LastRefresh.IsZero() {
+		last := stats.LastRefresh
+		lastRefresh = &last
+	}
+	return &LeaseCacheStatus{
+		Entries:         stats.Entries,
+		RefreshInterval: stats.RefreshInterval.String(),
+		LastRefresh:     lastRefresh,
+		LastError:       stats.LastError,
+	}
+}
+
+func (e *Engine) nftStatus(setupState, setupErr string) NftStatus {
+	status := NftStatus{
+		Available:  e.enf.Available(),
+		Checked:    false,
+		Table:      e.cfg.NftTable,
+		Set:        e.cfg.NftSet,
+		SetupState: setupState,
+		CheckState: "disabled",
+		LastError:  setupErr,
+	}
+	if !e.cfg.EnforcementEnabled {
+		return status
+	}
+
+	check := e.enf.Check()
+	status.Available = check.Available
+	status.Checked = true
+	status.TablePresent = check.TablePresent
+	status.SetPresent = check.SetPresent
+	status.CheckState, status.Diagnostic = nftCheckState(setupState, check)
+	status.CheckError = check.Error
+	return status
+}
+
+func nftCheckState(setupState string, check enforcer.NftCheck) (string, string) {
+	if !check.Available {
+		return "unavailable", "nft CLI is unavailable; enforcement cannot apply blocks"
+	}
+	if !check.TablePresent {
+		return "missing_table", nftReloadDiagnostic(setupState, "table")
+	}
+	if !check.SetPresent {
+		return "missing_set", nftReloadDiagnostic(setupState, "set")
+	}
+	return "ready", ""
+}
+
+func nftReloadDiagnostic(setupState, missing string) string {
+	if setupState == nftSetupReady {
+		return "nft " + missing + " is missing after setup; a firewall reload may have removed serpent-wrt enforcement state"
+	}
+	return "nft " + missing + " is not present yet"
 }
 
 func defaultBuildInfo() BuildInfo {

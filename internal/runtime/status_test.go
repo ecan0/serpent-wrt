@@ -2,8 +2,13 @@ package runtime
 
 import (
 	"errors"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/ecan0/serpent-wrt/internal/config"
+	"github.com/ecan0/serpent-wrt/internal/enforcer"
 	"github.com/ecan0/serpent-wrt/internal/events"
 )
 
@@ -28,8 +33,23 @@ func TestGetStatusInitial(t *testing.T) {
 	if s.Enforcement.Nft.SetupState != nftSetupDisabled {
 		t.Errorf("nft setup state: got %q, want %q", s.Enforcement.Nft.SetupState, nftSetupDisabled)
 	}
+	if s.Enforcement.Nft.Checked {
+		t.Error("nft check should be skipped when enforcement is disabled")
+	}
+	if s.Enforcement.Nft.CheckState != "disabled" {
+		t.Errorf("nft check state: got %q, want disabled", s.Enforcement.Nft.CheckState)
+	}
 	if s.Runtime.Version != "dev" {
 		t.Errorf("Runtime.Version: got %q, want dev", s.Runtime.Version)
+	}
+	if s.Runtime.Profile != "home" {
+		t.Errorf("Runtime.Profile: got %q, want home", s.Runtime.Profile)
+	}
+	if s.Runtime.SuppressionRules != 0 {
+		t.Errorf("Runtime.SuppressionRules: got %d, want 0", s.Runtime.SuppressionRules)
+	}
+	if s.Runtime.LeaseEnrichment {
+		t.Error("Runtime.LeaseEnrichment should be false")
 	}
 	if !s.Detectors.FeedMatch.Enabled {
 		t.Error("FeedMatch should report enabled")
@@ -39,6 +59,131 @@ func TestGetStatusInitial(t *testing.T) {
 	}
 	if s.Detectors.BruteForce.Threshold != 5 {
 		t.Errorf("BruteForce threshold: got %d, want 5", s.Detectors.BruteForce.Threshold)
+	}
+}
+
+func TestGetStatusSuppressionRuleCount(t *testing.T) {
+	cfg := testConfig()
+	cfg.SuppressionRules = []config.SuppressionRule{
+		{Detectors: []string{"beacon"}},
+		{SrcAddrs: []string{"192.168.1.50"}},
+	}
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	s := e.GetStatus()
+	if s.Runtime.SuppressionRules != 2 {
+		t.Errorf("Runtime.SuppressionRules: got %d, want 2", s.Runtime.SuppressionRules)
+	}
+}
+
+func TestGetStatusLeaseEnrichment(t *testing.T) {
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = "/tmp/dhcp.leases"
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	s := e.GetStatus()
+	if !s.Runtime.LeaseEnrichment {
+		t.Error("Runtime.LeaseEnrichment: got false, want true")
+	}
+	if s.Runtime.DnsmasqLeasesPath != "/tmp/dhcp.leases" {
+		t.Errorf("Runtime.DnsmasqLeasesPath: got %q", s.Runtime.DnsmasqLeasesPath)
+	}
+	if s.Runtime.LeaseCache == nil {
+		t.Fatal("Runtime.LeaseCache: got nil, want cache status")
+	}
+	if s.Runtime.LeaseCache.Entries != 0 {
+		t.Errorf("Runtime.LeaseCache.Entries: got %d, want 0", s.Runtime.LeaseCache.Entries)
+	}
+	if s.Runtime.LeaseCache.RefreshInterval != "1m0s" {
+		t.Errorf("Runtime.LeaseCache.RefreshInterval: got %q, want 1m0s", s.Runtime.LeaseCache.RefreshInterval)
+	}
+	if s.Runtime.LeaseCache.LastRefresh != nil {
+		t.Errorf("Runtime.LeaseCache.LastRefresh: got %v, want nil before lookup", s.Runtime.LeaseCache.LastRefresh)
+	}
+}
+
+func TestGetStatusLeaseCacheAfterLookup(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "dhcp.leases")
+	if err := os.WriteFile(leasePath, []byte("1710000000 aa:bb:cc:dd:ee:ff 192.168.1.10 laptop *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.LeaseEnrichment = true
+	cfg.DnsmasqLeasesPath = leasePath
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	if _, ok := e.leases.Lookup(net.ParseIP("192.168.1.10")); !ok {
+		t.Fatal("expected lease lookup hit")
+	}
+
+	s := e.GetStatus()
+	if s.Runtime.LeaseCache == nil {
+		t.Fatal("Runtime.LeaseCache: got nil, want cache status")
+	}
+	if s.Runtime.LeaseCache.Entries != 1 {
+		t.Fatalf("Runtime.LeaseCache.Entries: got %d, want 1", s.Runtime.LeaseCache.Entries)
+	}
+	if s.Runtime.LeaseCache.LastRefresh == nil {
+		t.Fatal("Runtime.LeaseCache.LastRefresh: got nil, want timestamp")
+	}
+	if s.Runtime.LeaseCache.LastError != "" {
+		t.Fatalf("Runtime.LeaseCache.LastError: got %q, want empty", s.Runtime.LeaseCache.LastError)
+	}
+}
+
+func TestNftCheckState(t *testing.T) {
+	cases := []struct {
+		name           string
+		setupState     string
+		check          enforcer.NftCheck
+		wantState      string
+		wantDiagnostic string
+	}{
+		{
+			name:           "unavailable",
+			check:          enforcer.NftCheck{Available: false},
+			wantState:      "unavailable",
+			wantDiagnostic: "nft CLI is unavailable; enforcement cannot apply blocks",
+		},
+		{
+			name:           "missing table before setup",
+			check:          enforcer.NftCheck{Available: true},
+			wantState:      "missing_table",
+			wantDiagnostic: "nft table is not present yet",
+		},
+		{
+			name:       "missing set after setup",
+			setupState: nftSetupReady,
+			check: enforcer.NftCheck{
+				Available:    true,
+				TablePresent: true,
+			},
+			wantState:      "missing_set",
+			wantDiagnostic: "nft set is missing after setup; a firewall reload may have removed serpent-wrt enforcement state",
+		},
+		{
+			name:       "ready",
+			setupState: nftSetupReady,
+			check: enforcer.NftCheck{
+				Available:    true,
+				TablePresent: true,
+				SetPresent:   true,
+			},
+			wantState:      "ready",
+			wantDiagnostic: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotDiagnostic := nftCheckState(tc.setupState, tc.check)
+			if gotState != tc.wantState {
+				t.Fatalf("state: got %q, want %q", gotState, tc.wantState)
+			}
+			if gotDiagnostic != tc.wantDiagnostic {
+				t.Fatalf("diagnostic: got %q, want %q", gotDiagnostic, tc.wantDiagnostic)
+			}
+		})
 	}
 }
 

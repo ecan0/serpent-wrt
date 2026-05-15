@@ -125,6 +125,35 @@ func TestDetectionEventMetadataJSON(t *testing.T) {
 	}
 }
 
+func TestDetectionEventLeaseFieldsJSON(t *testing.T) {
+	e := Event{
+		Level:       LevelWarn,
+		Type:        TypeDetection,
+		Detector:    "feed_match",
+		SrcIP:       "192.168.1.10",
+		SrcHostname: "laptop",
+		SrcMAC:      "aa:bb:cc:dd:ee:ff",
+		DstIP:       "192.168.1.11",
+		DstHostname: "server",
+		DstMAC:      "11:22:33:44:55:66",
+		Message:     "hit",
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["src_hostname"] != "laptop" || got["src_mac"] != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("src lease fields missing: %v", got)
+	}
+	if got["dst_hostname"] != "server" || got["dst_mac"] != "11:22:33:44:55:66" {
+		t.Fatalf("dst lease fields missing: %v", got)
+	}
+}
+
 func TestSystemEventFieldsJSON(t *testing.T) {
 	feedCount := 42
 	e := Event{

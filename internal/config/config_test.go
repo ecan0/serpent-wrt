@@ -17,6 +17,9 @@ func TestLoadExample(t *testing.T) {
 	if cfg.PollInterval != 5*time.Second {
 		t.Errorf("poll_interval: got %v, want 5s", cfg.PollInterval)
 	}
+	if cfg.Profile != "home" {
+		t.Errorf("profile: got %q, want home", cfg.Profile)
+	}
 	if cfg.NftTable != "serpent_wrt" {
 		t.Errorf("nft_table: got %q, want serpent_wrt", cfg.NftTable)
 	}
@@ -42,6 +45,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.BlockDuration != time.Hour {
 		t.Errorf("default block_duration: got %v", cfg.BlockDuration)
+	}
+	if cfg.Profile != "home" {
+		t.Errorf("default profile: got %q, want home", cfg.Profile)
+	}
+	if cfg.LeaseEnrichment {
+		t.Error("lease_enrichment should default to false")
 	}
 }
 
@@ -108,6 +117,95 @@ func TestLoadDetectorDefaults(t *testing.T) {
 	}
 	if cfg.Detectors.Beacon.Window != 5*time.Minute {
 		t.Errorf("beacon window default: got %v, want 5m", cfg.Detectors.Beacon.Window)
+	}
+}
+
+func TestLoadQuietProfileDefaults(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nprofile: quiet\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load quiet profile: %v", err)
+	}
+	if cfg.Profile != "quiet" {
+		t.Errorf("profile: got %q, want quiet", cfg.Profile)
+	}
+	if cfg.Detectors.Fanout.DistinctDstThreshold != 100 {
+		t.Errorf("fanout threshold: got %d, want 100", cfg.Detectors.Fanout.DistinctDstThreshold)
+	}
+	if cfg.Detectors.Fanout.Window != 90*time.Second {
+		t.Errorf("fanout window: got %v, want 90s", cfg.Detectors.Fanout.Window)
+	}
+	if cfg.Detectors.Scan.DistinctPortThreshold != 60 {
+		t.Errorf("scan threshold: got %d, want 60", cfg.Detectors.Scan.DistinctPortThreshold)
+	}
+	if cfg.Detectors.Beacon.MinHits != 7 {
+		t.Errorf("beacon min_hits: got %d, want 7", cfg.Detectors.Beacon.MinHits)
+	}
+	if cfg.Detectors.BruteForce.Threshold != 10 {
+		t.Errorf("brute_force threshold: got %d, want 10", cfg.Detectors.BruteForce.Threshold)
+	}
+}
+
+func TestLoadProfileAllowsExplicitDetectorOverrides(t *testing.T) {
+	f := writeTemp(t, `threat_feed_path: ./feed.txt
+profile: paranoid
+detectors:
+  fanout:
+    distinct_dst_threshold: 99
+  beacon:
+    window: 12m
+`)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load profile overrides: %v", err)
+	}
+	if cfg.Detectors.Fanout.DistinctDstThreshold != 99 {
+		t.Errorf("fanout threshold: got %d, want explicit 99", cfg.Detectors.Fanout.DistinctDstThreshold)
+	}
+	if cfg.Detectors.Fanout.Window != 60*time.Second {
+		t.Errorf("fanout window: got %v, want paranoid default 60s", cfg.Detectors.Fanout.Window)
+	}
+	if cfg.Detectors.Beacon.Window != 12*time.Minute {
+		t.Errorf("beacon window: got %v, want explicit 12m", cfg.Detectors.Beacon.Window)
+	}
+	if cfg.Detectors.Beacon.MinHits != 4 {
+		t.Errorf("beacon min_hits: got %d, want paranoid default 4", cfg.Detectors.Beacon.MinHits)
+	}
+}
+
+func TestLoadInvalidProfile(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nprofile: loud\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid profile")
+	}
+	if !strings.Contains(err.Error(), "profile") {
+		t.Fatalf("error: got %q, want profile context", err)
+	}
+}
+
+func TestLoadLeaseEnrichmentDefaultPath(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nlease_enrichment: true\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load lease enrichment config: %v", err)
+	}
+	if !cfg.LeaseEnrichment {
+		t.Fatal("lease_enrichment: got false, want true")
+	}
+	if cfg.DnsmasqLeasesPath != "/tmp/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %q, want /tmp/dhcp.leases", cfg.DnsmasqLeasesPath)
+	}
+}
+
+func TestLoadLeaseEnrichmentExplicitPath(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nlease_enrichment: true\ndnsmasq_leases_path: /var/run/dhcp.leases\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load lease enrichment config: %v", err)
+	}
+	if cfg.DnsmasqLeasesPath != "/var/run/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %q", cfg.DnsmasqLeasesPath)
 	}
 }
 
@@ -196,6 +294,132 @@ func TestLoadInvalidNftSet(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nft_set") {
 		t.Fatalf("error: got %q, want nft_set context", err)
+	}
+}
+
+func TestLoadSuppressionRules(t *testing.T) {
+	f := writeTemp(t, `threat_feed_path: ./feed.txt
+suppression_rules:
+  - name: trusted scanner
+    detectors: [port_scan, ext_scan]
+    src_addrs:
+      - 192.168.1.50
+      - 10.10.0.0/16
+    dst_ports: [22, 443]
+`)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.SuppressionRules) != 1 {
+		t.Fatalf("suppression_rules: got %d, want 1", len(cfg.SuppressionRules))
+	}
+	rule := cfg.SuppressionRules[0]
+	if rule.Name != "trusted scanner" {
+		t.Fatalf("rule name: got %q", rule.Name)
+	}
+	if len(rule.Detectors) != 2 || rule.Detectors[0] != "port_scan" || rule.Detectors[1] != "ext_scan" {
+		t.Fatalf("detectors: got %#v", rule.Detectors)
+	}
+	if len(rule.SrcAddrs) != 2 || rule.SrcAddrs[0] != "192.168.1.50" || rule.SrcAddrs[1] != "10.10.0.0/16" {
+		t.Fatalf("src_addrs: got %#v", rule.SrcAddrs)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsUnknownDetector(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - detectors: [made_up]\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for unknown suppression detector")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0].detectors[0]") {
+		t.Fatalf("error: got %q, want suppression detector context", err)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsInvalidAddress(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - src_addrs: [not-an-ip]\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for invalid suppression address")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0].src_addrs[0]") {
+		t.Fatalf("error: got %q, want suppression address context", err)
+	}
+}
+
+func TestLoadSuppressionRuleRejectsEmptyMatcher(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nsuppression_rules:\n  - name: empty\n")
+	_, err := config.Load(f)
+	if err == nil {
+		t.Fatal("expected error for empty suppression matcher")
+	}
+	if !strings.Contains(err.Error(), "suppression_rules[0]") {
+		t.Fatalf("error: got %q, want suppression rule context", err)
+	}
+}
+
+func TestWarningsEmptyDirectionInputs(t *testing.T) {
+	cfg := &config.Config{}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "lan_cidrs is empty") {
+		t.Fatalf("warnings=%q, want lan_cidrs warning", warnings)
+	}
+	if !strings.Contains(warnings, "self_ips is empty") {
+		t.Fatalf("warnings=%q, want self_ips warning", warnings)
+	}
+}
+
+func TestWarningsAPIBindLoopback(t *testing.T) {
+	cfg := &config.Config{
+		APIEnabled: true,
+		APIBind:    "127.0.0.1:8080",
+		LANCIDRs:   []string{"192.168.1.0/24"},
+		SelfIPs:    []string{"192.168.1.1"},
+	}
+	if warnings := config.Warnings(cfg); len(warnings) != 0 {
+		t.Fatalf("warnings=%q, want none", warnings)
+	}
+
+	cfg.APIBind = "0.0.0.0:8080"
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "not loopback-only") {
+		t.Fatalf("warnings=%q, want API bind warning", warnings)
+	}
+}
+
+func TestWarningsEnforcementFootguns(t *testing.T) {
+	cfg := &config.Config{
+		Profile:            "paranoid",
+		EnforcementEnabled: true,
+		BlockDuration:      48 * time.Hour,
+		LANCIDRs:           []string{"192.168.1.0/24"},
+		SelfIPs:            []string{"192.168.1.1"},
+	}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "paranoid with enforcement_enabled true") {
+		t.Fatalf("warnings=%q, want paranoid enforcement warning", warnings)
+	}
+	if !strings.Contains(warnings, "longer than 24h") {
+		t.Fatalf("warnings=%q, want block duration warning", warnings)
+	}
+}
+
+func TestWarningsBroadSuppressionRules(t *testing.T) {
+	cfg := &config.Config{
+		LANCIDRs: []string{"192.168.1.0/24"},
+		SelfIPs:  []string{"192.168.1.1"},
+		SuppressionRules: []config.SuppressionRule{
+			{Name: "all detectors on source", SrcAddrs: []string{"192.168.1.50"}},
+			{Name: "all scans", Detectors: []string{"port_scan"}},
+		},
+	}
+	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "has no detectors matcher") {
+		t.Fatalf("warnings=%q, want missing detector warning", warnings)
+	}
+	if !strings.Contains(warnings, "matches only by detector") {
+		t.Fatalf("warnings=%q, want detector-only warning", warnings)
 	}
 }
 

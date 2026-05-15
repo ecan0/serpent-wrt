@@ -9,10 +9,15 @@ CONF=/etc/serpent-wrt/serpent-wrt.yaml
 FEED=/etc/serpent-wrt/threat-feed.txt
 
 extra_command "configtest" "Validate configuration and threat feed"
+extra_command "nftcheck" "Validate nftables enforcement resources"
 extra_command "reload_feed" "Reload threat feed without restarting"
 
 configtest() {
 	"$PROG" --config "$CONF" configtest
+}
+
+nftcheck() {
+	"$PROG" --config "$CONF" nftcheck
 }
 
 start_service() {

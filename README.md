@@ -75,11 +75,18 @@ router-friendly detection layer for signals that do not need payload inspection.
 - Six detectors: `feed_match`, `fanout`, `port_scan`, `beacon`, `ext_scan`, and
   `brute_force`.
 - Broadcast, loopback, link-local, unroutable, and router-self filtering.
+- Config-only suppression rules for expected scanners, monitors, and other
+  noisy but trusted traffic.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for practical
+  threshold tuning without editing every detector.
+- Optional read-only dnsmasq lease enrichment adds hostnames and MAC addresses
+  to LAN-side detections.
 - Deduplication to suppress repeated alerts while preserving meaningful
   destination-port differences.
 - Structured NDJSON logs with severity, confidence, and reason metadata.
 - Optional remote syslog forwarding for SIEM ingestion.
-- Optional nftables blocking through named sets and kernel-managed timeouts.
+- Optional nftables blocking through named sets, kernel-managed timeouts, and
+  status diagnostics for missing enforcement state.
 - Localhost HTTP API for health, status, stats, reloads, detections, and blocks.
 - OpenWrt package scaffold, procd init script, and CI runtime smoke coverage.
 
@@ -221,6 +228,9 @@ Minimal shape:
 ```yaml
 poll_interval: 5s
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+profile: home
+lease_enrichment: true
+dnsmasq_leases_path: /tmp/dhcp.leases
 
 enforcement_enabled: false
 block_duration: 1h
@@ -238,6 +248,17 @@ api_enabled: true
 api_bind: 127.0.0.1:8080
 
 dedup_window: 5m
+
+suppression_rules:
+  - name: trusted scanner
+    detectors: [port_scan, ext_scan]
+    src_addrs:
+      - 192.168.1.50
+  - name: external SSH health check
+    detectors: [brute_force]
+    src_addrs:
+      - 198.51.100.10/32
+    dst_ports: [22]
 
 detectors:
   fanout:
@@ -261,6 +282,14 @@ detectors:
 Important fields:
 
 - `lan_cidrs` tells the daemon which flows are outbound vs inbound.
+- `profile` applies detector defaults for common operating modes. `home`
+  preserves the baseline defaults, `homelab` and `quiet` raise thresholds for
+  noisier networks, and `paranoid` lowers thresholds for more aggressive
+  alerting. Explicit detector settings always override profile defaults.
+- `lease_enrichment` reads the configured dnsmasq lease file and adds
+  `src_hostname`, `src_mac`, `dst_hostname`, and `dst_mac` when a detection IP
+  matches a current lease. Missing lease files are treated as empty. `/status`
+  reports lightweight lease cache metadata when enrichment is enabled.
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.
 - `enforcement_enabled` defaults deployments toward detect-only operation.
@@ -268,6 +297,11 @@ Important fields:
   numbers, and underscores, with a letter or underscore first.
 - `dedup_window` suppresses repeated alerts from the same detector/source/target
   combination.
+- `suppression_rules` suppress expected detections before logging, recent-event
+  storage, stats-by-type increments, or enforcement. Each rule matches only when
+  every configured dimension matches. Supported matchers are `detectors`,
+  `src_addrs`, `dst_addrs`, and `dst_ports`; address matchers accept IPv4
+  addresses or CIDRs.
 - `syslog_target` and `syslog_proto` can forward JSON events to a SIEM.
 
 ## Operate The Daemon
@@ -280,6 +314,7 @@ Common OpenWrt commands:
 /etc/init.d/serpent-wrt restart
 /etc/init.d/serpent-wrt status
 /etc/init.d/serpent-wrt configtest
+/etc/init.d/serpent-wrt nftcheck
 /etc/init.d/serpent-wrt reload_feed
 ```
 
@@ -289,6 +324,19 @@ reloading:
 ```sh
 serpent-wrt configtest
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
+```
+
+`configtest` exits non-zero for invalid configuration or feed files. It also
+prints advisory warnings for valid but risky settings such as missing
+`lan_cidrs`, non-loopback API binds, broad suppression rules, and aggressive
+enforcement combinations.
+
+Check configured nftables enforcement resources without starting the daemon:
+
+```sh
+serpent-wrt nftcheck
+serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml nftcheck
+serpent-wrt nftcheck --format json
 ```
 
 Hot-reload the threat feed without restarting:
@@ -302,8 +350,8 @@ HTTP API, available when `api_enabled: true`:
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
-| `/status` | GET | Feed count/path, enforcement/nft state, uptime, detector config, build metadata. |
-| `/stats` | GET | Flow, detection, and block counters. |
+| `/status` | GET | Feed count/path, enforcement/nft diagnostics, uptime, detector config, build metadata. |
+| `/stats` | GET | Flow, detection-by-type/severity/confidence, suppression, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
 | `/reload` | POST | Reload threat feed from disk. |
@@ -332,7 +380,7 @@ syslog.
 
 ```json
 {"time":"2026-01-01T00:00:00Z","level":"info","type":"system","component":"feed","action":"reload","status":"success","feed_count":42,"message":"reloaded threat feed: 42 entries"}
-{"time":"2026-01-01T00:00:01Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
+{"time":"2026-01-01T00:00:01Z","level":"warn","type":"detection","detector":"feed_match","severity":"high","confidence":95,"reason":"threat_feed_destination","src_ip":"192.168.1.5","src_hostname":"laptop","src_mac":"aa:bb:cc:dd:ee:ff","dst_ip":"1.2.3.4","dst_port":443,"message":"connection to threat feed entry 1.2.3.4"}
 {"time":"2026-01-01T00:00:02Z","level":"warn","type":"enforcement","src_ip":"192.168.1.5","message":"blocked 192.168.1.5 triggered by feed_match"}
 ```
 
@@ -351,12 +399,15 @@ keeps a bounded local map so it avoids repeatedly adding the same IP.
 On OpenWrt, firewall4 (`fw4`) owns the generated firewall ruleset. `serpent-wrt`
 uses its own `inet` table and set for dynamic blocks; do not point it at a
 fw4-managed table unless you are deliberately integrating custom firewall
-includes. After a firewall reload, restart `serpent-wrt` before relying on
-enforcement so the daemon can recreate its table and set if fw4 flushed them.
+includes. After a firewall reload, check `/status`: `check_state` reports
+`missing_table` or `missing_set` if fw4 removed the enforcement resources.
+Restart `serpent-wrt` before relying on enforcement so the daemon can recreate
+its table and set.
 
 Before enabling enforcement on a real router:
 
-1. Confirm `/status` reports nft availability and setup state.
+1. Confirm `/status` reports nft availability, setup state, and `check_state:
+   ready`.
 2. Confirm your firewall policy uses the `nft_table` and `nft_set` you expect.
 3. Start with a short `block_duration`.
 4. Keep console or SSH access available for rollback.
@@ -384,6 +435,7 @@ internal/detector/      feed, scan, fanout, beacon, and inbound detectors
 internal/enforcer/      nftables command integration
 internal/events/        NDJSON and syslog event logging
 internal/feed/          local threat feed parser
+internal/lease/         read-only dnsmasq lease parser/cache
 internal/runtime/       detection pipeline, status, stats, and recent events
 openwrt/serpent-wrt/    OpenWrt package scaffold
 contrib/wazuh/          Wazuh decoder and rules
@@ -410,18 +462,31 @@ Before wider OpenWrt package publication:
 - Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
   release source metadata and a fixed hash.
 
-### Strong candidates after v0.1
+### v0.2 candidate status
 
-- Allowlist and suppression rules for known scanners, monitors, and noisy
-  internal services.
-- Additional Wazuh rules for structured system events.
-- Operational runbook for install, detect-only mode, enforcement, and rollback.
+The current `dev` line is focused on practical router operations without
+changing the lightweight architecture:
+
+- Config-only suppression rules for trusted scanners, monitors, and noisy
+  expected traffic.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for safer tuning
+  without hand-editing every threshold.
+- `/status` nft diagnostics and `serpent-wrt nftcheck` for enforcement resource
+  checks after startup or firewall reloads.
+- Read-only dnsmasq lease enrichment for hostnames and MAC addresses in
+  detection logs and recent detection API responses.
+
+Before cutting v0.2:
+
+- Push `dev`, open a PR from `dev` to `main`, and require `CI Gate`.
+- Run the Windows validation suite and the `mgmt-01` OpenWrt deploy smoke test.
+- Update the release date/tag notes after the final merge point is known.
 
 ### Explicitly post-MVP
 
 - Netlink conntrack prototype.
 - IPv6 first-class detection and enforcement.
-- dnsmasq hostname correlation.
+- DNS query/log correlation beyond read-only lease enrichment.
 - Remote threat feed sync.
 - LuCI UI.
 - eBPF/XDP experiments on capable targets.
@@ -430,7 +495,7 @@ Before wider OpenWrt package publication:
 
 - IPv4 only for MVP.
 - Polling instead of netlink events.
-- No DNS/hostname correlation.
+- Hostname/MAC enrichment is limited to local dnsmasq lease data.
 - No payload inspection by design.
 - No persistent database or historical UI.
 - Local threat feed only.
