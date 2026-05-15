@@ -1,5 +1,21 @@
 # Contributing to serpent-wrt
 
+## Branch workflow
+
+`dev` is the active integration branch. `main` is protected and should only move
+through release PRs from `dev`; release tags are cut from `main`.
+
+Use `feature/<slice-name>` branches for product and IDS work. Use
+`ci/<slice-name>` branches for CI, release-process, and repository automation
+work. Open PRs into `dev` first, including release prep changes such as
+changelog, README release status, version defaults, and OpenWrt package
+metadata.
+
+After release prep lands in `dev`, open the release PR from `dev` to `main` and
+tag the release from the merged `main` commit. If a release-only fix ever lands
+on `main`, immediately back-sync `main` into `dev` with a normal merge PR rather
+than a squash PR, so `dev` remains the true integration line.
+
 ## Running tests
 
 ```sh

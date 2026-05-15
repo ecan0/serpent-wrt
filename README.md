@@ -515,7 +515,9 @@ make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
 `/reload`, and service reload/restart behavior against the deployed daemon.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
+Development flows through `dev`; `main` is the protected release and tag branch.
+Release prep changes land in `dev` before the `dev` to `main` release PR. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
 [docs/release.md](docs/release.md) for project workflow, security reporting, and
 release steps.
 
