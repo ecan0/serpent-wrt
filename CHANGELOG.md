@@ -6,6 +6,8 @@ This project follows semantic versioning for tagged releases.
 
 ## Unreleased
 
+## v0.2.0 - 2026-05-14
+
 ### Added
 
 - Config-only suppression rules for expected scanner, monitor, or noisy service
@@ -16,8 +18,17 @@ This project follows semantic versioning for tagged releases.
   detector threshold presets with explicit per-detector overrides.
 - `serpent-wrt nftcheck` and an OpenWrt init helper for checking configured
   nftables enforcement resources without starting the daemon.
+- JSON output for `serpent-wrt nftcheck --format json`.
 - Optional read-only dnsmasq lease enrichment for detection hostnames and MAC
   addresses in logs and recent detection API responses.
+- Lease cache status metadata in `/status` when lease enrichment is enabled.
+- Detection counters by type, severity, and confidence bucket in `/stats`.
+- `configtest` advisory warnings for valid but risky settings, including broad
+  suppression rules, non-loopback API binds, and paranoid enforcement.
+
+### Fixed
+
+- Feed replacement now handles Windows rename semantics during local tests.
 
 ## v0.1.0 - 2026-05-13
 
