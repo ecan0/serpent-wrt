@@ -55,17 +55,26 @@ type NftStatus struct {
 
 // RuntimeStatus exposes API/runtime config and build metadata.
 type RuntimeStatus struct {
-	Version           string `json:"version"`
-	Commit            string `json:"commit"`
-	BuildDate         string `json:"build_date"`
-	Profile           string `json:"profile"`
-	PollInterval      string `json:"poll_interval"`
-	DedupWindow       string `json:"dedup_window"`
-	SuppressionRules  int    `json:"suppression_rules"`
-	LeaseEnrichment   bool   `json:"lease_enrichment"`
-	DnsmasqLeasesPath string `json:"dnsmasq_leases_path,omitempty"`
-	APIEnabled        bool   `json:"api_enabled"`
-	APIBind           string `json:"api_bind,omitempty"`
+	Version           string            `json:"version"`
+	Commit            string            `json:"commit"`
+	BuildDate         string            `json:"build_date"`
+	Profile           string            `json:"profile"`
+	PollInterval      string            `json:"poll_interval"`
+	DedupWindow       string            `json:"dedup_window"`
+	SuppressionRules  int               `json:"suppression_rules"`
+	LeaseEnrichment   bool              `json:"lease_enrichment"`
+	DnsmasqLeasesPath string            `json:"dnsmasq_leases_path,omitempty"`
+	LeaseCache        *LeaseCacheStatus `json:"lease_cache,omitempty"`
+	APIEnabled        bool              `json:"api_enabled"`
+	APIBind           string            `json:"api_bind,omitempty"`
+}
+
+// LeaseCacheStatus exposes cheap dnsmasq lease cache metadata.
+type LeaseCacheStatus struct {
+	Entries         int        `json:"entries"`
+	RefreshInterval string     `json:"refresh_interval"`
+	LastRefresh     *time.Time `json:"last_refresh,omitempty"`
+	LastError       string     `json:"last_error,omitempty"`
 }
 
 // DetectorConfigStatus summarizes detector tuning without exposing live state.
@@ -157,10 +166,29 @@ func (e *Engine) GetStatus() Status {
 			SuppressionRules:  len(e.suppressionRules),
 			LeaseEnrichment:   e.cfg.LeaseEnrichment,
 			DnsmasqLeasesPath: e.cfg.DnsmasqLeasesPath,
+			LeaseCache:        e.leaseCacheStatus(),
 			APIEnabled:        e.cfg.APIEnabled,
 			APIBind:           e.cfg.APIBind,
 		},
 		Detectors: detectorConfigStatus(e.cfg.Detectors),
+	}
+}
+
+func (e *Engine) leaseCacheStatus() *LeaseCacheStatus {
+	if e.leases == nil {
+		return nil
+	}
+	stats := e.leases.Stats()
+	var lastRefresh *time.Time
+	if !stats.LastRefresh.IsZero() {
+		last := stats.LastRefresh
+		lastRefresh = &last
+	}
+	return &LeaseCacheStatus{
+		Entries:         stats.Entries,
+		RefreshInterval: stats.RefreshInterval.String(),
+		LastRefresh:     lastRefresh,
+		LastError:       stats.LastError,
 	}
 }
 
