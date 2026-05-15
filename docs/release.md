@@ -2,10 +2,28 @@
 
 This checklist is for project releases and OpenWrt package refreshes.
 
+## Branch Flow
+
+- `dev` is the active integration branch.
+- `main` is the protected release branch and tag source.
+- Product and IDS work should use `feature/<slice-name>` branches targeting
+  `dev`.
+- CI, release-process, and repository automation work should use
+  `ci/<slice-name>` branches targeting `dev`.
+- Release prep branches should start from `dev`, land back in `dev` first, and
+  only then promote `dev` to `main`.
+- Do not commit or merge directly into `main` or `dev` for routine work.
+- If a release-only fix lands on `main`, immediately open a normal merge PR from
+  `main` back into `dev` so the release branch does not drift ahead of
+  integration. Do not squash that back-sync PR.
+
 ## Project Release
 
-1. Confirm `main` is green in CI.
-2. Run local tests from a clean worktree:
+1. Confirm `dev` is green in CI and create a release prep branch from `dev`.
+2. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata on
+   the release prep branch.
+3. Open the release prep PR into `dev` and require `CI Gate`.
+4. Run local tests from a clean worktree:
 
    ```sh
    go test ./...
@@ -14,7 +32,7 @@ This checklist is for project releases and OpenWrt package refreshes.
    make build-openwrt-targets
    ```
 
-3. Run the OpenWrt runtime smoke test from `mgmt-01` against the lab target.
+5. Run the OpenWrt runtime smoke test from `mgmt-01` against the lab target.
    The current x86/generic lab image reports `i386_pentium4`, so keep using
    the 32-bit x86 build:
 
@@ -23,14 +41,16 @@ This checklist is for project releases and OpenWrt package refreshes.
      make deploy-x86 DEPLOY_HOST=root@openwrt-x86-test.ecan.pro
    ```
 
-4. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata.
-5. Open a release PR from `dev` to `main` and require `CI Gate`.
-6. After the release PR merges, tag the release from `main`:
+6. After the release prep PR merges, open the release PR from `dev` to `main`
+   and require `CI Gate`.
+7. After the release PR merges, tag the release from `main`:
 
    ```sh
    git tag -s vX.Y.Z
    git push origin vX.Y.Z
    ```
+
+8. Delete temporary release branches after the tag and release are published.
 
 ## OpenWrt Package Refresh
 

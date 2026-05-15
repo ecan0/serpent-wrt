@@ -1,10 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=serpent-wrt
-# v0.1 custom-feed source pin. For upstream package submission, switch to the
-# final release commit or tag archive and replace the mirror hash.
-PKG_SOURCE_DATE:=2026-05-13
-PKG_SOURCE_VERSION:=0cc28d7affb576c79b5519d2158b6120f5e93baf
+PKG_VERSION:=0.2.0
+# v0.2 custom-feed source pin. For upstream package submission, replace the
+# mirror hash with the fixed hash for the release archive.
+PKG_SOURCE_DATE:=2026-05-14
+PKG_SOURCE_VERSION:=1750543cfb4ed40753379a9f5f9445b06c475dd8
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
@@ -22,7 +23,7 @@ PKG_BUILD_FLAGS:=no-mips16
 GO_PKG:=github.com/ecan0/serpent-wrt
 GO_PKG_BUILD_PKG:=github.com/ecan0/serpent-wrt/cmd/serpent-wrt
 GO_PKG_LDFLAGS_X:= \
-	main.version=$(PKG_SOURCE_DATE)-$(PKG_SOURCE_VERSION) \
+	main.version=$(PKG_VERSION) \
 	main.commit=$(PKG_SOURCE_VERSION) \
 	main.buildDate=$(PKG_SOURCE_DATE)
 GO_PKG_INSTALL_BIN_PATH:=/usr/sbin

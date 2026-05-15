@@ -444,9 +444,9 @@ docs/                   release and operational documentation
 
 ## Roadmap
 
-### v0.1 status
+### v0.1.0 status
 
-The daemon/API is release-candidate ready for a first lightweight tag:
+The first lightweight tagged release established the baseline daemon/API:
 
 - `configtest` and procd start/reload validation.
 - Runtime smoke checks for `configtest`, API health, `/status`, `/stats`,
@@ -454,7 +454,7 @@ The daemon/API is release-candidate ready for a first lightweight tag:
 - nft command construction tests and fw4 ownership documentation.
 - Local feed management API for bounded list, validate, add, remove, and replace
   operations.
-- Changelog and release documentation for v0.1.0.
+- Changelog and release documentation.
 
 Before wider OpenWrt package publication:
 
@@ -462,25 +462,21 @@ Before wider OpenWrt package publication:
 - Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
   release source metadata and a fixed hash.
 
-### v0.2 candidate status
+### v0.2.0 status
 
-The current `dev` line is focused on practical router operations without
-changing the lightweight architecture:
+The v0.2.0 release adds practical router operations without changing the
+lightweight architecture:
 
 - Config-only suppression rules for trusted scanners, monitors, and noisy
-  expected traffic.
+  expected traffic, including suppressed detection stats.
 - Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for safer tuning
   without hand-editing every threshold.
 - `/status` nft diagnostics and `serpent-wrt nftcheck` for enforcement resource
-  checks after startup or firewall reloads.
+  checks after startup or firewall reloads, plus JSON output for automation.
 - Read-only dnsmasq lease enrichment for hostnames and MAC addresses in
-  detection logs and recent detection API responses.
-
-Before cutting v0.2:
-
-- Push `dev`, open a PR from `dev` to `main`, and require `CI Gate`.
-- Run the Windows validation suite and the `mgmt-01` OpenWrt deploy smoke test.
-- Update the release date/tag notes after the final merge point is known.
+  detection logs, recent detection API responses, and lease cache status.
+- Detection counters by type, severity, and confidence bucket in `/stats`.
+- `configtest` warnings for valid but risky configuration choices.
 
 ### Explicitly post-MVP
 
@@ -519,7 +515,9 @@ make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
 `/reload`, and service reload/restart behavior against the deployed daemon.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
+Development flows through `dev`; `main` is the protected release and tag branch.
+Release prep changes land in `dev` before the `dev` to `main` release PR. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
 [docs/release.md](docs/release.md) for project workflow, security reporting, and
 release steps.
 
