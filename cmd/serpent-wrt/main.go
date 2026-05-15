@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -77,8 +78,9 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 	fs := flag.NewFlagSet("serpent-wrt nftcheck", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
+	format := fs.String("format", "human", "output format: human or json")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt nftcheck [--config path]\n\n")
+		writef(stderr, "Usage: serpent-wrt nftcheck [--config path] [--format human|json]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -91,34 +93,105 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 		writef(stderr, "serpent-wrt: nftcheck: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
+	if *format != "human" && *format != "json" {
+		writef(stderr, "serpent-wrt: nftcheck: invalid format %q\n", *format)
+		return 2
+	}
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
+		if *format == "json" {
+			writeNftcheckJSON(stdout, nftcheckResult{
+				Status: "error",
+				Error:  "config: " + err.Error(),
+			})
+			return 1
+		}
 		writef(stderr, "serpent-wrt: nftcheck failed: config: %v\n", err)
 		return 1
 	}
 	if !cfg.EnforcementEnabled {
+		if *format == "json" {
+			writeNftcheckJSON(stdout, nftcheckResult{
+				Status:             "skipped",
+				EnforcementEnabled: false,
+				Table:              cfg.NftTable,
+				Set:                cfg.NftSet,
+				Diagnostic:         "enforcement disabled",
+			})
+			return 0
+		}
 		writef(stdout, "serpent-wrt: nft check skipped: enforcement disabled (table=%s set=%s)\n", cfg.NftTable, cfg.NftSet)
 		return 0
 	}
 
 	enf := enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration)
 	check := enf.Check()
+	result := nftcheckResult{
+		Status:             "ok",
+		EnforcementEnabled: true,
+		Table:              cfg.NftTable,
+		Set:                cfg.NftSet,
+		Available:          check.Available,
+		TablePresent:       check.TablePresent,
+		SetPresent:         check.SetPresent,
+		Error:              check.Error,
+	}
 	if !check.Available {
+		result.Status = "failed"
+		result.Diagnostic = "nft unavailable"
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
+			return 1
+		}
 		writef(stderr, "serpent-wrt: nft check failed: nft unavailable: %s\n", check.Error)
 		return 1
 	}
 	if !check.TablePresent {
+		result.Status = "failed"
+		result.Diagnostic = "missing table"
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
+			return 1
+		}
 		writef(stderr, "serpent-wrt: nft check failed: missing table inet %s: %s\n", cfg.NftTable, check.Error)
 		return 1
 	}
 	if !check.SetPresent {
+		result.Status = "failed"
+		result.Diagnostic = "missing set"
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
+			return 1
+		}
 		writef(stderr, "serpent-wrt: nft check failed: missing set inet %s %s: %s\n", cfg.NftTable, cfg.NftSet, check.Error)
 		return 1
 	}
 
+	if *format == "json" {
+		writeNftcheckJSON(stdout, result)
+		return 0
+	}
 	writef(stdout, "serpent-wrt: nft OK: table=%s set=%s\n", cfg.NftTable, cfg.NftSet)
 	return 0
+}
+
+type nftcheckResult struct {
+	Status             string `json:"status"`
+	EnforcementEnabled bool   `json:"enforcement_enabled"`
+	Table              string `json:"table,omitempty"`
+	Set                string `json:"set,omitempty"`
+	Available          bool   `json:"available"`
+	TablePresent       bool   `json:"table_present"`
+	SetPresent         bool   `json:"set_present"`
+	Diagnostic         string `json:"diagnostic,omitempty"`
+	Error              string `json:"error,omitempty"`
+}
+
+func writeNftcheckJSON(w io.Writer, result nftcheckResult) {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(result)
 }
 
 func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath string) int {

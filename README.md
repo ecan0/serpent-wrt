@@ -335,6 +335,7 @@ Check configured nftables enforcement resources without starting the daemon:
 ```sh
 serpent-wrt nftcheck
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml nftcheck
+serpent-wrt nftcheck --format json
 ```
 
 Hot-reload the threat feed without restarting:
