@@ -64,11 +64,13 @@ type DetectionRecord struct {
 
 // Stats holds runtime counters exposed via the API.
 type Stats struct {
-	FlowsSeen            uint64            `json:"flows_seen"`
-	DetectionsByType     map[string]uint64 `json:"detections_by_type"`
-	BlocksApplied        uint64            `json:"blocks_applied"`
-	SuppressedDetections uint64            `json:"suppressed_detections"`
-	StartedAt            time.Time         `json:"started_at"`
+	FlowsSeen                    uint64            `json:"flows_seen"`
+	DetectionsByType             map[string]uint64 `json:"detections_by_type"`
+	DetectionsBySeverity         map[string]uint64 `json:"detections_by_severity"`
+	DetectionsByConfidenceBucket map[string]uint64 `json:"detections_by_confidence_bucket"`
+	BlocksApplied                uint64            `json:"blocks_applied"`
+	SuppressedDetections         uint64            `json:"suppressed_detections"`
+	StartedAt                    time.Time         `json:"started_at"`
 }
 
 // dedupKey identifies a detector signal for suppression. Detectors that set a
@@ -110,9 +112,11 @@ type Engine struct {
 	selfIPs []net.IP     // router's own IPs — excluded as detection sources
 	leases  *lease.Cache // optional read-only dnsmasq lease enrichment
 
-	// detection type counters
-	detByTypeMu sync.Mutex
-	detByType   map[string]uint64
+	// detection counters
+	detByTypeMu           sync.Mutex
+	detByType             map[string]uint64
+	detBySeverity         map[string]uint64
+	detByConfidenceBucket map[string]uint64
 
 	// recent detections ring buffer
 	recentMu sync.Mutex
@@ -141,22 +145,24 @@ type Engine struct {
 func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 	f := feed.New()
 	e := &Engine{
-		cfg:              cfg,
-		feed:             f,
-		log:              log,
-		enf:              enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
-		feedMatch:        detector.NewFeedMatch(f),
-		fanout:           detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
-		portScan:         detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
-		beacon:           detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window, cfg.Detectors.Beacon.MinInterval, cfg.Detectors.Beacon.ExcludePorts),
-		extScan:          detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
-		bruteForce:       detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
-		detByType:        make(map[string]uint64),
-		dedup:            make(map[dedupKey]time.Time),
-		dedupWindow:      cfg.DedupWindow,
-		suppressionRules: buildSuppressionRules(cfg.SuppressionRules),
-		buildInfo:        defaultBuildInfo(),
-		startedAt:        time.Now(),
+		cfg:                   cfg,
+		feed:                  f,
+		log:                   log,
+		enf:                   enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
+		feedMatch:             detector.NewFeedMatch(f),
+		fanout:                detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
+		portScan:              detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
+		beacon:                detector.NewBeacon(cfg.Detectors.Beacon.MinHits, cfg.Detectors.Beacon.Tolerance, cfg.Detectors.Beacon.Window, cfg.Detectors.Beacon.MinInterval, cfg.Detectors.Beacon.ExcludePorts),
+		extScan:               detector.NewExtScan(cfg.Detectors.ExtScan.DistinctPortThreshold, cfg.Detectors.ExtScan.Window),
+		bruteForce:            detector.NewBruteForce(cfg.Detectors.BruteForce.Threshold, cfg.Detectors.BruteForce.Window),
+		detByType:             make(map[string]uint64),
+		detBySeverity:         make(map[string]uint64),
+		detByConfidenceBucket: make(map[string]uint64),
+		dedup:                 make(map[dedupKey]time.Time),
+		dedupWindow:           cfg.DedupWindow,
+		suppressionRules:      buildSuppressionRules(cfg.SuppressionRules),
+		buildInfo:             defaultBuildInfo(),
+		startedAt:             time.Now(),
 	}
 	if cfg.LeaseEnrichment {
 		e.leases = lease.NewCache(cfg.DnsmasqLeasesPath)
@@ -328,6 +334,8 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 
 	e.detByTypeMu.Lock()
 	e.detByType[det.Type]++
+	e.detBySeverity[string(det.Severity)]++
+	e.detByConfidenceBucket[confidenceBucket(det.Confidence)]++
 	e.detByTypeMu.Unlock()
 
 	rec := DetectionRecord{
@@ -456,14 +464,37 @@ func (e *Engine) GetStats() Stats {
 	for k, v := range e.detByType {
 		byType[k] = v
 	}
+	bySeverity := make(map[string]uint64, len(e.detBySeverity))
+	for k, v := range e.detBySeverity {
+		bySeverity[k] = v
+	}
+	byConfidenceBucket := make(map[string]uint64, len(e.detByConfidenceBucket))
+	for k, v := range e.detByConfidenceBucket {
+		byConfidenceBucket[k] = v
+	}
 	e.detByTypeMu.Unlock()
 
 	return Stats{
-		FlowsSeen:            atomic.LoadUint64(&e.flowsSeen),
-		DetectionsByType:     byType,
-		BlocksApplied:        atomic.LoadUint64(&e.blocksApplied),
-		SuppressedDetections: atomic.LoadUint64(&e.suppressedDetections),
-		StartedAt:            e.startedAt,
+		FlowsSeen:                    atomic.LoadUint64(&e.flowsSeen),
+		DetectionsByType:             byType,
+		DetectionsBySeverity:         bySeverity,
+		DetectionsByConfidenceBucket: byConfidenceBucket,
+		BlocksApplied:                atomic.LoadUint64(&e.blocksApplied),
+		SuppressedDetections:         atomic.LoadUint64(&e.suppressedDetections),
+		StartedAt:                    e.startedAt,
+	}
+}
+
+func confidenceBucket(confidence uint8) string {
+	switch {
+	case confidence < 50:
+		return "0_49"
+	case confidence < 70:
+		return "50_69"
+	case confidence < 85:
+		return "70_84"
+	default:
+		return "85_100"
 	}
 }
 

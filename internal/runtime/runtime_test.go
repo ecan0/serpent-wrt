@@ -156,6 +156,12 @@ func TestGetStatsInitial(t *testing.T) {
 	if s.DetectionsByType == nil {
 		t.Error("DetectionsByType should not be nil")
 	}
+	if s.DetectionsBySeverity == nil {
+		t.Error("DetectionsBySeverity should not be nil")
+	}
+	if s.DetectionsByConfidenceBucket == nil {
+		t.Error("DetectionsByConfidenceBucket should not be nil")
+	}
 }
 
 // --- RecentDetections ---
@@ -605,6 +611,68 @@ func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	}
 	if rec.Reason != "threat_feed_destination" {
 		t.Fatalf("reason: got %q, want threat_feed_destination", rec.Reason)
+	}
+}
+
+func TestHandleDetectionCountsSeverityAndConfidenceBuckets(t *testing.T) {
+	cfg := testConfig()
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	detections := []detector.Detection{
+		{
+			Type:       "feed_match",
+			Severity:   detector.SeverityHigh,
+			Confidence: 95,
+			Reason:     detector.ReasonThreatFeedDestination,
+			SrcIP:      net.ParseIP("192.168.1.10"),
+			DstIP:      net.ParseIP("1.2.3.4"),
+			DstPort:    443,
+			Message:    "feed hit",
+		},
+		{
+			Type:       "fanout",
+			Severity:   detector.SeverityMedium,
+			Confidence: 70,
+			Reason:     detector.ReasonOutboundDistinctDestinations,
+			SrcIP:      net.ParseIP("192.168.1.11"),
+			Message:    "fanout",
+		},
+		{
+			Type:       "beacon",
+			Severity:   detector.SeverityLow,
+			Confidence: 45,
+			Reason:     detector.ReasonBeaconCadence,
+			SrcIP:      net.ParseIP("192.168.1.12"),
+			DstIP:      net.ParseIP("8.8.8.8"),
+			DstPort:    53,
+			Message:    "beacon",
+		},
+		{
+			Type:       "port_scan",
+			Severity:   detector.SeverityCritical,
+			Confidence: 50,
+			Reason:     detector.ReasonOutboundDistinctPorts,
+			SrcIP:      net.ParseIP("192.168.1.13"),
+			DstIP:      net.ParseIP("8.8.4.4"),
+			DstPort:    22,
+			Message:    "scan",
+		},
+	}
+	for i := range detections {
+		e.handleDetection(&detections[i])
+	}
+
+	stats := e.GetStats()
+	if stats.DetectionsBySeverity["high"] != 1 || stats.DetectionsBySeverity["medium"] != 1 ||
+		stats.DetectionsBySeverity["low"] != 1 || stats.DetectionsBySeverity["critical"] != 1 {
+		t.Fatalf("severity counters: %+v", stats.DetectionsBySeverity)
+	}
+	if stats.DetectionsByConfidenceBucket["0_49"] != 1 ||
+		stats.DetectionsByConfidenceBucket["50_69"] != 1 ||
+		stats.DetectionsByConfidenceBucket["70_84"] != 1 ||
+		stats.DetectionsByConfidenceBucket["85_100"] != 1 {
+		t.Fatalf("confidence bucket counters: %+v", stats.DetectionsByConfidenceBucket)
 	}
 }
 
