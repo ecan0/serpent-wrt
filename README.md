@@ -428,6 +428,7 @@ internal/detector/      feed, scan, fanout, beacon, and inbound detectors
 internal/enforcer/      nftables command integration
 internal/events/        NDJSON and syslog event logging
 internal/feed/          local threat feed parser
+internal/lease/         read-only dnsmasq lease parser/cache
 internal/runtime/       detection pipeline, status, stats, and recent events
 openwrt/serpent-wrt/    OpenWrt package scaffold
 contrib/wazuh/          Wazuh decoder and rules
@@ -454,16 +455,31 @@ Before wider OpenWrt package publication:
 - Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
   release source metadata and a fixed hash.
 
-### Strong candidates after v0.1
+### v0.2 candidate status
 
-- Additional Wazuh rules for structured system events.
-- Operational runbook for install, detect-only mode, enforcement, and rollback.
+The current `dev` line is focused on practical router operations without
+changing the lightweight architecture:
+
+- Config-only suppression rules for trusted scanners, monitors, and noisy
+  expected traffic.
+- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for safer tuning
+  without hand-editing every threshold.
+- `/status` nft diagnostics and `serpent-wrt nftcheck` for enforcement resource
+  checks after startup or firewall reloads.
+- Read-only dnsmasq lease enrichment for hostnames and MAC addresses in
+  detection logs and recent detection API responses.
+
+Before cutting v0.2:
+
+- Push `dev`, open a PR from `dev` to `main`, and require `CI Gate`.
+- Run the Windows validation suite and the `mgmt-01` OpenWrt deploy smoke test.
+- Update the release date/tag notes after the final merge point is known.
 
 ### Explicitly post-MVP
 
 - Netlink conntrack prototype.
 - IPv6 first-class detection and enforcement.
-- dnsmasq hostname correlation.
+- DNS query/log correlation beyond read-only lease enrichment.
 - Remote threat feed sync.
 - LuCI UI.
 - eBPF/XDP experiments on capable targets.
