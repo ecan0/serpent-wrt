@@ -69,7 +69,9 @@ type Stats struct {
 	DetectionsBySeverity         map[string]uint64 `json:"detections_by_severity"`
 	DetectionsByConfidenceBucket map[string]uint64 `json:"detections_by_confidence_bucket"`
 	BlocksApplied                uint64            `json:"blocks_applied"`
+	BlocksFailed                 uint64            `json:"blocks_failed"`
 	SuppressedDetections         uint64            `json:"suppressed_detections"`
+	DedupSuppressedDetections    uint64            `json:"dedup_suppressed_detections"`
 	StartedAt                    time.Time         `json:"started_at"`
 }
 
@@ -87,9 +89,11 @@ type dedupKey struct {
 // Atomic fields are placed first to guarantee 64-bit alignment on 32-bit targets.
 type Engine struct {
 	// atomic — must remain first in struct for 32-bit MIPS/ARM alignment
-	flowsSeen            uint64
-	blocksApplied        uint64
-	suppressedDetections uint64
+	flowsSeen                 uint64
+	blocksApplied             uint64
+	blocksFailed              uint64
+	suppressedDetections      uint64
+	dedupSuppressedDetections uint64
 
 	cfg  *config.Config
 	feed *feed.Feed
@@ -305,6 +309,7 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	last, ok := e.dedup[key]
 	if ok && now.Sub(last) < e.dedupWindow {
 		e.dedupMu.Unlock()
+		atomic.AddUint64(&e.dedupSuppressedDetections, 1)
 		return
 	}
 	if len(e.dedup) < maxDedup {
@@ -360,6 +365,7 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 
 	if e.cfg.EnforcementEnabled && det.SrcIP != nil {
 		if err := e.enf.Block(det.SrcIP); err != nil {
+			atomic.AddUint64(&e.blocksFailed, 1)
 			e.log.Error(fmt.Sprintf("block %s: %v", det.SrcIP, err))
 			return
 		}
@@ -480,7 +486,9 @@ func (e *Engine) GetStats() Stats {
 		DetectionsBySeverity:         bySeverity,
 		DetectionsByConfidenceBucket: byConfidenceBucket,
 		BlocksApplied:                atomic.LoadUint64(&e.blocksApplied),
+		BlocksFailed:                 atomic.LoadUint64(&e.blocksFailed),
 		SuppressedDetections:         atomic.LoadUint64(&e.suppressedDetections),
+		DedupSuppressedDetections:    atomic.LoadUint64(&e.dedupSuppressedDetections),
 		StartedAt:                    e.startedAt,
 	}
 }
