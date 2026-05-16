@@ -10,6 +10,7 @@ This project follows semantic versioning for tagged releases.
 
 - `serpent-wrt configtest --effective` for printing the resolved configuration
   after defaults and detection profiles have been applied.
+- JSON output for `serpent-wrt configtest --effective --format json`.
 
 ## v0.2.0 - 2026-05-14
 
