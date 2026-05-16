@@ -22,23 +22,25 @@ This checklist is for project releases and OpenWrt package refreshes.
 1. Confirm `dev` is green in CI and create a release prep branch from `dev`.
 2. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata on
    the release prep branch.
+   Keep release notes and PR text infrastructure-neutral: do not name private
+   hosts, IP addresses, or SSH key paths. Refer to target classes such as
+   "OpenWrt x86/generic test target" or public CI runners instead.
 3. Open the release prep PR into `dev` and require `CI Gate`.
-4. Run local tests from a clean worktree:
+4. Run the local release check from a clean worktree:
 
    ```sh
-   go test ./...
-   go vet ./...
-   git diff --check
-   make build-openwrt-targets
+   make release-check
    ```
 
-5. Run the OpenWrt runtime smoke test from `mgmt-01` against the lab target.
-   The current x86/generic lab image reports `i386_pentium4`, so keep using
-   the 32-bit x86 build:
+   This runs Go tests, vet, whitespace checks, OpenWrt package metadata checks,
+   and representative OpenWrt target builds.
+
+5. When runtime credentials are available, run the OpenWrt smoke test against a
+   representative test target. OpenWrt x86/generic images often report
+   i386/i686-compatible CPUs, so use the 32-bit x86 build for that target class:
 
    ```sh
-   SSH_KEY_PATH=$HOME/.ssh/toghouse_ops_ed25519 \
-     make deploy-x86 DEPLOY_HOST=root@openwrt-x86-test.ecan.pro
+   make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
    ```
 
 6. After the release prep PR merges, open the release PR from `dev` to `main`

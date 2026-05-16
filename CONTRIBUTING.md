@@ -24,6 +24,15 @@ go test ./...
 
 All tests must pass before committing. No external services or hardware required.
 
+For release prep or package metadata changes, run the local release check:
+
+```sh
+make release-check
+```
+
+This runs tests, vet, whitespace checks, the OpenWrt package metadata check, and
+representative OpenWrt target builds.
+
 ## Cross-compiling for OpenWrt
 
 serpent-wrt builds as a static binary for common OpenWrt targets:

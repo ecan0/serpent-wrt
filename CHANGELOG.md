@@ -43,7 +43,7 @@ This project follows semantic versioning for tagged releases.
 - procd-compatible init script, default OpenWrt config, and package smoke test.
 - Build metadata through `serpent-wrt -version`.
 - Cross-build checks for representative OpenWrt router architectures.
-- Runtime smoke test against the current OpenWrt x86/generic lab VM.
+- Runtime smoke test against a representative OpenWrt x86/generic test target.
 - Detection events now include severity, confidence, and stable reason metadata.
 - `serpent-wrt configtest` for validating the YAML config and referenced threat
   feed before starting or reloading.
@@ -54,7 +54,8 @@ This project follows semantic versioning for tagged releases.
 
 ### Changed
 
-- CI now validates common OpenWrt target builds and the lab runtime install path.
+- CI now validates common OpenWrt target builds and the optional runtime install
+  path.
 - OpenWrt init scripts now fail start/reload clearly when config validation
   fails.
 - Release docs now call out the custom-feed package metadata refresh and the
