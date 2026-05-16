@@ -198,8 +198,9 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 	fs := flag.NewFlagSet("serpent-wrt configtest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
+	effective := fs.Bool("effective", false, "print effective config after defaults and profiles")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt configtest [--config path]\n\n")
+		writef(stderr, "Usage: serpent-wrt configtest [--config path] [--effective]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -222,6 +223,13 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 		*cfgPath, cfg.ThreatFeedPath, feedEntries)
 	for _, warning := range warnings {
 		writef(stdout, "serpent-wrt: config warning: %s\n", warning)
+	}
+	if *effective {
+		writef(stdout, "serpent-wrt: effective config:\n")
+		if err := writeEffectiveConfig(stdout, cfg); err != nil {
+			writef(stderr, "serpent-wrt: configtest failed: effective config: %v\n", err)
+			return 1
+		}
 	}
 	return 0
 }

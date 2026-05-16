@@ -42,6 +42,60 @@ func TestRunConfigtestSupportsGlobalConfigFlag(t *testing.T) {
 	}
 }
 
+func TestRunConfigtestEffectivePrintsResolvedConfig(t *testing.T) {
+	dir := t.TempDir()
+	feedPath := filepath.Join(dir, "threat-feed.txt")
+	if err := os.WriteFile(feedPath, []byte("1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	content := fmt.Sprintf(`threat_feed_path: '%s'
+profile: quiet
+lease_enrichment: true
+lan_cidrs:
+  - 192.168.1.0/24
+self_ips:
+  - 192.168.1.1
+detectors:
+  scan:
+    distinct_port_threshold: 12
+suppression_rules:
+  - name: expected scan
+    detectors: [port_scan]
+    src_addrs: [192.168.1.50]
+`, filepath.ToSlash(feedPath))
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run configtest: exit=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"config OK",
+		"effective config:",
+		"profile: quiet",
+		"poll_interval: 5s",
+		"dnsmasq_leases_path: /tmp/dhcp.leases",
+		"block_duration: 1h",
+		"dedup_window: 5m",
+		"distinct_dst_threshold: 100",
+		"distinct_port_threshold: 12",
+		"min_interval: 10s",
+		"name: expected scan",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout=%q, want %q", out, want)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
 func TestRunConfigtestPrintsWarnings(t *testing.T) {
 	dir := t.TempDir()
 	feedPath := filepath.Join(dir, "threat-feed.txt")
