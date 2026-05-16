@@ -96,6 +96,134 @@ suppression_rules:
 	}
 }
 
+func TestRunConfigtestEffectiveJSONPrintsResolvedConfig(t *testing.T) {
+	dir := t.TempDir()
+	feedPath := filepath.Join(dir, "threat-feed.txt")
+	if err := os.WriteFile(feedPath, []byte("1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	content := fmt.Sprintf(`threat_feed_path: '%s'
+profile: quiet
+lease_enrichment: true
+lan_cidrs:
+  - 192.168.1.0/24
+self_ips:
+  - 192.168.1.1
+suppression_rules:
+  - name: expected scan
+    detectors: [port_scan]
+    src_addrs: [192.168.1.50]
+`, filepath.ToSlash(feedPath))
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run configtest: exit=%d stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status: got %v, want ok", body["status"])
+	}
+	if body["feed_entries"] != float64(1) {
+		t.Fatalf("feed_entries: got %v, want 1", body["feed_entries"])
+	}
+	effective, ok := body["effective_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("effective_config: got %#v", body["effective_config"])
+	}
+	if effective["profile"] != "quiet" {
+		t.Fatalf("profile: got %v, want quiet", effective["profile"])
+	}
+	if effective["dnsmasq_leases_path"] != "/tmp/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %v", effective["dnsmasq_leases_path"])
+	}
+	detectors := effective["detectors"].(map[string]any)
+	fanout := detectors["fanout"].(map[string]any)
+	if fanout["distinct_dst_threshold"] != float64(100) {
+		t.Fatalf("fanout threshold: got %v, want 100", fanout["distinct_dst_threshold"])
+	}
+	beacon := detectors["beacon"].(map[string]any)
+	excludePorts, ok := beacon["exclude_ports"].([]any)
+	if !ok || len(excludePorts) != 0 {
+		t.Fatalf("exclude_ports: got %#v, want empty array", beacon["exclude_ports"])
+	}
+	rules := effective["suppression_rules"].([]any)
+	rule := rules[0].(map[string]any)
+	if rule["src_addrs"] == nil {
+		t.Fatalf("suppression rule keys: got %#v, want src_addrs", rule)
+	}
+}
+
+func TestRunConfigtestRejectsJSONFormatWithoutEffective(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--format", "json"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run configtest: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--format json requires --effective") {
+		t.Fatalf("stderr=%q, want format/effective error", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunConfigtestRejectsInvalidFormat(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "yaml"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run configtest: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid format") {
+		t.Fatalf("stderr=%q, want invalid format", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunConfigtestEffectiveJSONInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	if err := os.WriteFile(cfg, []byte("poll_interval: 5s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run configtest: exit=%d, want 1", code)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty for json errors", stderr.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["status"] != "error" {
+		t.Fatalf("status: got %v, want error", body["status"])
+	}
+	if !strings.Contains(fmt.Sprint(body["error"]), "threat_feed_path is required") {
+		t.Fatalf("error: got %v", body["error"])
+	}
+}
+
 func TestRunConfigtestPrintsWarnings(t *testing.T) {
 	dir := t.TempDir()
 	feedPath := filepath.Join(dir, "threat-feed.txt")

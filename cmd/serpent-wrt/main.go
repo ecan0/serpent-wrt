@@ -199,8 +199,9 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", defaultConfigPath, "path to config file")
 	effective := fs.Bool("effective", false, "print effective config after defaults and profiles")
+	format := fs.String("format", "human", "output format for --effective: human or json")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt configtest [--config path] [--effective]\n\n")
+		writef(stderr, "Usage: serpent-wrt configtest [--config path] [--effective] [--format human|json]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -213,11 +214,37 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 		writef(stderr, "serpent-wrt: configtest: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
+	if *format != "human" && *format != "json" {
+		writef(stderr, "serpent-wrt: configtest: invalid format %q\n", *format)
+		return 2
+	}
+	if *format == "json" && !*effective {
+		writef(stderr, "serpent-wrt: configtest: --format json requires --effective\n")
+		return 2
+	}
 
 	cfg, feedEntries, warnings, err := checkConfig(*cfgPath)
 	if err != nil {
+		if *format == "json" {
+			writeConfigtestJSON(stdout, configtestResult{
+				Status: "error",
+				Error:  err.Error(),
+			})
+			return 1
+		}
 		writef(stderr, "serpent-wrt: configtest failed: %v\n", err)
 		return 1
+	}
+	if *format == "json" {
+		writeConfigtestJSON(stdout, configtestResult{
+			Status:         "ok",
+			ConfigPath:     *cfgPath,
+			ThreatFeedPath: cfg.ThreatFeedPath,
+			FeedEntries:    feedEntries,
+			Warnings:       warnings,
+			Effective:      ptr(newEffectiveConfig(cfg)),
+		})
+		return 0
 	}
 	writef(stdout, "serpent-wrt: config OK: %s (feed=%s entries=%d)\n",
 		*cfgPath, cfg.ThreatFeedPath, feedEntries)
@@ -232,6 +259,26 @@ func runConfigtest(args []string, stdout, stderr io.Writer, defaultConfigPath st
 		}
 	}
 	return 0
+}
+
+type configtestResult struct {
+	Status         string           `json:"status"`
+	ConfigPath     string           `json:"config_path,omitempty"`
+	ThreatFeedPath string           `json:"threat_feed_path,omitempty"`
+	FeedEntries    int              `json:"feed_entries,omitempty"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	Effective      *effectiveConfig `json:"effective_config,omitempty"`
+	Error          string           `json:"error,omitempty"`
+}
+
+func writeConfigtestJSON(w io.Writer, result configtestResult) {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(result)
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func checkConfig(path string) (*config.Config, int, []string, error) {

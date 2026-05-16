@@ -329,13 +329,15 @@ reloading:
 serpent-wrt configtest
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
 serpent-wrt configtest --effective
+serpent-wrt configtest --effective --format json
 ```
 
 `configtest` exits non-zero for invalid configuration or feed files. It also
 prints advisory warnings for valid but risky settings such as missing
 `lan_cidrs`, non-loopback API binds, broad suppression rules, and aggressive
 enforcement combinations. Add `--effective` to print the resolved configuration
-after defaults and detection profiles have been applied.
+after defaults and detection profiles have been applied. Use `--format json`
+with `--effective` for automation.
 
 Check configured nftables enforcement resources without starting the daemon:
 
