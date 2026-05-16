@@ -6,6 +6,11 @@ This project follows semantic versioning for tagged releases.
 
 ## Unreleased
 
+### Added
+
+- `serpent-wrt configtest --effective` for printing the resolved configuration
+  after defaults and detection profiles have been applied.
+
 ## v0.2.0 - 2026-05-14
 
 ### Added
