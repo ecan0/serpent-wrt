@@ -13,6 +13,7 @@ import (
 var (
 	lookPath      = exec.LookPath
 	runNftCommand = runNftCheck
+	runNftScript  = runNftScriptCommand
 )
 
 // Enforcer manages a named nftables inet set for dynamically blocked IPs.
@@ -99,10 +100,16 @@ func (e *Enforcer) Block(ip net.IP) error {
 		e.mu.Unlock()
 		return nil // already blocked
 	}
-	e.blocked[key] = time.Now().Add(e.duration)
 	e.mu.Unlock()
 
-	return e.runScript(blockScript(e.table, e.set, key, e.duration))
+	if err := e.runScript(blockScript(e.table, e.set, key, e.duration)); err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	e.blocked[key] = time.Now().Add(e.duration)
+	e.mu.Unlock()
+	return nil
 }
 
 // IsBlocked reports whether ip is currently tracked as blocked.
@@ -172,6 +179,10 @@ func parseSetElements(output string) []string {
 }
 
 func (e *Enforcer) runScript(script string) error {
+	return runNftScript(script)
+}
+
+func runNftScriptCommand(script string) error {
 	cmd := exec.Command("nft", "-f", "-")
 	cmd.Stdin = strings.NewReader(script)
 	out, err := cmd.CombinedOutput()

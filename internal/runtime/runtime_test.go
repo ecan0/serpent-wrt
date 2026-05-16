@@ -150,6 +150,15 @@ func TestGetStatsInitial(t *testing.T) {
 	if s.BlocksApplied != 0 {
 		t.Errorf("BlocksApplied: got %d, want 0", s.BlocksApplied)
 	}
+	if s.BlocksFailed != 0 {
+		t.Errorf("BlocksFailed: got %d, want 0", s.BlocksFailed)
+	}
+	if s.SuppressedDetections != 0 {
+		t.Errorf("SuppressedDetections: got %d, want 0", s.SuppressedDetections)
+	}
+	if s.DedupSuppressedDetections != 0 {
+		t.Errorf("DedupSuppressedDetections: got %d, want 0", s.DedupSuppressedDetections)
+	}
 	if s.StartedAt.IsZero() {
 		t.Error("StartedAt should not be zero")
 	}
@@ -453,6 +462,9 @@ func TestDedupWindowSuppression(t *testing.T) {
 	if s2.DetectionsByType["feed_match"] != 1 {
 		t.Fatalf("duplicate not suppressed: got %d", s2.DetectionsByType["feed_match"])
 	}
+	if s2.DedupSuppressedDetections != 1 {
+		t.Fatalf("dedup suppressed detections: got %d, want 1", s2.DedupSuppressedDetections)
+	}
 
 	// After window expires, should fire again.
 	time.Sleep(60 * time.Millisecond)
@@ -460,6 +472,9 @@ func TestDedupWindowSuppression(t *testing.T) {
 	s3 := e.GetStats()
 	if s3.DetectionsByType["feed_match"] != 2 {
 		t.Fatalf("post-window detection not counted: got %d", s3.DetectionsByType["feed_match"])
+	}
+	if s3.DedupSuppressedDetections != 1 {
+		t.Fatalf("dedup suppressed detections after window: got %d, want 1", s3.DedupSuppressedDetections)
 	}
 }
 
@@ -518,6 +533,40 @@ func TestDedupKeepsFanoutCollapsedBySrc(t *testing.T) {
 	stats := e.GetStats()
 	if stats.DetectionsByType["fanout"] != 1 {
 		t.Fatalf("fanout detections: got %d, want 1", stats.DetectionsByType["fanout"])
+	}
+	if stats.DedupSuppressedDetections != 1 {
+		t.Fatalf("dedup suppressed detections: got %d, want 1", stats.DedupSuppressedDetections)
+	}
+}
+
+func TestHandleDetectionCountsBlockFailures(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	cfg := testConfig()
+	cfg.EnforcementEnabled = true
+	cfg.DedupWindow = time.Minute
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.10"),
+		DstIP:      net.ParseIP("1.2.3.4"),
+		DstPort:    443,
+		Message:    "test",
+	})
+
+	stats := e.GetStats()
+	if stats.BlocksFailed != 1 {
+		t.Fatalf("blocks failed: got %d, want 1", stats.BlocksFailed)
+	}
+	if stats.BlocksApplied != 0 {
+		t.Fatalf("blocks applied: got %d, want 0", stats.BlocksApplied)
+	}
+	if e.enf.IsBlocked(net.ParseIP("192.168.1.10")) {
+		t.Fatal("failed block should not be tracked as blocked")
 	}
 }
 

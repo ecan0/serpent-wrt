@@ -133,6 +133,12 @@ func TestHandleStats(t *testing.T) {
 	if _, ok := body["suppressed_detections"]; !ok {
 		t.Error("response missing suppressed_detections field")
 	}
+	if _, ok := body["dedup_suppressed_detections"]; !ok {
+		t.Error("response missing dedup_suppressed_detections field")
+	}
+	if _, ok := body["blocks_failed"]; !ok {
+		t.Error("response missing blocks_failed field")
+	}
 	if _, ok := body["detections_by_severity"]; !ok {
 		t.Error("response missing detections_by_severity field")
 	}
