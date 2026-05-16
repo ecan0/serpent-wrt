@@ -88,7 +88,8 @@ router-friendly detection layer for signals that do not need payload inspection.
 - Optional nftables blocking through named sets, kernel-managed timeouts, and
   status diagnostics for missing enforcement state.
 - Localhost HTTP API for health, status, stats, reloads, detections, and blocks.
-- OpenWrt package scaffold, procd init script, and CI runtime smoke coverage.
+- OpenWrt package scaffold, procd init script, and optional runtime smoke
+  coverage.
 
 ## What It Detects
 
@@ -154,6 +155,9 @@ make test
 # Cross-build representative OpenWrt targets
 make cross
 
+# Run release readiness checks
+make release-check
+
 # Print build metadata
 ./bin/serpent-wrt -version
 ```
@@ -191,10 +195,10 @@ make package/serpent-wrt/check V=s
 make package/serpent-wrt/compile V=s
 ```
 
-### Lab/manual deploy
+### Manual Runtime Deploy
 
 ```sh
-# Current lab VM is x86/generic, so this builds a 32-bit x86 binary.
+# OpenWrt x86/generic targets should use the 32-bit x86 build.
 make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
@@ -500,13 +504,10 @@ lightweight architecture:
 ## Development
 
 ```sh
-go test ./...
-go vet ./...
-git diff --check
-make build-openwrt-targets
+make release-check
 ```
 
-Runtime lab validation is available through:
+Runtime validation is available through:
 
 ```sh
 make deploy-x86 DEPLOY_HOST=root@<openwrt-host>

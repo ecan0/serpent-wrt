@@ -4,7 +4,7 @@ COMMIT  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
 LDFLAGS := -trimpath -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
-DEPLOY_HOST ?= root@openwrt-x86-64
+DEPLOY_HOST ?= root@openwrt-host
 DEPLOY_BIN  := /usr/sbin/serpent-wrt
 DEPLOY_CONF := /etc/serpent-wrt
 SSH         := ssh
@@ -13,7 +13,7 @@ SCP         := scp -O
 .PHONY: build cross build-openwrt-targets build-openwrt-mips build-openwrt-mipsle
 .PHONY: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
 .PHONY: build-openwrt-riscv64 build-openwrt-x86 build-openwrt-x86-64
-.PHONY: run test fmt lint clean deps openwrt-docs ipk-glinet deploy-setup
+.PHONY: run test fmt lint packagecheck diff-check release-check clean deps openwrt-docs ipk-glinet deploy-setup
 .PHONY: deploy-x86-64 deploy-x86 openwrt-runtime-test
 
 deps:
@@ -74,6 +74,19 @@ fmt:
 lint:
 	go vet ./...
 
+packagecheck:
+	go test ./internal/packagecheck
+
+diff-check:
+	git diff --check
+
+release-check:
+	$(MAKE) test
+	$(MAKE) lint
+	$(MAKE) diff-check
+	$(MAKE) packagecheck
+	$(MAKE) build-openwrt-targets
+
 clean:
 	rm -rf bin/
 
@@ -81,7 +94,7 @@ openwrt-docs:
 	powershell -ExecutionPolicy Bypass -File scripts/fetch-openwrt-dev-guide.ps1
 
 # First-time VM setup: copies init script, config, and threat feed.
-# Override target with: make deploy-setup DEPLOY_HOST=root@<ip>
+# Override target with: make deploy-setup DEPLOY_HOST=root@<openwrt-host>
 deploy-setup:
 	$(SSH) $(DEPLOY_HOST) "mkdir -p $(DEPLOY_CONF)"
 	$(SCP) contrib/init.d/serpent-wrt $(DEPLOY_HOST):/etc/init.d/serpent-wrt
@@ -91,8 +104,8 @@ deploy-setup:
 	$(SSH) $(DEPLOY_HOST) "/etc/init.d/serpent-wrt enable"
 	@echo "Setup complete on $(DEPLOY_HOST). Run 'make deploy-x86' to push the binary and run smoke checks."
 
-# The current lab VM is named openwrt-x86-64, but it runs OpenWrt x86/generic
-# (i386_pentium4). Keep the runtime deploy on the 32-bit x86 build.
+# OpenWrt x86/generic images often report i386/i686-compatible CPUs. Keep the
+# runtime deploy on the 32-bit x86 build for that target class.
 openwrt-runtime-test: build-openwrt-x86
 	OPENWRT_HOST=$(DEPLOY_HOST) OPENWRT_BINARY=bin/$(BINARY)-openwrt-x86 sh scripts/openwrt-runtime-test.sh
 
