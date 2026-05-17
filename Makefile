@@ -13,7 +13,7 @@ SCP         := scp -O
 .PHONY: build cross build-openwrt-targets build-openwrt-mips build-openwrt-mipsle
 .PHONY: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
 .PHONY: build-openwrt-riscv64 build-openwrt-x86 build-openwrt-x86-64
-.PHONY: run test fmt lint packagecheck diff-check release-check clean deps openwrt-docs ipk-glinet deploy-setup
+.PHONY: run test fmt lint packagecheck diff-check openwrt-sdk-check openwrt-sdk-check-if-available release-check clean deps openwrt-docs ipk-glinet deploy-setup
 .PHONY: deploy-x86-64 deploy-x86 openwrt-runtime-test
 
 deps:
@@ -80,11 +80,22 @@ packagecheck:
 diff-check:
 	git diff --check
 
+openwrt-sdk-check:
+	sh scripts/openwrt-package-check.sh
+
+openwrt-sdk-check-if-available:
+	@if [ -n "$(OPENWRT_SDK)" ]; then \
+		$(MAKE) openwrt-sdk-check; \
+	else \
+		echo "Skipping OpenWrt SDK package check (set OPENWRT_SDK=/path/to/sdk)."; \
+	fi
+
 release-check:
 	$(MAKE) test
 	$(MAKE) lint
 	$(MAKE) diff-check
 	$(MAKE) packagecheck
+	$(MAKE) openwrt-sdk-check-if-available
 	$(MAKE) build-openwrt-targets
 
 clean:

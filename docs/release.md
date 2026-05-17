@@ -82,11 +82,14 @@ This checklist is for project releases and OpenWrt package refreshes.
 4. Validate with a real OpenWrt SDK:
 
    ```sh
-   ./scripts/feeds update -a
-   ./scripts/feeds install -a
-   make package/serpent-wrt/check V=s
-   make package/serpent-wrt/compile V=s
+   OPENWRT_SDK=/path/to/openwrt-sdk \
+     OPENWRT_PACKAGE_OVERWRITE=1 \
+     make openwrt-sdk-check
    ```
+
+   Set `OPENWRT_FEEDS_UPDATE=1` if the SDK does not already have the packages
+   feed installed. The script stages `openwrt/serpent-wrt` into the SDK and
+   runs `package/serpent-wrt/check` and `package/serpent-wrt/compile`.
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:
