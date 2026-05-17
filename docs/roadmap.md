@@ -5,10 +5,10 @@ capture, no DPI, no database, and no heavy runtime dependencies.
 
 ## Status
 
-The MVP is complete. It includes conntrack polling, local feed matching, core
-detectors, structured logs, optional syslog forwarding, bounded in-memory state,
-the localhost API, nftables enforcement, OpenWrt packaging, and runtime smoke
-coverage.
+The stable MVP is complete. It is a lightweight OpenWrt/Linux IDS and optional
+nftables enforcement daemon with conntrack polling, local threat-intel feeds,
+core flow-based detectors, structured logs, optional syslog forwarding, bounded
+in-memory state, a localhost API, OpenWrt packaging, and runtime smoke coverage.
 
 ## Released
 
@@ -30,30 +30,30 @@ coverage.
 - Detection counters by type, severity, and confidence bucket.
 - `configtest` warnings for risky but valid settings.
 
-## Next
+## Stable MVP Release Track
 
-### v0.3.0 - operator visibility
+### v0.3.1 - stable MVP positioning
 
-Goal: easier rollout and troubleshooting without increasing runtime weight.
+Goal: present the current tool clearly as a useful cyber/Linux/threat-intel
+project without adding more runtime features.
 
 - `configtest --effective` human output.
 - `configtest --effective --format json`.
 - `/stats` counters for dedup-suppressed detections and failed block attempts.
 - OpenWrt runbooks for detect-only rollout, enforcement rollout, rollback, and
   firewall reload recovery.
-- Release and CI cleanup that keeps private test infrastructure out of public
-  release notes.
-
-### v0.3.1 - feed and package polish
-
-Goal: less manual custom-feed releases and local feed operations.
-
 - Feed CLI commands: list, validate, add, and remove.
 - OpenWrt SDK/package release checks.
-- Release artifact naming and checksum validation.
-- Replace `PKG_MIRROR_HASH:=skip` for public release packaging.
+- README, changelog, and roadmap framing for stable MVP status, detection
+  coverage, and engineering highlights.
 
-## Later
+## Post-MVP Tracks
+
+### Package hardening
+
+- Release artifact naming and checksum validation.
+- Replace `PKG_MIRROR_HASH:=skip` for public package submission.
+- Move more package and runtime validation to public runners where practical.
 
 ### Optional netlink collector
 
@@ -69,10 +69,6 @@ dedicated release track.
 
 Consider dnsmasq log or query correlation beyond the current read-only lease
 enrichment.
-
-### Public runtime CI
-
-Move more package and runtime validation to public runners where practical.
 
 ## Not Planned For Near-Term Releases
 

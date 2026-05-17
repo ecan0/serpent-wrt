@@ -8,10 +8,29 @@ This project follows semantic versioning for tagged releases.
 
 ### Added
 
+- Stable MVP README and roadmap positioning for the current OpenWrt/Linux IDS,
+  threat-intel, and optional nftables enforcement scope.
+- Detection coverage framing for threat-intel hits, reconnaissance/discovery,
+  C2-like beaconing, scanning, and brute-force behavior using conntrack
+  metadata only.
+- Engineering highlights for constrained Linux design, detection engineering,
+  OpenWrt packaging, structured security events, and operational validation.
 - `serpent-wrt configtest --effective` for printing the resolved configuration
   after defaults and detection profiles have been applied.
 - JSON output for `serpent-wrt configtest --effective --format json`.
 - `/stats` counters for dedup-suppressed detections and failed block attempts.
+- Feed CLI commands for listing, validating, adding, and removing flat-file
+  IPv4/IP-CIDR threat-feed entries.
+- OpenWrt SDK package check helper for staging the package scaffold into an SDK
+  and running package check/compile targets when available.
+
+### Changed
+
+- Roadmap language now treats artifact checksums, fixed package hashes, IPv6,
+  netlink, DNS context, and public runtime CI as post-MVP work while keeping
+  LuCI, Wazuh, and feed sync out of near-term scope.
+- OpenWrt smoke coverage now exercises feed CLI validation and add/list/remove
+  operations after package install.
 
 ## v0.2.0 - 2026-05-14
 

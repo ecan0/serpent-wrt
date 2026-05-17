@@ -5,17 +5,38 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-package%20scaffold-blueviolet.svg)](openwrt/serpent-wrt)
 
-Conntrack-only IDS and optional nftables enforcement for OpenWrt routers.
+Lightweight OpenWrt/Linux IDS, threat-intel, and optional nftables enforcement
+for router-safe detection.
 
-`serpent-wrt` watches lightweight connection metadata that Linux routers already
-track, detects suspicious behavior, emits structured security events, and can
-optionally block hostile IPs. It is designed for constrained routers: no packet
-capture, no payload inspection, no database, and no heavyweight runtime stack.
+`serpent-wrt` watches conntrack metadata that Linux routers already maintain,
+matches flows against local threat intelligence, detects common reconnaissance,
+C2-like beaconing, scanning, and brute-force patterns, emits structured security
+events, and can optionally block hostile IPs with nftables. It is built for
+constrained OpenWrt routers: no packet capture, no payload inspection, no
+database, and no heavyweight runtime stack.
+
+## Stable MVP Status
+
+The current codebase is a feature-complete stable MVP. It is useful today as a
+small OpenWrt/Linux security daemon for local threat visibility, feed-backed
+detection, operational telemetry, and optional edge enforcement.
+
+- Router-safe by design: bounded in-memory state, conntrack polling, no packet
+  capture, no DPI, and no persistent database.
+- Linux/OpenWrt integration: `nf_conntrack`, procd init scripts, nftables sets,
+  syslog forwarding, SDK/package checks, and runtime smoke coverage.
+- Security focus: threat-intel hits, ATT&CK-aligned behavior categories such as
+  reconnaissance and command-and-control patterns, and OWASP-adjacent service
+  scanning and brute-force signals.
+- Operator surfaces: config validation, effective-config output, feed
+  management, `/status`, `/stats`, recent detections, and rollback runbooks.
 
 ## Quick Links
 
+- [Stable MVP status](#stable-mvp-status)
 - [What problem does this solve?](#what-problem-does-this-solve)
-- [What it detects](#what-it-detects)
+- [Detection coverage](#detection-coverage)
+- [Engineering highlights](#engineering-highlights)
 - [Architecture and data flow](#architecture-and-data-flow)
 - [Build and test](#build-and-test)
 - [Install on OpenWrt](#install-on-openwrt)
@@ -46,9 +67,9 @@ rules, and safe enforcement defaults.
 - Security students learning IDS concepts without starting from packet capture.
 - Engineers evaluating constrained-device detection, Go services, and OpenWrt
   packaging.
-- Recruiters and hiring managers looking for practical systems/security work:
-  flow collection, detector design, operational APIs, CI, packaging, and router
-  runtime validation.
+- Reviewers looking for practical systems/security work: Linux flow
+  collection, detector design, threat-intel operations, operational APIs,
+  package validation, and router runtime testing.
 
 ## Why Conntrack, Not Packet Capture?
 
@@ -92,23 +113,42 @@ router-friendly detection layer for signals that do not need payload inspection.
 - OpenWrt package scaffold, procd init script, and optional runtime smoke
   coverage.
 
-## What It Detects
+## Detection Coverage
 
 All detections use connection metadata only. No payloads are inspected.
 
-| Direction | Detector | Signal |
-| --- | --- | --- |
-| LAN to WAN | `feed_match` | Internal host contacts an IP/CIDR in the threat feed. |
-| LAN to WAN | `fanout` | Internal host reaches too many distinct external destinations. |
-| LAN to WAN | `port_scan` | Internal host probes many ports on one external target. |
-| LAN to WAN | `beacon` | Internal host contacts the same destination on a regular cadence. |
-| WAN to LAN | `feed_match` | Known-bad external source reaches an internal host. |
-| WAN to LAN | `ext_scan` | External source probes many ports on one internal host. |
-| WAN to LAN | `brute_force` | External source hits the same service port across many internal hosts. |
+| Detector | Direction | Security outcome | ATT&CK / OWASP-adjacent signal |
+| --- | --- | --- | --- |
+| `feed_match` | LAN to WAN | Internal host contacts a listed IP/CIDR. | Suspicious outbound infrastructure, known-bad C2/blocklist hits, threat-intel matches. |
+| `feed_match` | WAN to LAN | Known-bad external source reaches an internal host. | Threat-intel hit against exposed or forwarded services. |
+| `beacon` | LAN to WAN | Host contacts the same destination on a regular cadence. | C2-like periodic communication pattern. |
+| `fanout` | LAN to WAN | Host reaches too many distinct external destinations. | Discovery, staging, or unusual outbound fanout. |
+| `port_scan` | LAN to WAN | Internal host probes many ports on one external target. | Reconnaissance and service enumeration. |
+| `ext_scan` | WAN to LAN | External source probes many ports on one internal host. | Exposed-service scanning and reconnaissance. |
+| `brute_force` | WAN to LAN | External source hits the same service port across many internal hosts. | Credential-access style brute-force or service-spray behavior. |
 
 Detections include a stable `reason`, a severity, and a confidence score so
 downstream rules can distinguish threat-feed hits, scans, service sprays, and
-beacon-like behavior.
+beacon-like behavior. These mappings are intentionally high-level; the project
+does not claim formal ATT&CK technique coverage or inspect application payloads.
+
+OWASP-adjacent value comes from edge visibility into service probing,
+brute-force attempts, suspicious infrastructure contact, and scan patterns often
+seen around web and application attacks, without turning the router into a full
+application security scanner.
+
+## Engineering Highlights
+
+- Constrained Linux systems design: small Go daemon, bounded state, polling over
+  packet capture, and router-friendly failure modes.
+- Detection engineering: multiple flow-based detectors, stable reasons,
+  severity/confidence metadata, suppression rules, deduplication, and profiles.
+- Threat-intel operations: flat-file IPv4/IP-CIDR feeds, strict validation,
+  CLI/API feed management, and hot reloads.
+- OpenWrt delivery: package scaffold, procd init integration, representative
+  cross-builds, SDK package checks, and runtime smoke validation.
+- Security operations: NDJSON logs, optional syslog forwarding, `/status`,
+  `/stats`, recent detections, nftables diagnostics, and rollback runbooks.
 
 ## Architecture And Data Flow
 
@@ -138,11 +178,6 @@ Design invariants:
 - detect-only by default
 - IPv4-only for current releases
 - safe operation on common OpenWrt targets
-
-This section is also the future home for richer diagrams: project structure,
-detection lifecycle, OpenWrt package flow, procd lifecycle, and SIEM forwarding.
-If those grow beyond README size, they should move to `docs/architecture.md` or
-`docs/diagrams/` with links kept here.
 
 ## Build And Test
 
@@ -465,12 +500,12 @@ docs/                   release, roadmap, and operational documentation
 
 ## Roadmap
 
-The MVP is complete. Current planning lives in
+The stable MVP is complete. Current planning lives in
 [docs/roadmap.md](docs/roadmap.md).
 
-Near-term work is focused on operator visibility, feed/package release polish,
-and public validation. Larger tracks such as optional netlink collection and
-IPv6 support are kept separate so the router-friendly runtime stays small.
+Post-MVP work is focused on package hardening, public validation, and larger
+tracks such as optional netlink collection and IPv6 support. Those tracks stay
+separate so the router-friendly runtime remains small.
 
 ## Limitations
 
@@ -494,8 +529,9 @@ Runtime validation is available through:
 make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
-The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
-`/reload`, and service reload/restart behavior against the deployed daemon.
+The OpenWrt smoke test validates `configtest`, feed CLI operations, API
+liveness, `/status`, `/stats`, `/reload`, and service reload/restart behavior
+against the deployed daemon.
 
 Development flows through `dev`; `main` is the protected release and tag branch.
 Release prep changes land in `dev` before the `dev` to `main` release PR. See
