@@ -6,6 +6,8 @@ This project follows semantic versioning for tagged releases.
 
 ## Unreleased
 
+## v0.3.1 - 2026-05-17
+
 ### Added
 
 - Stable MVP README and roadmap positioning for the current OpenWrt/Linux IDS,
