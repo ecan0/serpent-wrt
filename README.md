@@ -136,7 +136,7 @@ Design invariants:
 - no packet capture or deep packet inspection
 - no persistent database
 - detect-only by default
-- IPv4-only for the current MVP
+- IPv4-only for current releases
 - safe operation on common OpenWrt targets
 
 This section is also the future home for richer diagrams: project structure,
@@ -429,7 +429,7 @@ Before enabling enforcement on a real router:
 ## Threat Feed Format
 
 Plain text, one IPv4 address or CIDR per line. Blank lines and comments are
-ignored. IPv6 entries are ignored in the current MVP.
+ignored. IPv6 entries are ignored in current releases.
 
 ```text
 # example
@@ -452,57 +452,21 @@ internal/lease/         read-only dnsmasq lease parser/cache
 internal/runtime/       detection pipeline, status, stats, and recent events
 openwrt/serpent-wrt/    OpenWrt package scaffold
 contrib/wazuh/          Wazuh decoder and rules
-docs/                   release and operational documentation
+docs/                   release, roadmap, and operational documentation
 ```
 
 ## Roadmap
 
-### v0.1.0 status
+The MVP is complete. Current planning lives in
+[docs/roadmap.md](docs/roadmap.md).
 
-The first lightweight tagged release established the baseline daemon/API:
-
-- `configtest` and procd start/reload validation.
-- Runtime smoke checks for `configtest`, API health, `/status`, `/stats`,
-  `/reload`, service reload, and service restart.
-- nft command construction tests and fw4 ownership documentation.
-- Local feed management API for bounded list, validate, add, remove, and replace
-  operations.
-- Changelog and release documentation.
-
-Before wider OpenWrt package publication:
-
-- Validate the package scaffold in a real OpenWrt SDK/buildroot.
-- Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
-  release source metadata and a fixed hash.
-
-### v0.2.0 status
-
-The v0.2.0 release adds practical router operations without changing the
-lightweight architecture:
-
-- Config-only suppression rules for trusted scanners, monitors, and noisy
-  expected traffic, including suppressed detection stats.
-- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for safer tuning
-  without hand-editing every threshold.
-- `/status` nft diagnostics and `serpent-wrt nftcheck` for enforcement resource
-  checks after startup or firewall reloads, plus JSON output for automation.
-- Read-only dnsmasq lease enrichment for hostnames and MAC addresses in
-  detection logs, recent detection API responses, and lease cache status.
-- Detection counters by type, severity, and confidence bucket in `/stats`.
-- `configtest` warnings for valid but risky configuration choices.
-
-### Explicitly post-MVP
-
-- Netlink conntrack prototype.
-- IPv6 first-class detection and enforcement.
-- DNS query/log correlation beyond read-only lease enrichment.
-- Remote threat feed sync.
-- LuCI UI.
-- eBPF/XDP experiments on capable targets.
+Near-term work is focused on operator visibility, feed/package release polish,
+and public validation. Larger tracks such as optional netlink collection and
+IPv6 support are kept separate so the router-friendly runtime stays small.
 
 ## Limitations
 
-- IPv4 only for MVP.
+- IPv4 only for current releases.
 - Polling instead of netlink events.
 - Hostname/MAC enrichment is limited to local dnsmasq lease data.
 - No payload inspection by design.
