@@ -189,11 +189,10 @@ packaging should use a final commit or tag source and a fixed source hash rather
 than the development `PKG_MIRROR_HASH:=skip` setting.
 
 ```sh
-# From an OpenWrt SDK/buildroot with this package added to a feed:
-./scripts/feeds update -a
-./scripts/feeds install serpent-wrt
-make package/serpent-wrt/check V=s
-make package/serpent-wrt/compile V=s
+# From this repo, with a local OpenWrt SDK/buildroot:
+OPENWRT_SDK=/path/to/openwrt-sdk \
+  OPENWRT_PACKAGE_OVERWRITE=1 \
+  make openwrt-sdk-check
 ```
 
 ### Manual Runtime Deploy

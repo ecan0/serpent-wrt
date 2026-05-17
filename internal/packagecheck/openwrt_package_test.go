@@ -86,6 +86,10 @@ func TestOpenWrtSmokeCoversReleaseCriticalPaths(t *testing.T) {
 	for _, want := range []string{
 		"command -v wget >/dev/null",
 		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest",
+		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed validate",
+		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed add 198.51.100.1",
+		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed list",
+		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed remove 198.51.100.1",
 		"/etc/init.d/serpent-wrt configtest",
 		"api_get /healthz",
 		"api_get /status",
@@ -96,6 +100,37 @@ func TestOpenWrtSmokeCoversReleaseCriticalPaths(t *testing.T) {
 	} {
 		if !strings.Contains(smoke, want) {
 			t.Fatalf("OpenWrt smoke test missing %q", want)
+		}
+	}
+}
+
+func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
+	script := readRepoFile(t, "scripts/openwrt-package-check.sh")
+	for _, want := range []string{
+		"OPENWRT_SDK",
+		"OPENWRT_PACKAGE_OVERWRITE",
+		"OPENWRT_FEEDS_UPDATE",
+		`PACKAGE_DST="$SDK/package/serpent-wrt"`,
+		"feeds/packages/lang/golang/golang-package.mk",
+		"package/serpent-wrt/check package/serpent-wrt/compile",
+		`make "$target" V=s`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("OpenWrt SDK package check script missing %q", want)
+		}
+	}
+}
+
+func TestReleaseCheckIncludesPackageChecks(t *testing.T) {
+	makefile := readRepoFile(t, "Makefile")
+	for _, want := range []string{
+		"openwrt-sdk-check:",
+		"openwrt-sdk-check-if-available:",
+		"$(MAKE) packagecheck",
+		"$(MAKE) openwrt-sdk-check-if-available",
+	} {
+		if !strings.Contains(makefile, want) {
+			t.Fatalf("release Makefile missing %q", want)
 		}
 	}
 }
