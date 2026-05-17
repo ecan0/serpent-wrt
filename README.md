@@ -358,6 +358,15 @@ Hot-reload the threat feed without restarting:
 kill -HUP "$(pidof serpent-wrt)"
 ```
 
+Manage the configured flat feed file from the CLI:
+
+```sh
+serpent-wrt feed list
+serpent-wrt feed validate
+serpent-wrt feed add 198.51.100.1
+serpent-wrt feed remove 198.51.100.1
+```
+
 HTTP API, available when `api_enabled: true`:
 
 | Endpoint | Method | Purpose |
