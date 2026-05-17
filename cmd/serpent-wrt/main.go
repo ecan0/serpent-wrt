@@ -38,13 +38,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "nftcheck" {
 		return runNftcheck(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
+	if len(args) > 0 && args[0] == "feed" {
+		return runFeed(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
+	}
 
 	fs := flag.NewFlagSet("serpent-wrt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt [--config path] [configtest|nftcheck]\n\n")
+		writef(stderr, "Usage: serpent-wrt [--config path] [configtest|nftcheck|feed]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -65,6 +68,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runConfigtest(fs.Args()[1:], stdout, stderr, *cfgPath)
 		case "nftcheck":
 			return runNftcheck(fs.Args()[1:], stdout, stderr, *cfgPath)
+		case "feed":
+			return runFeed(fs.Args()[1:], stdout, stderr, *cfgPath)
 		default:
 			writef(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
 			return 2

@@ -322,6 +322,92 @@ func TestRunConfigtestFailsForInvalidFeed(t *testing.T) {
 	}
 }
 
+func TestRunFeedListPrintsNormalizedEntries(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "# comment\n1.2.3.4\n5.6.7.9/24\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed list: exit=%d stderr=%q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "1.2.3.4\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("stdout=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedValidateSupportsGlobalConfigFlag(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--config", cfg, "feed", "validate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed validate: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "feed OK") || !strings.Contains(stdout.String(), "entries=1") {
+		t.Fatalf("stdout=%q, want feed OK with count", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedAddEntry(t *testing.T) {
+	cfg, feedPath := writeConfigWithFeedFile(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "add", "5.6.7.9/24"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed add: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "added") || !strings.Contains(stdout.String(), "entry=5.6.7.0/24") {
+		t.Fatalf("stdout=%q, want added normalized entry", stdout.String())
+	}
+	if got, want := readTestFile(t, feedPath), "1.2.3.4\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("feed file=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedRemoveEntry(t *testing.T) {
+	cfg, feedPath := writeConfigWithFeedFile(t, "# comment\n1.2.3.4\n5.6.7.0/24\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "remove", "1.2.3.4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed remove: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "removed") || !strings.Contains(stdout.String(), "entry=1.2.3.4") {
+		t.Fatalf("stdout=%q, want removed entry", stdout.String())
+	}
+	if got, want := readTestFile(t, feedPath), "# comment\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("feed file=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedAddRejectsInvalidEntry(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "add", "::1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run feed add: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "IPv4 address or CIDR") {
+		t.Fatalf("stderr=%q, want IPv4 validation error", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
 func TestRunNftcheckSkipsWhenEnforcementDisabled(t *testing.T) {
 	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
 
@@ -456,6 +542,12 @@ func TestRunUnknownCommand(t *testing.T) {
 
 func writeConfigWithFeed(t *testing.T, feedContent string) string {
 	t.Helper()
+	cfgPath, _ := writeConfigWithFeedFile(t, feedContent)
+	return cfgPath
+}
+
+func writeConfigWithFeedFile(t *testing.T, feedContent string) (string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	feedPath := filepath.Join(dir, "threat-feed.txt")
 	if err := os.WriteFile(feedPath, []byte(feedContent), 0o600); err != nil {
@@ -466,5 +558,14 @@ func writeConfigWithFeed(t *testing.T, feedContent string) string {
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return cfgPath
+	return cfgPath, feedPath
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
