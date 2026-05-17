@@ -21,6 +21,7 @@ capture, no payload inspection, no database, and no heavyweight runtime stack.
 - [Install on OpenWrt](#install-on-openwrt)
 - [Configuration](#configuration)
 - [Operate the daemon](#operate-the-daemon)
+- [OpenWrt operational runbooks](docs/openwrt-runbooks.md)
 - [Events and SIEM integration](#events-and-siem-integration)
 - [Roadmap](#roadmap)
 
@@ -309,6 +310,10 @@ Important fields:
 - `syslog_target` and `syslog_proto` can forward JSON events to a SIEM.
 
 ## Operate The Daemon
+
+Operational runbooks for detect-only rollout, enforcement rollout, rollback,
+and firewall reload recovery live in
+[docs/openwrt-runbooks.md](docs/openwrt-runbooks.md).
 
 Common OpenWrt commands:
 

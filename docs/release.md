@@ -43,6 +43,10 @@ This checklist is for project releases and OpenWrt package refreshes.
    make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
    ```
 
+   Use [openwrt-runbooks.md](openwrt-runbooks.md) for the detect-only,
+   enforcement, rollback, and firewall reload recovery checks that surround
+   runtime validation.
+
 6. After the release prep PR merges, open the release PR from `dev` to `main`
    and require `CI Gate`.
 7. After the release PR merges, tag the release from `main`:
