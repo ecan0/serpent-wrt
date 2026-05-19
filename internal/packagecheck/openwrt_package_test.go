@@ -125,10 +125,45 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 	}
 }
 
+func TestOpenWrtIPKArtifactWorkflow(t *testing.T) {
+	script := readRepoFile(t, "scripts/build-openwrt-ipk.sh")
+	for _, want := range []string{
+		"OPENWRT_SDK_URL",
+		"OPENWRT_SDK_SHA256",
+		"sha256sum -c -",
+		"scripts/openwrt-package-check.sh",
+		"serpent-wrt_*.ipk",
+		"OPENWRT_IPK_SUMS_NAME",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("OpenWrt IPK build script missing %q", want)
+		}
+	}
+
+	workflow := readRepoFile(t, ".github/workflows/openwrt-ipk.yml")
+	for _, want := range []string{
+		"release:",
+		"workflow_dispatch:",
+		"release_tag:",
+		"runs-on: ubuntu-latest",
+		"OpenWrt IPK Packages",
+		"downloads.openwrt.org/releases/24.10.5/targets/x86/64/",
+		"downloads.openwrt.org/releases/24.10.5/targets/x86/generic/",
+		"downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/",
+		"actions/upload-artifact",
+		"gh release upload",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("OpenWrt IPK workflow missing %q", want)
+		}
+	}
+}
+
 func TestReleaseCheckIncludesPackageChecks(t *testing.T) {
 	makefile := readRepoFile(t, "Makefile")
 	for _, want := range []string{
 		"openwrt-sdk-check:",
+		"openwrt-ipk:",
 		"openwrt-sdk-check-if-available:",
 		"$(MAKE) packagecheck",
 		"$(MAKE) openwrt-sdk-check-if-available",

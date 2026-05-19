@@ -229,6 +229,12 @@ OPENWRT_SDK=/path/to/openwrt-sdk \
   make openwrt-sdk-check
 ```
 
+GitHub Actions can also build `.ipk` artifacts from official OpenWrt SDKs. The
+`OpenWrt IPK Packages` workflow runs manually or when a GitHub Release is
+published; release runs attach the generated IPKs and their `SHA256SUMS` files
+to the release. Manual runs can package a selected ref and optionally attach the
+artifacts to an existing release tag.
+
 ### Manual Runtime Deploy
 
 ```sh

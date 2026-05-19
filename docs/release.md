@@ -56,7 +56,12 @@ This checklist is for project releases and OpenWrt package refreshes.
    git push origin vX.Y.Z
    ```
 
-8. Delete temporary release branches after the tag and release are published.
+8. Publish the GitHub Release. The `OpenWrt IPK Packages` workflow runs on
+   published releases, builds IPKs from official OpenWrt SDKs, and attaches the
+   package artifacts plus `SHA256SUMS` files to the release. For an existing
+   release, run the workflow manually and set `release_tag`.
+9. Delete temporary release branches after the tag, release, and package
+   artifacts are published.
 
 ## OpenWrt Package Refresh
 
@@ -90,6 +95,13 @@ This checklist is for project releases and OpenWrt package refreshes.
    Set `OPENWRT_FEEDS_UPDATE=1` if the SDK does not already have the packages
    feed installed. The script stages `openwrt/serpent-wrt` into the SDK and
    runs `package/serpent-wrt/check` and `package/serpent-wrt/compile`.
+
+   To produce local IPK artifacts from a downloaded SDK instead of an existing
+   SDK directory, set `OPENWRT_SDK_URL` and `OPENWRT_SDK_SHA256`, then run:
+
+   ```sh
+   make openwrt-ipk
+   ```
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:
