@@ -13,8 +13,8 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	makefile := readRepoFile(t, "openwrt/serpent-wrt/Makefile")
 	required := []string{
 		"PKG_NAME:=serpent-wrt",
-		"PKG_SOURCE_PROTO:=git",
-		"PKG_SOURCE_URL:=https://github.com/ecan0/serpent-wrt.git",
+		"PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz",
+		"PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?",
 		"PKG_LICENSE:=MIT",
 		"PKG_LICENSE_FILES:=LICENSE",
 		"PKG_BUILD_DEPENDS:=golang/host",
@@ -29,8 +29,12 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 		}
 	}
 
+	if strings.Contains(makefile, "PKG_MIRROR_HASH:=skip") {
+		t.Fatal("OpenWrt package Makefile must use a fixed PKG_HASH, not PKG_MIRROR_HASH:=skip")
+	}
 	assertMatch(t, makefile, `(?m)^PKG_SOURCE_DATE:=[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 	assertMatch(t, makefile, `(?m)^PKG_SOURCE_VERSION:=[0-9a-f]{40}$`)
+	assertMatch(t, makefile, `(?m)^PKG_HASH:=[0-9a-f]{64}$`)
 	assertMatch(t, makefile, `(?m)^PKG_RELEASE:=[0-9]+$`)
 }
 

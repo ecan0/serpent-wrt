@@ -51,8 +51,7 @@ project without adding more runtime features.
 
 ### Package hardening
 
-- Release artifact naming and checksum validation.
-- Replace `PKG_MIRROR_HASH:=skip` for public package submission.
+- Tagged release archive source and fixed package hash.
 - Move more package and runtime validation to public runners where practical.
 
 ### Optional netlink collector

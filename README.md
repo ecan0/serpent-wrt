@@ -218,10 +218,9 @@ for that target.
 ### Package scaffold
 
 The OpenWrt package scaffold lives in [openwrt/serpent-wrt](openwrt/serpent-wrt).
-It is intended for a custom feed today. Before a tagged release, validate it in
-a real OpenWrt SDK and refresh package source metadata. Public release
-packaging should use a final commit or tag source and a fixed source hash rather
-than the development `PKG_MIRROR_HASH:=skip` setting.
+It is intended for a custom feed today and uses a tagged release archive with a
+fixed source hash. Before publishing a package refresh, validate it in a real
+OpenWrt SDK and keep the package source metadata aligned with the release tag.
 
 ```sh
 # From this repo, with a local OpenWrt SDK/buildroot:
@@ -503,9 +502,9 @@ docs/                   release, roadmap, and operational documentation
 The stable MVP is complete. Current planning lives in
 [docs/roadmap.md](docs/roadmap.md).
 
-Post-MVP work is focused on package hardening, public validation, and larger
-tracks such as optional netlink collection and IPv6 support. Those tracks stay
-separate so the router-friendly runtime remains small.
+Post-MVP work is focused on public validation and larger tracks such as
+optional netlink collection and IPv6 support. Those tracks stay separate so the
+router-friendly runtime remains small.
 
 ## Limitations
 

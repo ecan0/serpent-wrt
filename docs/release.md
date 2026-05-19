@@ -60,16 +60,16 @@ This checklist is for project releases and OpenWrt package refreshes.
 
 ## OpenWrt Package Refresh
 
-1. Prefer a tagged release archive plus a fixed hash for public releases. The
-   current package Makefile is acceptable for custom-feed development, but
-   `PKG_MIRROR_HASH:=skip` should not be used for an upstream or public package
-   submission.
+1. Use a tagged release archive plus a fixed `PKG_HASH` for public package
+   refreshes. Do not publish package metadata that depends on
+   `PKG_MIRROR_HASH:=skip`.
 2. Update `openwrt/serpent-wrt/Makefile`:
 
    - `PKG_SOURCE_DATE`
-   - `PKG_SOURCE_VERSION` to the full release commit SHA, or switch to a tag
-     archive source after the tag exists
-   - `PKG_MIRROR_HASH` / `PKG_HASH` to a fixed value for release packaging
+   - `PKG_SOURCE_VERSION` to the full release tag commit SHA used for runtime
+     build metadata
+   - `PKG_SOURCE_URL` / `PKG_SOURCE` if the tag naming scheme changes
+   - `PKG_HASH` to the SHA-256 for the release archive
    - `PKG_RELEASE`
    - `PKG_MAINTAINER`
 
