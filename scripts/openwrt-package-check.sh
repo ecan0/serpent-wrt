@@ -18,6 +18,16 @@ SDK=$(cd "$SDK" && pwd)
 PACKAGE_SRC="$REPO_ROOT/openwrt/serpent-wrt"
 PACKAGE_DST="$SDK/package/serpent-wrt"
 TARGETS=${OPENWRT_PACKAGE_TARGETS:-"package/serpent-wrt/check package/serpent-wrt/compile"}
+MAKE_FLAGS=${OPENWRT_MAKE_FLAGS:-}
+
+run_make() {
+	if [ -n "$MAKE_FLAGS" ]; then
+		# shellcheck disable=SC2086
+		make "$@" $MAKE_FLAGS
+	else
+		make "$@"
+	fi
+}
 
 if [ ! -f "$SDK/rules.mk" ] || [ ! -d "$SDK/scripts" ] || [ ! -d "$SDK/package" ]; then
 	echo "OPENWRT_SDK does not look like an OpenWrt SDK/buildroot: $SDK" >&2
@@ -58,6 +68,6 @@ cp -R "$PACKAGE_SRC" "$PACKAGE_DST"
 for target in $TARGETS; do
 	(
 		cd "$SDK"
-		make "$target" V=s
+		run_make "$target"
 	)
 done
