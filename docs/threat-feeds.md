@@ -59,6 +59,27 @@ Or use the API if enabled:
 curl -X POST http://127.0.0.1:8080/reload
 ```
 
+## Local CLI management
+
+The CLI manages the configured flat feed file without enabling the localhost
+API:
+
+```sh
+serpent-wrt feed list
+serpent-wrt feed validate
+serpent-wrt feed add 198.51.100.1
+serpent-wrt feed remove 198.51.100.1
+```
+
+Use `--config` when the config is not at the default path:
+
+```sh
+serpent-wrt --config ./serpent-wrt.yaml feed list
+```
+
+`add` and `remove` update the file only. Reload the running daemon afterward
+with `reload_feed`, `SIGHUP`, or the API reload endpoint.
+
 ## Local API management
 
 The localhost API can manage the configured flat feed file. Entries are

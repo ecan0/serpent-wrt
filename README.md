@@ -5,22 +5,44 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-package%20scaffold-blueviolet.svg)](openwrt/serpent-wrt)
 
-Conntrack-only IDS and optional nftables enforcement for OpenWrt routers.
+Lightweight OpenWrt/Linux IDS, threat-intel, and optional nftables enforcement
+for router-safe detection.
 
-`serpent-wrt` watches lightweight connection metadata that Linux routers already
-track, detects suspicious behavior, emits structured security events, and can
-optionally block hostile IPs. It is designed for constrained routers: no packet
-capture, no payload inspection, no database, and no heavyweight runtime stack.
+`serpent-wrt` watches conntrack metadata that Linux routers already maintain,
+matches flows against local threat intelligence, detects common reconnaissance,
+C2-like beaconing, scanning, and brute-force patterns, emits structured security
+events, and can optionally block hostile IPs with nftables. It is built for
+constrained OpenWrt routers: no packet capture, no payload inspection, no
+database, and no heavyweight runtime stack.
+
+## Stable MVP Status
+
+The current codebase is a feature-complete stable MVP. It is useful today as a
+small OpenWrt/Linux security daemon for local threat visibility, feed-backed
+detection, operational telemetry, and optional edge enforcement.
+
+- Router-safe by design: bounded in-memory state, conntrack polling, no packet
+  capture, no DPI, and no persistent database.
+- Linux/OpenWrt integration: `nf_conntrack`, procd init scripts, nftables sets,
+  syslog forwarding, SDK/package checks, and runtime smoke coverage.
+- Security focus: threat-intel hits, ATT&CK-aligned behavior categories such as
+  reconnaissance and command-and-control patterns, and OWASP-adjacent service
+  scanning and brute-force signals.
+- Operator surfaces: config validation, effective-config output, feed
+  management, `/status`, `/stats`, recent detections, and rollback runbooks.
 
 ## Quick Links
 
+- [Stable MVP status](#stable-mvp-status)
 - [What problem does this solve?](#what-problem-does-this-solve)
-- [What it detects](#what-it-detects)
+- [Detection coverage](#detection-coverage)
+- [Engineering highlights](#engineering-highlights)
 - [Architecture and data flow](#architecture-and-data-flow)
 - [Build and test](#build-and-test)
 - [Install on OpenWrt](#install-on-openwrt)
 - [Configuration](#configuration)
 - [Operate the daemon](#operate-the-daemon)
+- [OpenWrt operational runbooks](docs/openwrt-runbooks.md)
 - [Events and SIEM integration](#events-and-siem-integration)
 - [Roadmap](#roadmap)
 
@@ -45,9 +67,9 @@ rules, and safe enforcement defaults.
 - Security students learning IDS concepts without starting from packet capture.
 - Engineers evaluating constrained-device detection, Go services, and OpenWrt
   packaging.
-- Recruiters and hiring managers looking for practical systems/security work:
-  flow collection, detector design, operational APIs, CI, packaging, and router
-  runtime validation.
+- Reviewers looking for practical systems/security work: Linux flow
+  collection, detector design, threat-intel operations, operational APIs,
+  package validation, and router runtime testing.
 
 ## Why Conntrack, Not Packet Capture?
 
@@ -88,25 +110,45 @@ router-friendly detection layer for signals that do not need payload inspection.
 - Optional nftables blocking through named sets, kernel-managed timeouts, and
   status diagnostics for missing enforcement state.
 - Localhost HTTP API for health, status, stats, reloads, detections, and blocks.
-- OpenWrt package scaffold, procd init script, and CI runtime smoke coverage.
+- OpenWrt package scaffold, procd init script, and optional runtime smoke
+  coverage.
 
-## What It Detects
+## Detection Coverage
 
 All detections use connection metadata only. No payloads are inspected.
 
-| Direction | Detector | Signal |
-| --- | --- | --- |
-| LAN to WAN | `feed_match` | Internal host contacts an IP/CIDR in the threat feed. |
-| LAN to WAN | `fanout` | Internal host reaches too many distinct external destinations. |
-| LAN to WAN | `port_scan` | Internal host probes many ports on one external target. |
-| LAN to WAN | `beacon` | Internal host contacts the same destination on a regular cadence. |
-| WAN to LAN | `feed_match` | Known-bad external source reaches an internal host. |
-| WAN to LAN | `ext_scan` | External source probes many ports on one internal host. |
-| WAN to LAN | `brute_force` | External source hits the same service port across many internal hosts. |
+| Detector | Direction | Security outcome | ATT&CK / OWASP-adjacent signal |
+| --- | --- | --- | --- |
+| `feed_match` | LAN to WAN | Internal host contacts a listed IP/CIDR. | Suspicious outbound infrastructure, known-bad C2/blocklist hits, threat-intel matches. |
+| `feed_match` | WAN to LAN | Known-bad external source reaches an internal host. | Threat-intel hit against exposed or forwarded services. |
+| `beacon` | LAN to WAN | Host contacts the same destination on a regular cadence. | C2-like periodic communication pattern. |
+| `fanout` | LAN to WAN | Host reaches too many distinct external destinations. | Discovery, staging, or unusual outbound fanout. |
+| `port_scan` | LAN to WAN | Internal host probes many ports on one external target. | Reconnaissance and service enumeration. |
+| `ext_scan` | WAN to LAN | External source probes many ports on one internal host. | Exposed-service scanning and reconnaissance. |
+| `brute_force` | WAN to LAN | External source hits the same service port across many internal hosts. | Credential-access style brute-force or service-spray behavior. |
 
 Detections include a stable `reason`, a severity, and a confidence score so
 downstream rules can distinguish threat-feed hits, scans, service sprays, and
-beacon-like behavior.
+beacon-like behavior. These mappings are intentionally high-level; the project
+does not claim formal ATT&CK technique coverage or inspect application payloads.
+
+OWASP-adjacent value comes from edge visibility into service probing,
+brute-force attempts, suspicious infrastructure contact, and scan patterns often
+seen around web and application attacks, without turning the router into a full
+application security scanner.
+
+## Engineering Highlights
+
+- Constrained Linux systems design: small Go daemon, bounded state, polling over
+  packet capture, and router-friendly failure modes.
+- Detection engineering: multiple flow-based detectors, stable reasons,
+  severity/confidence metadata, suppression rules, deduplication, and profiles.
+- Threat-intel operations: flat-file IPv4/IP-CIDR feeds, strict validation,
+  CLI/API feed management, and hot reloads.
+- OpenWrt delivery: package scaffold, procd init integration, representative
+  cross-builds, SDK package checks, and runtime smoke validation.
+- Security operations: NDJSON logs, optional syslog forwarding, `/status`,
+  `/stats`, recent detections, nftables diagnostics, and rollback runbooks.
 
 ## Architecture And Data Flow
 
@@ -134,13 +176,8 @@ Design invariants:
 - no packet capture or deep packet inspection
 - no persistent database
 - detect-only by default
-- IPv4-only for the current MVP
+- IPv4-only for current releases
 - safe operation on common OpenWrt targets
-
-This section is also the future home for richer diagrams: project structure,
-detection lifecycle, OpenWrt package flow, procd lifecycle, and SIEM forwarding.
-If those grow beyond README size, they should move to `docs/architecture.md` or
-`docs/diagrams/` with links kept here.
 
 ## Build And Test
 
@@ -153,6 +190,9 @@ make test
 
 # Cross-build representative OpenWrt targets
 make cross
+
+# Run release readiness checks
+make release-check
 
 # Print build metadata
 ./bin/serpent-wrt -version
@@ -184,17 +224,16 @@ packaging should use a final commit or tag source and a fixed source hash rather
 than the development `PKG_MIRROR_HASH:=skip` setting.
 
 ```sh
-# From an OpenWrt SDK/buildroot with this package added to a feed:
-./scripts/feeds update -a
-./scripts/feeds install serpent-wrt
-make package/serpent-wrt/check V=s
-make package/serpent-wrt/compile V=s
+# From this repo, with a local OpenWrt SDK/buildroot:
+OPENWRT_SDK=/path/to/openwrt-sdk \
+  OPENWRT_PACKAGE_OVERWRITE=1 \
+  make openwrt-sdk-check
 ```
 
-### Lab/manual deploy
+### Manual Runtime Deploy
 
 ```sh
-# Current lab VM is x86/generic, so this builds a 32-bit x86 binary.
+# OpenWrt x86/generic targets should use the 32-bit x86 build.
 make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
@@ -306,6 +345,10 @@ Important fields:
 
 ## Operate The Daemon
 
+Operational runbooks for detect-only rollout, enforcement rollout, rollback,
+and firewall reload recovery live in
+[docs/openwrt-runbooks.md](docs/openwrt-runbooks.md).
+
 Common OpenWrt commands:
 
 ```sh
@@ -324,12 +367,16 @@ reloading:
 ```sh
 serpent-wrt configtest
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
+serpent-wrt configtest --effective
+serpent-wrt configtest --effective --format json
 ```
 
 `configtest` exits non-zero for invalid configuration or feed files. It also
 prints advisory warnings for valid but risky settings such as missing
 `lan_cidrs`, non-loopback API binds, broad suppression rules, and aggressive
-enforcement combinations.
+enforcement combinations. Add `--effective` to print the resolved configuration
+after defaults and detection profiles have been applied. Use `--format json`
+with `--effective` for automation.
 
 Check configured nftables enforcement resources without starting the daemon:
 
@@ -345,13 +392,22 @@ Hot-reload the threat feed without restarting:
 kill -HUP "$(pidof serpent-wrt)"
 ```
 
+Manage the configured flat feed file from the CLI:
+
+```sh
+serpent-wrt feed list
+serpent-wrt feed validate
+serpent-wrt feed add 198.51.100.1
+serpent-wrt feed remove 198.51.100.1
+```
+
 HTTP API, available when `api_enabled: true`:
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
 | `/status` | GET | Feed count/path, enforcement/nft diagnostics, uptime, detector config, build metadata. |
-| `/stats` | GET | Flow, detection-by-type/severity/confidence, suppression, and block counters. |
+| `/stats` | GET | Flow, detection-by-type/severity/confidence, suppression/dedup, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables blocked set contents. |
 | `/reload` | POST | Reload threat feed from disk. |
@@ -416,7 +472,7 @@ Before enabling enforcement on a real router:
 ## Threat Feed Format
 
 Plain text, one IPv4 address or CIDR per line. Blank lines and comments are
-ignored. IPv6 entries are ignored in the current MVP.
+ignored. IPv6 entries are ignored in current releases.
 
 ```text
 # example
@@ -439,57 +495,21 @@ internal/lease/         read-only dnsmasq lease parser/cache
 internal/runtime/       detection pipeline, status, stats, and recent events
 openwrt/serpent-wrt/    OpenWrt package scaffold
 contrib/wazuh/          Wazuh decoder and rules
-docs/                   release and operational documentation
+docs/                   release, roadmap, and operational documentation
 ```
 
 ## Roadmap
 
-### v0.1.0 status
+The stable MVP is complete. Current planning lives in
+[docs/roadmap.md](docs/roadmap.md).
 
-The first lightweight tagged release established the baseline daemon/API:
-
-- `configtest` and procd start/reload validation.
-- Runtime smoke checks for `configtest`, API health, `/status`, `/stats`,
-  `/reload`, service reload, and service restart.
-- nft command construction tests and fw4 ownership documentation.
-- Local feed management API for bounded list, validate, add, remove, and replace
-  operations.
-- Changelog and release documentation.
-
-Before wider OpenWrt package publication:
-
-- Validate the package scaffold in a real OpenWrt SDK/buildroot.
-- Replace the custom-feed source pin and `PKG_MIRROR_HASH:=skip` with final
-  release source metadata and a fixed hash.
-
-### v0.2.0 status
-
-The v0.2.0 release adds practical router operations without changing the
-lightweight architecture:
-
-- Config-only suppression rules for trusted scanners, monitors, and noisy
-  expected traffic, including suppressed detection stats.
-- Detection profiles (`home`, `homelab`, `quiet`, `paranoid`) for safer tuning
-  without hand-editing every threshold.
-- `/status` nft diagnostics and `serpent-wrt nftcheck` for enforcement resource
-  checks after startup or firewall reloads, plus JSON output for automation.
-- Read-only dnsmasq lease enrichment for hostnames and MAC addresses in
-  detection logs, recent detection API responses, and lease cache status.
-- Detection counters by type, severity, and confidence bucket in `/stats`.
-- `configtest` warnings for valid but risky configuration choices.
-
-### Explicitly post-MVP
-
-- Netlink conntrack prototype.
-- IPv6 first-class detection and enforcement.
-- DNS query/log correlation beyond read-only lease enrichment.
-- Remote threat feed sync.
-- LuCI UI.
-- eBPF/XDP experiments on capable targets.
+Post-MVP work is focused on package hardening, public validation, and larger
+tracks such as optional netlink collection and IPv6 support. Those tracks stay
+separate so the router-friendly runtime remains small.
 
 ## Limitations
 
-- IPv4 only for MVP.
+- IPv4 only for current releases.
 - Polling instead of netlink events.
 - Hostname/MAC enrichment is limited to local dnsmasq lease data.
 - No payload inspection by design.
@@ -500,22 +520,22 @@ lightweight architecture:
 ## Development
 
 ```sh
-go test ./...
-go vet ./...
-git diff --check
-make build-openwrt-targets
+make release-check
 ```
 
-Runtime lab validation is available through:
+Runtime validation is available through:
 
 ```sh
 make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
 ```
 
-The OpenWrt smoke test validates `configtest`, API liveness, `/status`, `/stats`,
-`/reload`, and service reload/restart behavior against the deployed daemon.
+The OpenWrt smoke test validates `configtest`, feed CLI operations, API
+liveness, `/status`, `/stats`, `/reload`, and service reload/restart behavior
+against the deployed daemon.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
+Development flows through `dev`; `main` is the protected release and tag branch.
+Release prep changes land in `dev` before the `dev` to `main` release PR. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and
 [docs/release.md](docs/release.md) for project workflow, security reporting, and
 release steps.
 

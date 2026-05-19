@@ -13,7 +13,7 @@
 #
 # Usage:
 #   sh scripts/package-glinet.sh
-#   VERSION=0.2.0 sh scripts/package-glinet.sh
+#   VERSION=0.3.1 sh scripts/package-glinet.sh
 
 set -e
 

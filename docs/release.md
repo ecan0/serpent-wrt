@@ -2,35 +2,61 @@
 
 This checklist is for project releases and OpenWrt package refreshes.
 
+## Branch Flow
+
+- `dev` is the active integration branch.
+- `main` is the protected release branch and tag source.
+- Product and IDS work should use `feature/<slice-name>` branches targeting
+  `dev`.
+- CI, release-process, and repository automation work should use
+  `ci/<slice-name>` branches targeting `dev`.
+- Release prep branches should start from `dev`, land back in `dev` first, and
+  only then promote `dev` to `main`.
+- Do not commit or merge directly into `main` or `dev` for routine work.
+- If a release-only fix lands on `main`, immediately open a normal merge PR from
+  `main` back into `dev` so the release branch does not drift ahead of
+  integration. Do not squash that back-sync PR.
+
 ## Project Release
 
-1. Confirm `main` is green in CI.
-2. Run local tests from a clean worktree:
+1. Confirm `dev` is green in CI and create a release prep branch from `dev`.
+2. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata on
+   the release prep branch.
+   Keep release notes and PR text infrastructure-neutral: do not name private
+   hosts, IP addresses, or SSH key paths. Refer to target classes such as
+   "OpenWrt x86/generic test target" or public CI runners instead.
+3. Open the release prep PR into `dev` and require `CI Gate`.
+4. Run the local release check from a clean worktree:
 
    ```sh
-   go test ./...
-   go vet ./...
-   git diff --check
-   make build-openwrt-targets
+   make release-check
    ```
 
-3. Run the OpenWrt runtime smoke test from `mgmt-01` against the lab target.
-   The current x86/generic lab image reports `i386_pentium4`, so keep using
-   the 32-bit x86 build:
+   This runs Go tests, vet, whitespace checks, OpenWrt package metadata checks,
+   and representative OpenWrt target builds.
+
+5. When runtime credentials are available, run the OpenWrt smoke test against a
+   representative test target. OpenWrt x86/generic images often report
+   i386/i686-compatible CPUs, so use the 32-bit x86 build for that target class:
 
    ```sh
-   SSH_KEY_PATH=$HOME/.ssh/toghouse_ops_ed25519 \
-     make deploy-x86 DEPLOY_HOST=root@openwrt-x86-test.ecan.pro
+   make deploy-x86 DEPLOY_HOST=root@<openwrt-host>
    ```
 
-4. Update `CHANGELOG.md`, README release status, and OpenWrt package metadata.
-5. Open a release PR from `dev` to `main` and require `CI Gate`.
-6. After the release PR merges, tag the release from `main`:
+   Use [openwrt-runbooks.md](openwrt-runbooks.md) for the detect-only,
+   enforcement, rollback, and firewall reload recovery checks that surround
+   runtime validation.
+
+6. After the release prep PR merges, open the release PR from `dev` to `main`
+   and require `CI Gate`.
+7. After the release PR merges, tag the release from `main`:
 
    ```sh
    git tag -s vX.Y.Z
    git push origin vX.Y.Z
    ```
+
+8. Delete temporary release branches after the tag and release are published.
 
 ## OpenWrt Package Refresh
 
@@ -56,11 +82,14 @@ This checklist is for project releases and OpenWrt package refreshes.
 4. Validate with a real OpenWrt SDK:
 
    ```sh
-   ./scripts/feeds update -a
-   ./scripts/feeds install -a
-   make package/serpent-wrt/check V=s
-   make package/serpent-wrt/compile V=s
+   OPENWRT_SDK=/path/to/openwrt-sdk \
+     OPENWRT_PACKAGE_OVERWRITE=1 \
+     make openwrt-sdk-check
    ```
+
+   Set `OPENWRT_FEEDS_UPDATE=1` if the SDK does not already have the packages
+   feed installed. The script stages `openwrt/serpent-wrt` into the SDK and
+   runs `package/serpent-wrt/check` and `package/serpent-wrt/compile`.
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:

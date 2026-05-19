@@ -42,6 +42,188 @@ func TestRunConfigtestSupportsGlobalConfigFlag(t *testing.T) {
 	}
 }
 
+func TestRunConfigtestEffectivePrintsResolvedConfig(t *testing.T) {
+	dir := t.TempDir()
+	feedPath := filepath.Join(dir, "threat-feed.txt")
+	if err := os.WriteFile(feedPath, []byte("1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	content := fmt.Sprintf(`threat_feed_path: '%s'
+profile: quiet
+lease_enrichment: true
+lan_cidrs:
+  - 192.168.1.0/24
+self_ips:
+  - 192.168.1.1
+detectors:
+  scan:
+    distinct_port_threshold: 12
+suppression_rules:
+  - name: expected scan
+    detectors: [port_scan]
+    src_addrs: [192.168.1.50]
+`, filepath.ToSlash(feedPath))
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run configtest: exit=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"config OK",
+		"effective config:",
+		"profile: quiet",
+		"poll_interval: 5s",
+		"dnsmasq_leases_path: /tmp/dhcp.leases",
+		"block_duration: 1h",
+		"dedup_window: 5m",
+		"distinct_dst_threshold: 100",
+		"distinct_port_threshold: 12",
+		"min_interval: 10s",
+		"name: expected scan",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout=%q, want %q", out, want)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunConfigtestEffectiveJSONPrintsResolvedConfig(t *testing.T) {
+	dir := t.TempDir()
+	feedPath := filepath.Join(dir, "threat-feed.txt")
+	if err := os.WriteFile(feedPath, []byte("1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	content := fmt.Sprintf(`threat_feed_path: '%s'
+profile: quiet
+lease_enrichment: true
+lan_cidrs:
+  - 192.168.1.0/24
+self_ips:
+  - 192.168.1.1
+suppression_rules:
+  - name: expected scan
+    detectors: [port_scan]
+    src_addrs: [192.168.1.50]
+`, filepath.ToSlash(feedPath))
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run configtest: exit=%d stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("status: got %v, want ok", body["status"])
+	}
+	if body["feed_entries"] != float64(1) {
+		t.Fatalf("feed_entries: got %v, want 1", body["feed_entries"])
+	}
+	effective, ok := body["effective_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("effective_config: got %#v", body["effective_config"])
+	}
+	if effective["profile"] != "quiet" {
+		t.Fatalf("profile: got %v, want quiet", effective["profile"])
+	}
+	if effective["dnsmasq_leases_path"] != "/tmp/dhcp.leases" {
+		t.Fatalf("dnsmasq_leases_path: got %v", effective["dnsmasq_leases_path"])
+	}
+	detectors := effective["detectors"].(map[string]any)
+	fanout := detectors["fanout"].(map[string]any)
+	if fanout["distinct_dst_threshold"] != float64(100) {
+		t.Fatalf("fanout threshold: got %v, want 100", fanout["distinct_dst_threshold"])
+	}
+	beacon := detectors["beacon"].(map[string]any)
+	excludePorts, ok := beacon["exclude_ports"].([]any)
+	if !ok || len(excludePorts) != 0 {
+		t.Fatalf("exclude_ports: got %#v, want empty array", beacon["exclude_ports"])
+	}
+	rules := effective["suppression_rules"].([]any)
+	rule := rules[0].(map[string]any)
+	if rule["src_addrs"] == nil {
+		t.Fatalf("suppression rule keys: got %#v, want src_addrs", rule)
+	}
+}
+
+func TestRunConfigtestRejectsJSONFormatWithoutEffective(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--format", "json"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run configtest: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--format json requires --effective") {
+		t.Fatalf("stderr=%q, want format/effective error", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunConfigtestRejectsInvalidFormat(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "yaml"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run configtest: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid format") {
+		t.Fatalf("stderr=%q, want invalid format", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunConfigtestEffectiveJSONInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "serpent-wrt.yaml")
+	if err := os.WriteFile(cfg, []byte("poll_interval: 5s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"configtest", "--config", cfg, "--effective", "--format", "json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run configtest: exit=%d, want 1", code)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty for json errors", stderr.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["status"] != "error" {
+		t.Fatalf("status: got %v, want error", body["status"])
+	}
+	if !strings.Contains(fmt.Sprint(body["error"]), "threat_feed_path is required") {
+		t.Fatalf("error: got %v", body["error"])
+	}
+}
+
 func TestRunConfigtestPrintsWarnings(t *testing.T) {
 	dir := t.TempDir()
 	feedPath := filepath.Join(dir, "threat-feed.txt")
@@ -134,6 +316,92 @@ func TestRunConfigtestFailsForInvalidFeed(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "line 2") || !strings.Contains(stderr.String(), "not-an-ip") {
 		t.Fatalf("stderr=%q, want invalid feed line context", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunFeedListPrintsNormalizedEntries(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "# comment\n1.2.3.4\n5.6.7.9/24\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed list: exit=%d stderr=%q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "1.2.3.4\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("stdout=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedValidateSupportsGlobalConfigFlag(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--config", cfg, "feed", "validate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed validate: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "feed OK") || !strings.Contains(stdout.String(), "entries=1") {
+		t.Fatalf("stdout=%q, want feed OK with count", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedAddEntry(t *testing.T) {
+	cfg, feedPath := writeConfigWithFeedFile(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "add", "5.6.7.9/24"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed add: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "added") || !strings.Contains(stdout.String(), "entry=5.6.7.0/24") {
+		t.Fatalf("stdout=%q, want added normalized entry", stdout.String())
+	}
+	if got, want := readTestFile(t, feedPath), "1.2.3.4\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("feed file=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedRemoveEntry(t *testing.T) {
+	cfg, feedPath := writeConfigWithFeedFile(t, "# comment\n1.2.3.4\n5.6.7.0/24\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "remove", "1.2.3.4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run feed remove: exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "removed") || !strings.Contains(stdout.String(), "entry=1.2.3.4") {
+		t.Fatalf("stdout=%q, want removed entry", stdout.String())
+	}
+	if got, want := readTestFile(t, feedPath), "# comment\n5.6.7.0/24\n"; got != want {
+		t.Fatalf("feed file=%q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr=%q, want empty", stderr.String())
+	}
+}
+
+func TestRunFeedAddRejectsInvalidEntry(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"feed", "--config", cfg, "add", "::1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run feed add: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "IPv4 address or CIDR") {
+		t.Fatalf("stderr=%q, want IPv4 validation error", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout=%q, want empty", stdout.String())
@@ -274,6 +542,12 @@ func TestRunUnknownCommand(t *testing.T) {
 
 func writeConfigWithFeed(t *testing.T, feedContent string) string {
 	t.Helper()
+	cfgPath, _ := writeConfigWithFeedFile(t, feedContent)
+	return cfgPath
+}
+
+func writeConfigWithFeedFile(t *testing.T, feedContent string) (string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	feedPath := filepath.Join(dir, "threat-feed.txt")
 	if err := os.WriteFile(feedPath, []byte(feedContent), 0o600); err != nil {
@@ -284,5 +558,14 @@ func writeConfigWithFeed(t *testing.T, feedContent string) string {
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return cfgPath
+	return cfgPath, feedPath
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

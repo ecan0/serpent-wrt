@@ -105,6 +105,46 @@ func TestBlockIPv6NoOp(t *testing.T) {
 	}
 }
 
+func TestBlockTracksSuccessfulBlock(t *testing.T) {
+	var scripts []string
+	restore := stubNftScript(t, func(script string) error {
+		scripts = append(scripts, script)
+		return nil
+	})
+	defer restore()
+
+	e := New("serpent_wrt", "blocked_ips", time.Hour)
+	ip := net.ParseIP("1.2.3.4")
+	if err := e.Block(ip); err != nil {
+		t.Fatalf("Block: %v", err)
+	}
+	if !e.IsBlocked(ip) {
+		t.Fatal("successful block should be tracked")
+	}
+	if err := e.Block(ip); err != nil {
+		t.Fatalf("duplicate Block: %v", err)
+	}
+	if len(scripts) != 1 {
+		t.Fatalf("nft scripts: got %d, want 1", len(scripts))
+	}
+}
+
+func TestBlockDoesNotTrackFailedBlock(t *testing.T) {
+	restore := stubNftScript(t, func(_ string) error {
+		return errors.New("nft failed")
+	})
+	defer restore()
+
+	e := New("serpent_wrt", "blocked_ips", time.Hour)
+	ip := net.ParseIP("1.2.3.4")
+	if err := e.Block(ip); err == nil {
+		t.Fatal("expected block error")
+	}
+	if e.IsBlocked(ip) {
+		t.Fatal("failed block should not be tracked")
+	}
+}
+
 func TestCheckUnavailable(t *testing.T) {
 	restore := stubNft(t, errors.New("missing"), nil)
 	defer restore()
@@ -230,6 +270,15 @@ func stubNft(t *testing.T, lookPathErr error, runner func(args ...string) error)
 	return func() {
 		lookPath = oldLookPath
 		runNftCommand = oldRunNftCommand
+	}
+}
+
+func stubNftScript(t *testing.T, runner func(string) error) func() {
+	t.Helper()
+	oldRunNftScript := runNftScript
+	runNftScript = runner
+	return func() {
+		runNftScript = oldRunNftScript
 	}
 }
 

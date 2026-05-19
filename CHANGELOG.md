@@ -6,6 +6,34 @@ This project follows semantic versioning for tagged releases.
 
 ## Unreleased
 
+## v0.3.1 - 2026-05-17
+
+### Added
+
+- Stable MVP README and roadmap positioning for the current OpenWrt/Linux IDS,
+  threat-intel, and optional nftables enforcement scope.
+- Detection coverage framing for threat-intel hits, reconnaissance/discovery,
+  C2-like beaconing, scanning, and brute-force behavior using conntrack
+  metadata only.
+- Engineering highlights for constrained Linux design, detection engineering,
+  OpenWrt packaging, structured security events, and operational validation.
+- `serpent-wrt configtest --effective` for printing the resolved configuration
+  after defaults and detection profiles have been applied.
+- JSON output for `serpent-wrt configtest --effective --format json`.
+- `/stats` counters for dedup-suppressed detections and failed block attempts.
+- Feed CLI commands for listing, validating, adding, and removing flat-file
+  IPv4/IP-CIDR threat-feed entries.
+- OpenWrt SDK package check helper for staging the package scaffold into an SDK
+  and running package check/compile targets when available.
+
+### Changed
+
+- Roadmap language now treats artifact checksums, fixed package hashes, IPv6,
+  netlink, DNS context, and public runtime CI as post-MVP work while keeping
+  LuCI, Wazuh, and feed sync out of near-term scope.
+- OpenWrt smoke coverage now exercises feed CLI validation and add/list/remove
+  operations after package install.
+
 ## v0.2.0 - 2026-05-14
 
 ### Added
@@ -38,7 +66,7 @@ This project follows semantic versioning for tagged releases.
 - procd-compatible init script, default OpenWrt config, and package smoke test.
 - Build metadata through `serpent-wrt -version`.
 - Cross-build checks for representative OpenWrt router architectures.
-- Runtime smoke test against the current OpenWrt x86/generic lab VM.
+- Runtime smoke test against a representative OpenWrt x86/generic test target.
 - Detection events now include severity, confidence, and stable reason metadata.
 - `serpent-wrt configtest` for validating the YAML config and referenced threat
   feed before starting or reloading.
@@ -49,7 +77,8 @@ This project follows semantic versioning for tagged releases.
 
 ### Changed
 
-- CI now validates common OpenWrt target builds and the lab runtime install path.
+- CI now validates common OpenWrt target builds and the optional runtime install
+  path.
 - OpenWrt init scripts now fail start/reload clearly when config validation
   fails.
 - Release docs now call out the custom-feed package metadata refresh and the
