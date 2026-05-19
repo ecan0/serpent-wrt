@@ -1,7 +1,7 @@
 # serpent-wrt
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
-[![Go 1.26](https://img.shields.io/badge/go-1.26-blue.svg)](https://go.dev/)
+[![Go 1.23](https://img.shields.io/badge/go-1.23-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-package%20scaffold-blueviolet.svg)](openwrt/serpent-wrt)
 
