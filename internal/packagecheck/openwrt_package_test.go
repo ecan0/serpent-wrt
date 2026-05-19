@@ -21,7 +21,7 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 		"GO_PKG:=github.com/ecan0/serpent-wrt",
 		"GO_PKG_BUILD_PKG:=github.com/ecan0/serpent-wrt/cmd/serpent-wrt",
 		"GO_PKG_INSTALL_BIN_PATH:=/usr/sbin",
-		"DEPENDS:=$(GO_ARCH_DEPENDS) +nftables +kmod-nf-conntrack",
+		"DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack",
 	}
 	for _, want := range required {
 		if !strings.Contains(makefile, want) {
@@ -116,6 +116,7 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 		"OPENWRT_FEEDS_UPDATE",
 		`PACKAGE_DST="$SDK/package/serpent-wrt"`,
 		"feeds/packages/lang/golang/golang-package.mk",
+		"make defconfig",
 		"package/serpent-wrt/check package/serpent-wrt/compile",
 		`make "$target" V=s`,
 	} {

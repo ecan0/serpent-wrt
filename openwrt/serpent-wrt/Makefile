@@ -37,7 +37,7 @@ define Package/serpent-wrt
   SUBMENU:=Firewall
   TITLE:=Conntrack threat detection and nftables enforcement daemon
   URL:=https://github.com/ecan0/serpent-wrt
-  DEPENDS:=$(GO_ARCH_DEPENDS) +nftables +kmod-nf-conntrack
+  DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack
 endef
 
 define Package/serpent-wrt/description
