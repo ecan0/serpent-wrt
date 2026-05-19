@@ -112,13 +112,14 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 	script := readRepoFile(t, "scripts/openwrt-package-check.sh")
 	for _, want := range []string{
 		"OPENWRT_SDK",
+		"OPENWRT_MAKE_FLAGS",
 		"OPENWRT_PACKAGE_OVERWRITE",
 		"OPENWRT_FEEDS_UPDATE",
 		`PACKAGE_DST="$SDK/package/serpent-wrt"`,
 		"feeds/packages/lang/golang/golang-package.mk",
 		"make defconfig",
 		"package/serpent-wrt/check package/serpent-wrt/compile",
-		`make "$target" V=s`,
+		`run_make "$target"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("OpenWrt SDK package check script missing %q", want)
@@ -148,15 +149,32 @@ func TestOpenWrtIPKArtifactWorkflow(t *testing.T) {
 		"release_tag:",
 		"runs-on: ubuntu-latest",
 		"OpenWrt IPK Packages",
-		"downloads.openwrt.org/releases/24.10.5/targets/x86/64/",
-		"downloads.openwrt.org/releases/24.10.5/targets/x86/generic/",
-		"downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/",
+		"downloads.openwrt.org/releases/24.10.6/targets/x86/64/",
+		"downloads.openwrt.org/releases/24.10.6/targets/x86/generic/",
+		"downloads.openwrt.org/releases/24.10.6/targets/mediatek/filogic/",
 		"actions/upload-artifact",
 		"gh release upload",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("OpenWrt IPK workflow missing %q", want)
 		}
+	}
+}
+
+func TestCIWorkflowPinsGoTooling(t *testing.T) {
+	workflow := readRepoFile(t, ".github/workflows/ci.yml")
+	for _, want := range []string{
+		"go-version-file: go.mod",
+		`go-version: "1.26.3"`,
+		"go install golang.org/x/vuln/cmd/govulncheck@v1.3.0",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("CI workflow missing %q", want)
+		}
+	}
+
+	if strings.Contains(workflow, "go install golang.org/x/vuln/cmd/govulncheck@latest") {
+		t.Fatal("CI workflow must pin govulncheck instead of installing latest")
 	}
 }
 

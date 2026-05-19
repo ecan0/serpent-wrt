@@ -14,6 +14,11 @@ This project follows semantic versioning for tagged releases.
   SHA-verified official SDK downloads and attaching them to published releases.
 - OpenWrt package validation now prepares SDK `.config` noninteractively and
   depends on `nftables-json`, matching the 24.10 package name.
+- OpenWrt IPK CI now targets OpenWrt 24.10.6 SDKs, keeps verbose SDK make
+  output opt-in with `OPENWRT_MAKE_FLAGS`, and aligns the module Go floor with
+  the Go 1.23 toolchain provided by the 24.10 packages feed.
+- CI now runs `govulncheck` with Go 1.26.3 and a pinned scanner release while
+  keeping the module Go floor compatible with OpenWrt 24.10 package builds.
 
 ## v0.3.1 - 2026-05-17
 
