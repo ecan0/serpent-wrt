@@ -12,6 +12,8 @@ This project follows semantic versioning for tagged releases.
   SHA-256 source hash instead of `PKG_MIRROR_HASH:=skip`.
 - Added a GitHub Actions workflow for building OpenWrt IPK artifacts from
   SHA-verified official SDK downloads and attaching them to published releases.
+- OpenWrt package validation now prepares SDK `.config` noninteractively and
+  depends on `nftables-json`, matching the 24.10 package name.
 
 ## v0.3.1 - 2026-05-17
 
