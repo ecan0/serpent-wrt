@@ -50,6 +50,11 @@ fi
 mkdir -p "$(dirname "$PACKAGE_DST")"
 cp -R "$PACKAGE_SRC" "$PACKAGE_DST"
 
+(
+	cd "$SDK"
+	make defconfig
+)
+
 for target in $TARGETS; do
 	(
 		cd "$SDK"
