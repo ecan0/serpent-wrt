@@ -1,0 +1,97 @@
+name: OpenWrt IPK Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to package
+        required: false
+        default: dev
+      release_tag:
+        description: Optional existing GitHub Release tag to attach artifacts to
+        required: false
+        default: ""
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-ipk:
+    name: Build IPK (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86/64
+            slug: x86-64
+            sdk_url: https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: d3e8ea62fc1c12f93a9c808c2ef4c01b6e149ee240bcd5a74d15bebcbc385bdd
+          - target: x86/generic
+            slug: x86-generic
+            sdk_url: https://downloads.openwrt.org/releases/24.10.5/targets/x86/generic/openwrt-sdk-24.10.5-x86-generic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: bc522983e51d16d918467c5509a42d3cab972ede3ad5c8b874e06899f2f2f717
+          - target: mediatek/filogic
+            slug: mediatek-filogic
+            sdk_url: https://downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/openwrt-sdk-24.10.5-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: 0fa98c542ee07f1423ebcdce19aed464bc7f8008ef2cbe83cb723ec694ed8c56
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref || github.ref }}
+
+      - name: Install SDK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            curl \
+            file \
+            flex \
+            gawk \
+            gcc-multilib \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            rsync \
+            tar \
+            unzip \
+            wget \
+            zstd
+
+      - name: Build serpent-wrt IPK
+        env:
+          OPENWRT_SDK_URL: ${{ matrix.sdk_url }}
+          OPENWRT_SDK_SHA256: ${{ matrix.sdk_sha256 }}
+          OPENWRT_IPK_OUT_DIR: artifacts/openwrt-ipk/${{ matrix.slug }}
+          OPENWRT_IPK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
+        run: sh scripts/build-openwrt-ipk.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: serpent-wrt-ipk-${{ matrix.slug }}
+          path: artifacts/openwrt-ipk/${{ matrix.slug }}/*
+          if-no-files-found: error
+
+      - name: Attach IPKs to GitHub Release
+        if: github.event_name == 'release' || inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            artifacts/openwrt-ipk/${{ matrix.slug }}/* \
+            --repo "${{ github.repository }}" \
+            --clobber
