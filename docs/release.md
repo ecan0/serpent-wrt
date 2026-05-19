@@ -56,20 +56,25 @@ This checklist is for project releases and OpenWrt package refreshes.
    git push origin vX.Y.Z
    ```
 
-8. Delete temporary release branches after the tag and release are published.
+8. Publish the GitHub Release. The `OpenWrt IPK Packages` workflow runs on
+   published releases, builds IPKs from official OpenWrt SDKs, and attaches the
+   package artifacts plus `SHA256SUMS` files to the release. For an existing
+   release, run the workflow manually and set `release_tag`.
+9. Delete temporary release branches after the tag, release, and package
+   artifacts are published.
 
 ## OpenWrt Package Refresh
 
-1. Prefer a tagged release archive plus a fixed hash for public releases. The
-   current package Makefile is acceptable for custom-feed development, but
-   `PKG_MIRROR_HASH:=skip` should not be used for an upstream or public package
-   submission.
+1. Use a tagged release archive plus a fixed `PKG_HASH` for public package
+   refreshes. Do not publish package metadata that depends on
+   `PKG_MIRROR_HASH:=skip`.
 2. Update `openwrt/serpent-wrt/Makefile`:
 
    - `PKG_SOURCE_DATE`
-   - `PKG_SOURCE_VERSION` to the full release commit SHA, or switch to a tag
-     archive source after the tag exists
-   - `PKG_MIRROR_HASH` / `PKG_HASH` to a fixed value for release packaging
+   - `PKG_SOURCE_VERSION` to the full release tag commit SHA used for runtime
+     build metadata
+   - `PKG_SOURCE_URL` / `PKG_SOURCE` if the tag naming scheme changes
+   - `PKG_HASH` to the SHA-256 for the release archive
    - `PKG_RELEASE`
    - `PKG_MAINTAINER`
 
@@ -90,6 +95,13 @@ This checklist is for project releases and OpenWrt package refreshes.
    Set `OPENWRT_FEEDS_UPDATE=1` if the SDK does not already have the packages
    feed installed. The script stages `openwrt/serpent-wrt` into the SDK and
    runs `package/serpent-wrt/check` and `package/serpent-wrt/compile`.
+
+   To produce local IPK artifacts from a downloaded SDK instead of an existing
+   SDK directory, set `OPENWRT_SDK_URL` and `OPENWRT_SDK_SHA256`, then run:
+
+   ```sh
+   make openwrt-ipk
+   ```
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:

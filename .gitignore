@@ -39,6 +39,8 @@ coverage.html
 # Temp
 tmp/
 .cache/
+.openwrt-ipk-work/
+artifacts/
 
 # Go modules
 vendor/

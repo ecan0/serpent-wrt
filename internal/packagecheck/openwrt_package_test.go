@@ -13,8 +13,8 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	makefile := readRepoFile(t, "openwrt/serpent-wrt/Makefile")
 	required := []string{
 		"PKG_NAME:=serpent-wrt",
-		"PKG_SOURCE_PROTO:=git",
-		"PKG_SOURCE_URL:=https://github.com/ecan0/serpent-wrt.git",
+		"PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz",
+		"PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?",
 		"PKG_LICENSE:=MIT",
 		"PKG_LICENSE_FILES:=LICENSE",
 		"PKG_BUILD_DEPENDS:=golang/host",
@@ -29,8 +29,12 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 		}
 	}
 
+	if strings.Contains(makefile, "PKG_MIRROR_HASH:=skip") {
+		t.Fatal("OpenWrt package Makefile must use a fixed PKG_HASH, not PKG_MIRROR_HASH:=skip")
+	}
 	assertMatch(t, makefile, `(?m)^PKG_SOURCE_DATE:=[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 	assertMatch(t, makefile, `(?m)^PKG_SOURCE_VERSION:=[0-9a-f]{40}$`)
+	assertMatch(t, makefile, `(?m)^PKG_HASH:=[0-9a-f]{64}$`)
 	assertMatch(t, makefile, `(?m)^PKG_RELEASE:=[0-9]+$`)
 }
 
@@ -121,10 +125,45 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 	}
 }
 
+func TestOpenWrtIPKArtifactWorkflow(t *testing.T) {
+	script := readRepoFile(t, "scripts/build-openwrt-ipk.sh")
+	for _, want := range []string{
+		"OPENWRT_SDK_URL",
+		"OPENWRT_SDK_SHA256",
+		"sha256sum -c -",
+		"scripts/openwrt-package-check.sh",
+		"serpent-wrt_*.ipk",
+		"OPENWRT_IPK_SUMS_NAME",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("OpenWrt IPK build script missing %q", want)
+		}
+	}
+
+	workflow := readRepoFile(t, ".github/workflows/openwrt-ipk.yml")
+	for _, want := range []string{
+		"release:",
+		"workflow_dispatch:",
+		"release_tag:",
+		"runs-on: ubuntu-latest",
+		"OpenWrt IPK Packages",
+		"downloads.openwrt.org/releases/24.10.5/targets/x86/64/",
+		"downloads.openwrt.org/releases/24.10.5/targets/x86/generic/",
+		"downloads.openwrt.org/releases/24.10.5/targets/mediatek/filogic/",
+		"actions/upload-artifact",
+		"gh release upload",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("OpenWrt IPK workflow missing %q", want)
+		}
+	}
+}
+
 func TestReleaseCheckIncludesPackageChecks(t *testing.T) {
 	makefile := readRepoFile(t, "Makefile")
 	for _, want := range []string{
 		"openwrt-sdk-check:",
+		"openwrt-ipk:",
 		"openwrt-sdk-check-if-available:",
 		"$(MAKE) packagecheck",
 		"$(MAKE) openwrt-sdk-check-if-available",

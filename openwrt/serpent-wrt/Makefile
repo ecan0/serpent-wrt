@@ -2,15 +2,15 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=serpent-wrt
 PKG_VERSION:=0.3.1
-# v0.3.1 stable-MVP custom-feed source pin. For upstream package submission,
-# replace the mirror hash with the fixed hash for the release archive.
+# Tagged release archive source. Keep PKG_SOURCE_VERSION aligned with the tag
+# target commit so runtime build metadata reports the released source.
 PKG_SOURCE_DATE:=2026-05-17
-PKG_SOURCE_VERSION:=33387cfda99abcdd8b6b02a3c89b6029220452bd
-PKG_RELEASE:=1
+PKG_SOURCE_VERSION:=54c9c24d7b24503e390e6127b8244a46fd42426c
+PKG_RELEASE:=2
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/ecan0/serpent-wrt.git
-PKG_MIRROR_HASH:=skip
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?
+PKG_HASH:=10823bc0c3f2e42a14f12909bb97e67e683a473abf007ef98a345bdbe853e044
 
 PKG_MAINTAINER:=ecan0
 PKG_LICENSE:=MIT
