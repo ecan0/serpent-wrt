@@ -6,6 +6,11 @@ This project follows semantic versioning for tagged releases.
 
 ## Unreleased
 
+### Changed
+
+- OpenWrt package scaffold now uses a tagged release archive with a fixed
+  SHA-256 source hash instead of `PKG_MIRROR_HASH:=skip`.
+
 ## v0.3.1 - 2026-05-17
 
 ### Added
