@@ -13,7 +13,7 @@ SCP         := scp -O
 .PHONY: build cross build-openwrt-targets build-openwrt-mips build-openwrt-mipsle
 .PHONY: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
 .PHONY: build-openwrt-riscv64 build-openwrt-x86 build-openwrt-x86-64
-.PHONY: run test fmt lint packagecheck diff-check openwrt-sdk-check openwrt-sdk-check-if-available openwrt-ipk release-check clean deps openwrt-docs ipk-glinet deploy-setup
+.PHONY: run test fmt lint packagecheck diff-check openwrt-sdk-check openwrt-sdk-check-if-available openwrt-apk release-check clean deps openwrt-docs ipk-glinet deploy-setup
 .PHONY: deploy-x86-64 deploy-x86 openwrt-runtime-test
 
 deps:
@@ -83,8 +83,8 @@ diff-check:
 openwrt-sdk-check:
 	sh scripts/openwrt-package-check.sh
 
-openwrt-ipk:
-	sh scripts/build-openwrt-ipk.sh
+openwrt-apk:
+	sh scripts/build-openwrt-apk.sh
 
 openwrt-sdk-check-if-available:
 	@if [ -n "$(OPENWRT_SDK)" ]; then \

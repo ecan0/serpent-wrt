@@ -36,6 +36,17 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	assertMatch(t, makefile, `(?m)^PKG_SOURCE_VERSION:=[0-9a-f]{40}$`)
 	assertMatch(t, makefile, `(?m)^PKG_HASH:=[0-9a-f]{64}$`)
 	assertMatch(t, makefile, `(?m)^PKG_RELEASE:=[0-9]+$`)
+
+	goVersionPatch := readRepoFile(t, "openwrt/serpent-wrt/patches/001-openwrt-go-1.26.2.patch")
+	for _, want := range []string{
+		"OpenWrt 25.12.4 ships Go 1.26.2",
+		"-go 1.26.3",
+		"+go 1.26.2",
+	} {
+		if !strings.Contains(goVersionPatch, want) {
+			t.Fatalf("OpenWrt Go version patch missing %q", want)
+		}
+	}
 }
 
 func TestOpenWrtPackageInstallsRuntimeFiles(t *testing.T) {
@@ -113,13 +124,15 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 	for _, want := range []string{
 		"OPENWRT_SDK",
 		"OPENWRT_MAKE_FLAGS",
+		"OPENWRT_DIAGNOSTIC_MAKE_FLAGS",
 		"OPENWRT_PACKAGE_OVERWRITE",
 		"OPENWRT_FEEDS_UPDATE",
 		`PACKAGE_DST="$SDK/package/serpent-wrt"`,
 		"feeds/packages/lang/golang/golang-package.mk",
 		"make defconfig",
 		"package/serpent-wrt/check package/serpent-wrt/compile",
-		`run_make "$target"`,
+		`run_make_with_diagnostics "$target"`,
+		"-j1 V=s",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("OpenWrt SDK package check script missing %q", want)
@@ -127,36 +140,54 @@ func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
 	}
 }
 
-func TestOpenWrtIPKArtifactWorkflow(t *testing.T) {
-	script := readRepoFile(t, "scripts/build-openwrt-ipk.sh")
+func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
+	script := readRepoFile(t, "scripts/build-openwrt-apk.sh")
 	for _, want := range []string{
 		"OPENWRT_SDK_URL",
 		"OPENWRT_SDK_SHA256",
+		"OPENWRT_APK_REUSE_WORK_DIR",
+		"OPENWRT_MAKE_JOBS",
+		"nproc",
+		"TMP_ROOT=${TMPDIR:-/tmp}",
+		"serpent-wrt-openwrt-apk",
+		"Reusing OpenWrt SDK work dir",
+		"Reusing installed OpenWrt packages feed",
+		"Removing stale serpent-wrt APK artifacts",
 		"sha256sum -c -",
 		"scripts/openwrt-package-check.sh",
-		"serpent-wrt_*.ipk",
-		"OPENWRT_IPK_SUMS_NAME",
+		`OPENWRT_MAKE_FLAGS="$MAKE_FLAGS"`,
+		"serpent-wrt-*.apk",
+		"OPENWRT_APK_SUMS_NAME",
 	} {
 		if !strings.Contains(script, want) {
-			t.Fatalf("OpenWrt IPK build script missing %q", want)
+			t.Fatalf("OpenWrt APK build script missing %q", want)
 		}
 	}
 
-	workflow := readRepoFile(t, ".github/workflows/openwrt-ipk.yml")
+	if strings.Contains(script, "serpent-wrt_*.ipk") {
+		t.Fatal("OpenWrt APK build script must not collect legacy IPK artifacts")
+	}
+
+	workflow := readRepoFile(t, ".github/workflows/openwrt-apk.yml")
 	for _, want := range []string{
 		"release:",
 		"workflow_dispatch:",
 		"release_tag:",
 		"runs-on: ubuntu-latest",
-		"OpenWrt IPK Packages",
-		"downloads.openwrt.org/releases/24.10.6/targets/x86/64/",
-		"downloads.openwrt.org/releases/24.10.6/targets/x86/generic/",
-		"downloads.openwrt.org/releases/24.10.6/targets/mediatek/filogic/",
-		"actions/upload-artifact",
+		"OpenWrt APK Packages",
+		"downloads.openwrt.org/releases/25.12.4/targets/x86/64/",
+		"downloads.openwrt.org/releases/25.12.4/targets/x86/generic/",
+		"downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/",
+		"gcc-14.3.0",
+		"${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}",
+		"actions/cache@v5",
+		"OPENWRT_APK_REUSE_WORK_DIR",
+		"OPENWRT_APK_WORK_DIR",
+		"actions/upload-artifact@v7",
 		"gh release upload",
 	} {
 		if !strings.Contains(workflow, want) {
-			t.Fatalf("OpenWrt IPK workflow missing %q", want)
+			t.Fatalf("OpenWrt APK workflow missing %q", want)
 		}
 	}
 }
@@ -182,7 +213,7 @@ func TestReleaseCheckIncludesPackageChecks(t *testing.T) {
 	makefile := readRepoFile(t, "Makefile")
 	for _, want := range []string{
 		"openwrt-sdk-check:",
-		"openwrt-ipk:",
+		"openwrt-apk:",
 		"openwrt-sdk-check-if-available:",
 		"$(MAKE) packagecheck",
 		"$(MAKE) openwrt-sdk-check-if-available",

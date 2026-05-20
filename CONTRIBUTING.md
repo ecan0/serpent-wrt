@@ -9,7 +9,9 @@ Use `feature/<slice-name>` branches for product and IDS work. Use
 `ci/<slice-name>` branches for CI, release-process, and repository automation
 work. Open PRs into `dev` first, including release prep changes such as
 changelog, README release status, version defaults, and OpenWrt package
-metadata.
+metadata. Small CI/package fixes that unblock release asset publishing still go
+to `dev` first, even when the affected workflow executes from `main`, unless the
+user explicitly declares an emergency release hotfix.
 
 After release prep lands in `dev`, open the release PR from `dev` to `main` and
 tag the release from the merged `main` commit. If a release-only fix ever lands
