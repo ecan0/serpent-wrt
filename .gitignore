@@ -40,6 +40,7 @@ coverage.html
 tmp/
 .cache/
 .openwrt-ipk-work/
+.openwrt-apk-work/
 artifacts/
 
 # Go modules
@@ -47,6 +48,7 @@ vendor/
 
 # OpenWRT-specific temp files
 *.ipk
+*.apk
 *.bin
 
 # agent instructions (private, local only)

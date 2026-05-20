@@ -1,4 +1,4 @@
-name: OpenWrt IPK Packages
+name: OpenWrt APK Packages
 
 on:
   workflow_dispatch:
@@ -22,8 +22,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-ipk:
-    name: Build IPK (${{ matrix.target }})
+  build-apk:
+    name: Build APK (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -32,21 +32,27 @@ jobs:
         include:
           - target: x86/64
             slug: x86-64
-            sdk_url: https://downloads.openwrt.org/releases/24.10.6/targets/x86/64/openwrt-sdk-24.10.6-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: 9e398ea7efc098e4a986f97efff595e32d08c615fe356bcb3d885d7ad3a39ac0
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: 28e004c1be4d215d19c1f12a6aa4c8d8f80689549eb707d0ff5a71f16fa8d05f
           - target: x86/generic
             slug: x86-generic
-            sdk_url: https://downloads.openwrt.org/releases/24.10.6/targets/x86/generic/openwrt-sdk-24.10.6-x86-generic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: a5a0d10f2267e02527e669a190e0ba103762b9d86bbb761e7c9b324bf198b4aa
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/generic/openwrt-sdk-25.12.4-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: d4139c65d5d952a9aac9e33db8732def020dbbba7e6498bbc9062a304794dff5
           - target: mediatek/filogic
             slug: mediatek-filogic
-            sdk_url: https://downloads.openwrt.org/releases/24.10.6/targets/mediatek/filogic/openwrt-sdk-24.10.6-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: bf9821b98fe810e2cc3ab53b8faa13bc919b9d98d703cba5e53906c17bd23864
+            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/openwrt-sdk-25.12.4-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: 411a2277ca10f909c30275a506aab4dc28a4f1281d7fda4f19faaa2ded6630bb
 
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref || github.ref }}
+
+      - name: Restore OpenWrt SDK cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
+          key: openwrt-apk-${{ runner.os }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-v1
 
       - name: Install SDK build dependencies
         run: |
@@ -71,27 +77,29 @@ jobs:
             wget \
             zstd
 
-      - name: Build serpent-wrt IPK
+      - name: Build serpent-wrt OpenWrt package
         env:
           OPENWRT_SDK_URL: ${{ matrix.sdk_url }}
           OPENWRT_SDK_SHA256: ${{ matrix.sdk_sha256 }}
-          OPENWRT_IPK_OUT_DIR: artifacts/openwrt-ipk/${{ matrix.slug }}
-          OPENWRT_IPK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
-        run: sh scripts/build-openwrt-ipk.sh
+          OPENWRT_APK_REUSE_WORK_DIR: "1"
+          OPENWRT_APK_WORK_DIR: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
+          OPENWRT_APK_OUT_DIR: artifacts/openwrt-apk/${{ matrix.slug }}
+          OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
+        run: sh scripts/build-openwrt-apk.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: serpent-wrt-ipk-${{ matrix.slug }}
-          path: artifacts/openwrt-ipk/${{ matrix.slug }}/*
+          name: serpent-wrt-apk-${{ matrix.slug }}
+          path: artifacts/openwrt-apk/${{ matrix.slug }}/*
           if-no-files-found: error
 
-      - name: Attach IPKs to GitHub Release
+      - name: Attach OpenWrt packages to GitHub Release
         if: github.event_name == 'release' || inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            artifacts/openwrt-ipk/${{ matrix.slug }}/* \
+            artifacts/openwrt-apk/${{ matrix.slug }}/* \
             --repo "${{ github.repository }}" \
             --clobber
