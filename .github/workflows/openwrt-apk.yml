@@ -85,6 +85,7 @@ jobs:
           OPENWRT_APK_WORK_DIR: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
           OPENWRT_APK_OUT_DIR: artifacts/openwrt-apk/${{ matrix.slug }}
           OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
+          OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}
         run: sh scripts/build-openwrt-apk.sh
 
       - uses: actions/upload-artifact@v7
