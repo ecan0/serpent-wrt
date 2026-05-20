@@ -146,6 +146,7 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"OPENWRT_SDK_URL",
 		"OPENWRT_SDK_SHA256",
 		"OPENWRT_APK_REUSE_WORK_DIR",
+		"OPENWRT_APK_ARTIFACT_SUFFIX",
 		"OPENWRT_MAKE_JOBS",
 		"nproc",
 		"TMP_ROOT=${TMPDIR:-/tmp}",
@@ -156,6 +157,7 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"sha256sum -c -",
 		"scripts/openwrt-package-check.sh",
 		`OPENWRT_MAKE_FLAGS="$MAKE_FLAGS"`,
+		`renamed=${artifact%.apk}-$ARTIFACT_SUFFIX.apk`,
 		"serpent-wrt-*.apk",
 		"OPENWRT_APK_SUMS_NAME",
 	} {
@@ -183,6 +185,7 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"actions/cache@v5",
 		"OPENWRT_APK_REUSE_WORK_DIR",
 		"OPENWRT_APK_WORK_DIR",
+		"OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}",
 		"actions/upload-artifact@v7",
 		"gh release upload",
 	} {
