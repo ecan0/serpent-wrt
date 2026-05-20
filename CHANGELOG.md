@@ -10,15 +10,16 @@ This project follows semantic versioning for tagged releases.
 
 - OpenWrt package scaffold now uses a tagged release archive with a fixed
   SHA-256 source hash instead of `PKG_MIRROR_HASH:=skip`.
-- Added a GitHub Actions workflow for building OpenWrt IPK artifacts from
-  SHA-verified official SDK downloads and attaching them to published releases.
+- Added a GitHub Actions workflow for building OpenWrt APK artifacts from
+  SHA-verified official 25.12 SDK downloads and attaching them to published
+  releases.
 - OpenWrt package validation now prepares SDK `.config` noninteractively and
-  depends on `nftables-json`, matching the 24.10 package name.
-- OpenWrt IPK CI now targets OpenWrt 24.10.6 SDKs, keeps verbose SDK make
+  depends on `nftables-json`, matching the stable package name.
+- OpenWrt package CI now targets OpenWrt 25.12.4 SDKs, keeps verbose SDK make
   output opt-in with `OPENWRT_MAKE_FLAGS`, and aligns the module Go floor with
-  the Go 1.23 toolchain provided by the 24.10 packages feed.
+  the Go 1.26.2 toolchain provided by the 25.12 packages feed.
 - CI now runs `govulncheck` with Go 1.26.3 and a pinned scanner release while
-  keeping the module Go floor compatible with OpenWrt 24.10 package builds.
+  keeping the module Go floor compatible with OpenWrt 25.12 package builds.
 
 ## v0.3.1 - 2026-05-17
 

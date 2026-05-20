@@ -12,6 +12,10 @@ This checklist is for project releases and OpenWrt package refreshes.
   `ci/<slice-name>` branches targeting `dev`.
 - Release prep branches should start from `dev`, land back in `dev` first, and
   only then promote `dev` to `main`.
+- Small CI/package fixes, including fixes for workflows that publish release
+  assets from `main`, still target `dev` first. Promote them to `main` through
+  the normal release PR path unless the user explicitly declares an emergency
+  release hotfix.
 - Do not commit or merge directly into `main` or `dev` for routine work.
 - If a release-only fix lands on `main`, immediately open a normal merge PR from
   `main` back into `dev` so the release branch does not drift ahead of
@@ -56,10 +60,10 @@ This checklist is for project releases and OpenWrt package refreshes.
    git push origin vX.Y.Z
    ```
 
-8. Publish the GitHub Release. The `OpenWrt IPK Packages` workflow runs on
-   published releases, builds IPKs from official OpenWrt SDKs, and attaches the
-   package artifacts plus `SHA256SUMS` files to the release. For an existing
-   release, run the workflow manually and set `release_tag`.
+8. Publish the GitHub Release. The `OpenWrt APK Packages` workflow runs on
+   published releases, builds APKs from official OpenWrt 25.12 SDKs, and
+   attaches the package artifacts plus `SHA256SUMS` files to the release. For
+   an existing release, run the workflow manually and set `release_tag`.
 9. Delete temporary release branches after the tag, release, and package
    artifacts are published.
 
@@ -96,12 +100,23 @@ This checklist is for project releases and OpenWrt package refreshes.
    feed installed. The script stages `openwrt/serpent-wrt` into the SDK and
    runs `package/serpent-wrt/check` and `package/serpent-wrt/compile`.
 
-   To produce local IPK artifacts from a downloaded SDK instead of an existing
-   SDK directory, set `OPENWRT_SDK_URL` and `OPENWRT_SDK_SHA256`, then run:
+   To produce local APK artifacts from a downloaded SDK instead of an
+   existing SDK directory, set `OPENWRT_SDK_URL` and `OPENWRT_SDK_SHA256`, then
+   run:
 
    ```sh
-   make openwrt-ipk
+   make openwrt-apk
    ```
+
+   For repeated local or self-hosted runner builds, set
+   `OPENWRT_APK_REUSE_WORK_DIR=1` and point `OPENWRT_APK_WORK_DIR` at a
+   persistent directory outside this repository. The APK helper defaults its
+   work directory under `${TMPDIR:-/tmp}` so OpenWrt's Go bootstrap does not
+   inherit the repository module. It records the SDK URL and SHA-256 after the
+   verified download, reuses the work directory only when those values match,
+   skips feed setup when the packages feed is already installed, and defaults
+   package builds to `-j$(nproc)`. Override with `OPENWRT_MAKE_JOBS` or
+   `OPENWRT_MAKE_FLAGS` when a runner needs a lower or fixed concurrency level.
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:

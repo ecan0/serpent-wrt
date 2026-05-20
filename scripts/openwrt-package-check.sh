@@ -19,6 +19,7 @@ PACKAGE_SRC="$REPO_ROOT/openwrt/serpent-wrt"
 PACKAGE_DST="$SDK/package/serpent-wrt"
 TARGETS=${OPENWRT_PACKAGE_TARGETS:-"package/serpent-wrt/check package/serpent-wrt/compile"}
 MAKE_FLAGS=${OPENWRT_MAKE_FLAGS:-}
+DIAGNOSTIC_MAKE_FLAGS=${OPENWRT_DIAGNOSTIC_MAKE_FLAGS:--j1 V=s}
 
 run_make() {
 	if [ -n "$MAKE_FLAGS" ]; then
@@ -27,6 +28,33 @@ run_make() {
 	else
 		make "$@"
 	fi
+}
+
+run_make_with_diagnostics() {
+	target=$1
+
+	run_make "$target" && return 0
+	status=$?
+	if [ -z "$DIAGNOSTIC_MAKE_FLAGS" ]; then
+		return "$status"
+	fi
+
+	echo "OpenWrt make target failed: $target" >&2
+	echo "Retrying with OPENWRT_DIAGNOSTIC_MAKE_FLAGS='$DIAGNOSTIC_MAKE_FLAGS' for diagnostics..." >&2
+
+	old_make_flags=$MAKE_FLAGS
+	MAKE_FLAGS=$DIAGNOSTIC_MAKE_FLAGS
+	if run_make "$target"; then
+		diag_status=0
+	else
+		diag_status=$?
+	fi
+	MAKE_FLAGS=$old_make_flags
+
+	if [ "$diag_status" -eq 0 ]; then
+		return "$status"
+	fi
+	return "$diag_status"
 }
 
 if [ ! -f "$SDK/rules.mk" ] || [ ! -d "$SDK/scripts" ] || [ ! -d "$SDK/package" ]; then
@@ -68,6 +96,6 @@ cp -R "$PACKAGE_SRC" "$PACKAGE_DST"
 for target in $TARGETS; do
 	(
 		cd "$SDK"
-		run_make "$target"
+		run_make_with_diagnostics "$target"
 	)
 done

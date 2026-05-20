@@ -1,0 +1,13 @@
+From: serpent-wrt packaging <noreply@example.com>
+Subject: go.mod: use OpenWrt 25.12 Go toolchain level
+
+OpenWrt 25.12.4 ships Go 1.26.2 in the packages feed. The v0.3.1 upstream
+release tarball declares Go 1.26.3, which is newer than the release SDK's Go
+toolchain. Keep the package source pinned to the immutable release tarball and
+patch only the module language version during OpenWrt package builds.
+
+--- a/go.mod
++++ b/go.mod
+@@ -3 +3 @@
+-go 1.26.3
++go 1.26.2

@@ -6,7 +6,7 @@ PKG_VERSION:=0.3.1
 # target commit so runtime build metadata reports the released source.
 PKG_SOURCE_DATE:=2026-05-17
 PKG_SOURCE_VERSION:=54c9c24d7b24503e390e6127b8244a46fd42426c
-PKG_RELEASE:=2
+PKG_RELEASE:=4
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?
