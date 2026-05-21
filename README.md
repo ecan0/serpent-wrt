@@ -1,6 +1,6 @@
 # serpent-wrt
 
-![serpent-wrt banner](docs/assets/serpent-wrt-banner.svg)
+![serpent-wrt banner](docs/assets/serpent-wrt.svg)
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
 [![Go 1.26.3](https://img.shields.io/badge/go-1.26.3-blue.svg)](https://go.dev/)
@@ -103,8 +103,6 @@ Detections include stable reasons, severity, confidence, and optional host/MAC
 enrichment from dnsmasq leases.
 
 ## OpenWrt APKs
-
-![OpenWrt APK banner](docs/assets/openwrt-apk-banner.svg)
 
 The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
 25.12 SDKs and attaches target-specific packages plus `SHA256SUMS` files to

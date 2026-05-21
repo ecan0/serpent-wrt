@@ -3,8 +3,6 @@
 This project ships package metadata for custom OpenWrt feeds and publishes APK
 release artifacts for selected OpenWrt 25.12 targets.
 
-![OpenWrt APK banner](assets/openwrt-apk-banner.svg)
-
 ## Release APKs
 
 The `OpenWrt APK Packages` workflow builds target-specific APKs from official
