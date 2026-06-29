@@ -21,7 +21,7 @@ jobs:
     outputs:
       code_changed: ${{ steps.filter.outputs.code_changed }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -65,7 +65,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -88,7 +88,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -108,7 +108,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -120,7 +120,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.11
+          version: v2.12.2
 
   scan:
     name: Scan
@@ -129,7 +129,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -137,7 +137,7 @@ jobs:
           cache: false
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
 
       - name: Run govulncheck
         run: govulncheck ./...
@@ -160,7 +160,7 @@ jobs:
             echo "OPENWRT_HOST secret not set - skipping deploy"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: env.DEPLOY_ENABLED == 'true'
 
       - uses: actions/setup-go@v6

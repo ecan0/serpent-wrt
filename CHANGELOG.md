@@ -20,6 +20,8 @@ This project follows semantic versioning for tagged releases.
   the Go 1.26.2 toolchain provided by the 25.12 packages feed.
 - CI now runs `govulncheck` with Go 1.26.3 and a pinned scanner release while
   keeping the module Go floor compatible with OpenWrt 25.12 package builds.
+- CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
+  `golangci-lint` and `govulncheck` tool releases.
 
 ## v0.3.1 - 2026-05-17
 

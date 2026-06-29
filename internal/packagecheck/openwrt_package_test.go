@@ -182,7 +182,7 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/",
 		"gcc-14.3.0",
 		"${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}",
-		"actions/cache@v5",
+		"actions/cache@v6",
 		"OPENWRT_APK_REUSE_WORK_DIR",
 		"OPENWRT_APK_WORK_DIR",
 		"OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}",
@@ -200,7 +200,7 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 	for _, want := range []string{
 		"go-version-file: go.mod",
 		`go-version: "1.26.3"`,
-		"go install golang.org/x/vuln/cmd/govulncheck@v1.3.0",
+		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("CI workflow missing %q", want)
