@@ -16,10 +16,12 @@ This project follows semantic versioning for tagged releases.
 - OpenWrt package validation now prepares SDK `.config` noninteractively and
   depends on `nftables-json`, matching the stable package name.
 - OpenWrt package CI now targets OpenWrt 25.12.4 SDKs, keeps verbose SDK make
-  output opt-in with `OPENWRT_MAKE_FLAGS`, and aligns the module Go floor with
-  the Go 1.26.2 toolchain provided by the 25.12 packages feed.
-- CI now runs `govulncheck` with Go 1.26.3 and a pinned scanner release while
-  keeping the module Go floor compatible with OpenWrt 25.12 package builds.
+  output opt-in with `OPENWRT_MAKE_FLAGS`, and preserves the package build patch
+  for the Go 1.26.2 toolchain provided by the 25.12 packages feed.
+- CI now runs `govulncheck` with Go 1.26.4 and a pinned scanner release. OpenWrt
+  package builds keep the release-tarball patch for the 25.12 package toolchain.
+- Raised the active module and CI Go toolchain to 1.26.4 for standard-library
+  vulnerability fixes while preserving the OpenWrt release package patch.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
 

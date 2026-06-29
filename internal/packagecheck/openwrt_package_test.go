@@ -199,7 +199,7 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 	workflow := readRepoFile(t, ".github/workflows/ci.yml")
 	for _, want := range []string{
 		"go-version-file: go.mod",
-		`go-version: "1.26.3"`,
+		`go-version: "1.26.4"`,
 		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
 	} {
 		if !strings.Contains(workflow, want) {
