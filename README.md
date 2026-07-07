@@ -1,6 +1,24 @@
 # serpent-wrt
 
-![serpent-wrt banner](docs/assets/serpent-wrt.svg)
+<table>
+  <tr>
+    <td width="170" align="center">
+      <img src="docs/assets/serpent-wrt.svg" width="140" alt="serpent-wrt logo">
+    </td>
+    <td>
+      <pre>
+                                    __                     __
+   ________  _________  ___  ____  / /_     _      _______/ /_
+  / ___/ _ \/ ___/ __ \/ _ \/ __ \/ __/____| | /| / / ___/ __/
+ (__  )  __/ /  / /_/ /  __/ / / / /_/_____/ |/ |/ / /  / /_
+/____/\___/_/  / .___/\___/_/ /_/\__/      |__/|__/_/   \__/
+              /_/
+
+lightweight network defense for open platform routers
+      </pre>
+    </td>
+  </tr>
+</table>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
 [![Go 1.26.4](https://img.shields.io/badge/go-1.26.4-blue.svg)](https://go.dev/)
@@ -38,6 +56,9 @@ make test
 make release-check
 ./bin/serpent-wrt -version
 ```
+
+Manual daemon starts print a terminal banner on interactive stderr. Use
+`--banner always` for demos and screenshots, or `--banner never` for scripts.
 
 Validate a config:
 
