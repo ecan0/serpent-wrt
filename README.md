@@ -1,17 +1,11 @@
 # serpent-wrt
 
 <p align="center">
-  <img align="left" hspace="24" src="docs/assets/serpent-wrt.svg" width="220" alt="serpent-wrt logo">
-  <samp>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__<br>
-&nbsp;&nbsp;&nbsp;________&nbsp;&nbsp;_________&nbsp;&nbsp;___&nbsp;&nbsp;____&nbsp;&nbsp;/&nbsp;/_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_______/&nbsp;/_<br>
-&nbsp;&nbsp;/&nbsp;___/&nbsp;_&nbsp;\/&nbsp;___/&nbsp;__&nbsp;\/&nbsp;_&nbsp;\/&nbsp;__&nbsp;\/&nbsp;__/____|&nbsp;|&nbsp;/|&nbsp;/&nbsp;/&nbsp;___/&nbsp;__/<br>
-&nbsp;(__&nbsp;&nbsp;)&nbsp;&nbsp;__/&nbsp;/&nbsp;&nbsp;/&nbsp;/_/&nbsp;/&nbsp;&nbsp;__/&nbsp;/&nbsp;/&nbsp;/&nbsp;/_/_____/&nbsp;|/&nbsp;|/&nbsp;/&nbsp;/&nbsp;&nbsp;/&nbsp;/_<br>
-/____/\___/_/&nbsp;&nbsp;/&nbsp;.___/\___/_/&nbsp;/_/\__/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__/|__/_/&nbsp;&nbsp;&nbsp;\__/<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/_/
-  </samp>
+  <img src="docs/assets/serpent-wrt.svg" width="280" alt="serpent-wrt logo">
+  <br>
+  <img src="docs/assets/serpent-wrt-ascii.png" width="806" alt="serpent-wrt ASCII wordmark">
 </p>
-<br clear="left">
+<br>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
 [![Go 1.26.4](https://img.shields.io/badge/go-1.26.4-blue.svg)](https://go.dev/)
