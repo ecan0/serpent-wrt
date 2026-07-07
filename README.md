@@ -1,6 +1,11 @@
 # serpent-wrt
 
-![serpent-wrt banner](docs/assets/serpent-wrt.svg)
+<p align="center">
+  <img src="docs/assets/serpent-wrt.svg" width="280" alt="serpent-wrt logo">
+  <br>
+  <img src="docs/assets/serpent-wrt-ascii.png" width="806" alt="serpent-wrt ASCII wordmark">
+</p>
+<br>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
 [![Go 1.26.4](https://img.shields.io/badge/go-1.26.4-blue.svg)](https://go.dev/)
@@ -38,6 +43,9 @@ make test
 make release-check
 ./bin/serpent-wrt -version
 ```
+
+Manual daemon starts print a terminal banner on interactive stderr. Use
+`--banner always` for demos and screenshots, or `--banner never` for scripts.
 
 Validate a config:
 

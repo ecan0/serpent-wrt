@@ -45,9 +45,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serpent-wrt", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "/etc/serpent-wrt/serpent-wrt.yaml", "path to config file")
+	bannerMode := fs.String("banner", "auto", "startup banner mode: auto, always, or never")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt [--config path] [configtest|nftcheck|feed]\n\n")
+		writef(stderr, "Usage: serpent-wrt [--config path] [--banner auto|always|never] [configtest|nftcheck|feed]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -60,6 +61,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *showVersion {
 		writef(stdout, "serpent-wrt version=%s commit=%s build_date=%s\n", version, commit, buildDate)
 		return 0
+	}
+	if !validBannerMode(*bannerMode) {
+		writef(stderr, "serpent-wrt: invalid banner mode %q\n", *bannerMode)
+		return 2
 	}
 
 	if fs.NArg() > 0 {
@@ -76,7 +81,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	return runDaemon(*cfgPath, stderr)
+	return runDaemon(*cfgPath, stderr, *bannerMode)
 }
 
 func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath string) int {
@@ -299,7 +304,9 @@ func checkConfig(path string) (*config.Config, int, []string, error) {
 	return cfg, feedEntries, config.Warnings(cfg), nil
 }
 
-func runDaemon(cfgPath string, stderr io.Writer) int {
+func runDaemon(cfgPath string, stderr io.Writer, bannerMode string) int {
+	printStartupBanner(stderr, bannerMode)
+
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		writef(stderr, "serpent-wrt: config: %v\n", err)

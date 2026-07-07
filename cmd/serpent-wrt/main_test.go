@@ -529,6 +529,71 @@ func TestRunNftcheckFailsForInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidBannerMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--banner", "sparkle"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run invalid banner mode: exit=%d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid banner mode") {
+		t.Fatalf("stderr=%q, want invalid banner mode", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunBannerAlwaysPrintsForDaemon(t *testing.T) {
+	missingConfig := filepath.Join(t.TempDir(), "missing.yaml")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--banner", "always", "--config", missingConfig}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run daemon with missing config: exit=%d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "lightweight network defense") {
+		t.Fatalf("stderr=%q, want startup banner", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "config") {
+		t.Fatalf("stderr=%q, want config error", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
+func TestRunBannerNeverSuppressesForDaemon(t *testing.T) {
+	missingConfig := filepath.Join(t.TempDir(), "missing.yaml")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--banner", "never", "--config", missingConfig}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run daemon with missing config: exit=%d, want 1", code)
+	}
+	if strings.Contains(stderr.String(), "lightweight network defense") {
+		t.Fatalf("stderr=%q, want no startup banner", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "config") {
+		t.Fatalf("stderr=%q, want config error", stderr.String())
+	}
+}
+
+func TestRunBannerAutoSuppressesForNonTerminal(t *testing.T) {
+	missingConfig := filepath.Join(t.TempDir(), "missing.yaml")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--config", missingConfig}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run daemon with missing config: exit=%d, want 1", code)
+	}
+	if strings.Contains(stderr.String(), "lightweight network defense") {
+		t.Fatalf("stderr=%q, want no startup banner", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout=%q, want empty", stdout.String())
+	}
+}
+
 func TestRunUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"bogus"}, &stdout, &stderr)
