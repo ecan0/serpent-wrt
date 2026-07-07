@@ -1,14 +1,14 @@
 # serpent-wrt
 
 <p align="center">
-  <img align="left" src="docs/assets/serpent-wrt.svg" width="180" alt="serpent-wrt logo">
+  <img align="left" hspace="24" src="docs/assets/serpent-wrt.svg" width="220" alt="serpent-wrt logo">
   <samp>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__<br>
 &nbsp;&nbsp;&nbsp;________&nbsp;&nbsp;_________&nbsp;&nbsp;___&nbsp;&nbsp;____&nbsp;&nbsp;/&nbsp;/_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_______/&nbsp;/_<br>
 &nbsp;&nbsp;/&nbsp;___/&nbsp;_&nbsp;\/&nbsp;___/&nbsp;__&nbsp;\/&nbsp;_&nbsp;\/&nbsp;__&nbsp;\/&nbsp;__/____|&nbsp;|&nbsp;/|&nbsp;/&nbsp;/&nbsp;___/&nbsp;__/<br>
 &nbsp;(__&nbsp;&nbsp;)&nbsp;&nbsp;__/&nbsp;/&nbsp;&nbsp;/&nbsp;/_/&nbsp;/&nbsp;&nbsp;__/&nbsp;/&nbsp;/&nbsp;/&nbsp;/_/_____/&nbsp;|/&nbsp;|/&nbsp;/&nbsp;/&nbsp;&nbsp;/&nbsp;/_<br>
 /____/\___/_/&nbsp;&nbsp;/&nbsp;.___/\___/_/&nbsp;/_/\__/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__/|__/_/&nbsp;&nbsp;&nbsp;\__/<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/_/
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/_/
   </samp>
 </p>
 <br clear="left">
