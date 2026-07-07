@@ -1,24 +1,17 @@
 # serpent-wrt
 
-<table>
-  <tr>
-    <td width="170" align="center">
-      <img src="docs/assets/serpent-wrt.svg" width="140" alt="serpent-wrt logo">
-    </td>
-    <td>
-      <pre>
-                                    __                     __
-   ________  _________  ___  ____  / /_     _      _______/ /_
-  / ___/ _ \/ ___/ __ \/ _ \/ __ \/ __/____| | /| / / ___/ __/
- (__  )  __/ /  / /_/ /  __/ / / / /_/_____/ |/ |/ / /  / /_
-/____/\___/_/  / .___/\___/_/ /_/\__/      |__/|__/_/   \__/
-              /_/
-
-lightweight network defense for open platform routers
-      </pre>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img align="left" src="docs/assets/serpent-wrt.svg" width="180" alt="serpent-wrt logo">
+  <samp>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;__<br>
+&nbsp;&nbsp;&nbsp;________&nbsp;&nbsp;_________&nbsp;&nbsp;___&nbsp;&nbsp;____&nbsp;&nbsp;/&nbsp;/_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_______/&nbsp;/_<br>
+&nbsp;&nbsp;/&nbsp;___/&nbsp;_&nbsp;\/&nbsp;___/&nbsp;__&nbsp;\/&nbsp;_&nbsp;\/&nbsp;__&nbsp;\/&nbsp;__/____|&nbsp;|&nbsp;/|&nbsp;/&nbsp;/&nbsp;___/&nbsp;__/<br>
+&nbsp;(__&nbsp;&nbsp;)&nbsp;&nbsp;__/&nbsp;/&nbsp;&nbsp;/&nbsp;/_/&nbsp;/&nbsp;&nbsp;__/&nbsp;/&nbsp;/&nbsp;/&nbsp;/_/_____/&nbsp;|/&nbsp;|/&nbsp;/&nbsp;/&nbsp;&nbsp;/&nbsp;/_<br>
+/____/\___/_/&nbsp;&nbsp;/&nbsp;.___/\___/_/&nbsp;/_/\__/&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|__/|__/_/&nbsp;&nbsp;&nbsp;\__/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/_/
+  </samp>
+</p>
+<br clear="left">
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
 [![Go 1.26.4](https://img.shields.io/badge/go-1.26.4-blue.svg)](https://go.dev/)
