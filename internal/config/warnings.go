@@ -23,6 +23,9 @@ func Warnings(c *Config) []string {
 	if c.APIEnabled && !apiBindIsLoopback(c.APIBind) {
 		warnings = append(warnings, fmt.Sprintf("api_bind %q is not loopback-only; expose the API only on trusted management interfaces", c.APIBind))
 	}
+	if c.EnforcementEnabled {
+		warnings = append(warnings, "enforcement populates the configured nftables set; verify a firewall drop rule references that set before relying on traffic blocking")
+	}
 	if c.EnforcementEnabled && c.Profile == "paranoid" {
 		warnings = append(warnings, "profile paranoid with enforcement_enabled true can block aggressively")
 	}

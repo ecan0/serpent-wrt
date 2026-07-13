@@ -41,7 +41,7 @@ syslog_proto: "udp"
 | Rule ID | Detector | Level | MITRE ATT&CK | Description |
 |---------|----------|-------|---------------|-------------|
 | 100200 | (any) | 3 | — | Base detection event |
-| 100201 | enforcer | 6 | — | IP blocked via nftables |
+| 100201 | enforcer | 6 | — | IP added to the configured nftables timed set |
 | 100202 | feed_match | 10 | T1071 Application Layer Protocol | Traffic to/from known threat intel IP |
 | 100203 | fanout | 8 | T1018 Remote System Discovery | Internal host contacting many external destinations |
 | 100204 | port_scan | 8 | T1046 Network Service Scanning | Internal host scanning ports on external target |

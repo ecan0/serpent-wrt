@@ -5,10 +5,11 @@ capture, no DPI, no database, and no heavy runtime dependencies.
 
 ## Status
 
-The stable MVP is complete. It is a lightweight OpenWrt/Linux IDS and optional
-nftables enforcement daemon with conntrack polling, local threat-intel feeds,
-core flow-based detectors, structured logs, optional syslog forwarding, bounded
-in-memory state, a localhost API, OpenWrt packaging, and runtime smoke coverage.
+The MVP feature set is implemented: conntrack polling, local threat-intel
+matching, flow heuristics, structured logs, optional syslog, bounded in-memory
+state, a loopback API, OpenWrt packaging, timed nftables set management, and
+runtime smoke coverage. Production enforcement and beacon accuracy still need
+the validation work below.
 
 ## Released
 
@@ -47,12 +48,39 @@ project without adding more runtime features.
 - README, changelog, and roadmap framing for stable MVP status, detection
   coverage, and engineering highlights.
 
+## Recommended Next Iterations
+
+Prioritize correctness evidence over additional detectors:
+
+1. **Complete the firewall contract.** Ship and test an OpenWrt fw4 include (or
+   another explicit policy integration) that references the timed set. Extend
+   `nftcheck` and router tests to verify the referencing rule and an actual
+   blocked flow, not only table/set existence.
+2. **Fix connection-observation semantics.** Distinguish new conntrack entries
+   from repeated polling snapshots before calling observations a beacon cadence.
+   Add packet/flow fixtures and false-positive tests for long-lived UDP,
+   retransmitted TCP handshakes, DNS, NTP, and QUIC.
+3. **Build a labeled detection corpus.** Keep sanitized conntrack fixtures for
+   normal home, homelab, scan, and feed-hit traffic. Report precision-oriented
+   regression results and memory/CPU measurements on 64 MB and 128 MB targets.
+4. **Harden the intentional self-hosted CI path.** Keep the project-controlled
+   runners, but isolate the serpent-wrt instance, minimize host credentials and
+   network reachability, gate untrusted contributors, and prefer disposable
+   workspaces or ephemeral runner instances where practical.
+5. **Finish operator semantics.** Implement or remove currently ineffective
+   configuration such as `log_level`, expose last successful poll/error status,
+   and document stable event/API compatibility expectations before 1.0.
+
+Threat-feed provenance, signature/checksum policy, a software bill of materials,
+and reproducible release attestations should accompany these tracks.
+
 ## Post-MVP Tracks
 
 ### Package hardening
 
 - Tagged release archive source and fixed package hash.
-- Move more package and runtime validation to public runners where practical.
+- Harden the intentional self-hosted build path and add release provenance,
+  SBOM, and attestation outputs without moving routine CI off those runners.
 
 ### Optional netlink collector
 

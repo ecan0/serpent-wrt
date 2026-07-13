@@ -13,8 +13,8 @@
 [![OpenWrt APK](https://img.shields.io/badge/OpenWrt-APK%20packages-blueviolet.svg)](openwrt/serpent-wrt)
 
 `serpent-wrt` is a lightweight OpenWrt/Linux IDS for router-safe detection,
-local threat-intel matching, structured security events, and optional nftables
-blocking.
+local threat-intel matching, and structured security events. It can populate
+timed nftables sets for operator-integrated response policies.
 
 It reads conntrack metadata that Linux routers already maintain. It does not
 capture packets, inspect payloads, run a database, or require a heavyweight
@@ -28,8 +28,8 @@ agent stack.
   and brute-force/service-spray patterns.
 - Emits NDJSON security events and optional remote syslog.
 - Exposes a localhost API for health, status, stats, recent detections, feed
-  management, reloads, and current blocks.
-- Optionally adds hostile IPs to nftables sets with kernel-managed timeouts.
+  management, reloads, and current timed-set entries.
+- Optionally adds detected source IPs to nftables sets with kernel-managed timeouts.
 - Ships OpenWrt package metadata, procd init files, release APK artifacts, and
   runtime smoke coverage.
 
@@ -78,7 +78,7 @@ flowchart TD
     G --> H["events and stats"]
     H --> I["NDJSON logs"]
     H --> J["recent detections"]
-    H --> K["optional nftables block"]
+    H --> K["optional nftables timed set"]
     I --> L["stdout / procd"]
     I --> M["optional syslog"]
     J --> N["localhost API"]
@@ -169,10 +169,15 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
 
 ## Safety And Limits
 
-- Enforcement is disabled unless `enforcement_enabled: true`.
-- nftables blocks use named sets and timeouts; the kernel expires entries.
+- Timed-set updates are disabled unless `enforcement_enabled: true`.
+- `serpent-wrt` creates and populates a named nftables set; it does not install
+  a packet-drop rule. Traffic is blocked only when a separately managed firewall
+  rule references that set.
+- `/blocked` and `blocks_applied` report set state, not observed packet drops.
+- The polling collector sees snapshots, not packets or connection-create events.
+  Validate beacon alerts on representative traffic before using them for response.
 - OpenWrt firewall reloads can remove custom nftables state, so check
-  `/status` or run `nftcheck` before relying on enforcement.
+  `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.
 - IPv6, packet capture, persistent storage, dashboards, ML scoring, and remote
   feed sync are outside the current release scope.
 

@@ -46,12 +46,15 @@ dedup_window: 5m
   `quiet` raise thresholds, and `paranoid` lowers thresholds.
 - `lease_enrichment` reads dnsmasq leases and adds hostname/MAC context when
   available.
-- `enforcement_enabled` defaults to `false`; start detect-only.
-- `nft_table` and `nft_set` identify the nftables resources used for dynamic
-  blocking.
+- `enforcement_enabled` defaults to `false`; when enabled, the daemon populates
+  the configured timed nftables set.
+- `nft_table` and `nft_set` identify that set. A separately managed firewall
+  drop rule must reference it before entries affect traffic.
 - `dedup_window` suppresses repeated alerts from the same detector/source/target
   combination.
 - `syslog_target` and `syslog_proto` forward JSON events to a SIEM.
+- `api_bind` should remain loopback-only. The API has no authentication or TLS
+  and includes threat-feed mutation endpoints.
 
 ## Suppression Rules
 
@@ -89,6 +92,8 @@ detectors:
     min_hits: 5
     tolerance: 3s
     window: 5m
+    min_interval: 5s
+    exclude_ports: [53, 123]
   ext_scan:
     distinct_port_threshold: 15
     window: 60s
@@ -98,3 +103,9 @@ detectors:
 ```
 
 Explicit detector settings override profile defaults.
+
+`min_interval` rejects bursty observations. `exclude_ports` is especially
+important with the polling collector because one long-lived UDP conntrack entry
+can be observed in multiple snapshots. Excluding DNS and NTP is a conservative
+starting point, not a substitute for validating beacon alerts on the target
+router.
