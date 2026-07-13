@@ -422,3 +422,43 @@ func TestHandleFeedReplace(t *testing.T) {
 		t.Fatalf("body: %+v", body)
 	}
 }
+
+func TestRouterRejectsUndocumentedMethods(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{})
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/healthz"},
+		{method: http.MethodPost, path: "/status"},
+		{method: http.MethodPost, path: "/stats"},
+		{method: http.MethodPost, path: "/detections/recent"},
+		{method: http.MethodPost, path: "/blocked"},
+		{method: http.MethodDelete, path: "/feed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			w := httptest.NewRecorder()
+			s.srv.Handler.ServeHTTP(w, req)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status: got %d, want 405", w.Code)
+			}
+			if w.Header().Get("Allow") == "" {
+				t.Fatal("method rejection must advertise Allow")
+			}
+		})
+	}
+}
+
+func TestFeedRequestRejectsTrailingJSON(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{})
+	req := httptest.NewRequest(http.MethodPost, "/feed/add", strings.NewReader(
+		`{"entry":"1.2.3.4"}{"entry":"5.6.7.8"}`,
+	))
+	w := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400 body=%q", w.Code, w.Body.String())
+	}
+}

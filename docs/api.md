@@ -7,6 +7,15 @@ api_enabled: true
 api_bind: 127.0.0.1:8080
 ```
 
+The API has no authentication, authorization, or TLS. Keep it on loopback and
+use an SSH tunnel for remote administration. A non-loopback bind generates a
+configuration warning but remains operator-controlled. Do not expose it to a
+LAN or WAN: feed endpoints can modify the active threat feed.
+
+Only the methods listed below are accepted; other methods return `405 Method
+Not Allowed`. JSON mutation requests must contain exactly one JSON object and
+are limited to 1 MiB.
+
 ## Endpoints
 
 | Endpoint | Method | Purpose |
@@ -15,7 +24,7 @@ api_bind: 127.0.0.1:8080
 | `/status` | GET | Feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
 | `/stats` | GET | Flow, detection, suppression, dedup, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
-| `/blocked` | GET | Current nftables blocked set contents. |
+| `/blocked` | GET | Current nftables timed-set contents; not proof of packet drops. |
 | `/reload` | POST | Reload threat feed from disk. |
 | `/feed` | GET | List normalized local threat feed entries. |
 | `/feed` | PUT | Replace the local threat feed with validated entries. |
@@ -38,16 +47,20 @@ Threat feed operations:
 ```sh
 curl http://127.0.0.1:8080/feed
 
-curl -X POST http://127.0.0.1:8080/feed/validate \
+curl -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8080/feed/validate \
   -d '{"entry":"198.51.100.1"}'
 
-curl -X POST http://127.0.0.1:8080/feed/add \
+curl -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8080/feed/add \
   -d '{"entry":"198.51.100.1"}'
 
-curl -X POST http://127.0.0.1:8080/feed/remove \
+curl -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8080/feed/remove \
   -d '{"entry":"198.51.100.1"}'
 
-curl -X PUT http://127.0.0.1:8080/feed \
+curl -H 'Content-Type: application/json' \
+  -X PUT http://127.0.0.1:8080/feed \
   -d '{"entries":["198.51.100.1","203.0.113.0/24"]}'
 ```
 

@@ -24,6 +24,8 @@ This project follows semantic versioning for tagged releases.
   release-tarball patch for the 25.12 package toolchain.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
+- HTTP routes now enforce documented methods, and feed mutation requests reject
+  trailing JSON values.
 
 ## v0.3.1 - 2026-05-17
 
