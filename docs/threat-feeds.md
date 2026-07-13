@@ -9,6 +9,9 @@ serpent-wrt reads a plain-text file with one entry per line. Each entry is eithe
 
 Blank lines and lines starting with `#` are ignored.
 
+Loading and reloading are strict: any other non-comment line rejects the whole
+candidate feed, and a failed reload leaves the previous in-memory feed active.
+
 Example:
 
 ```
@@ -28,36 +31,43 @@ threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 | Feed | URL | Format | Notes |
 |------|-----|--------|-------|
 | Abuse.ch Feodo Tracker | `https://feodotracker.abuse.ch/downloads/ipblocklist.txt` | One IP per line | Botnet C2 IPs, updated every 5 minutes |
-| Spamhaus DROP | `https://www.spamhaus.org/drop/drop.txt` | CIDR, semicolon comments | Hijacked netblocks, updated daily |
-| Spamhaus EDROP | `https://www.spamhaus.org/drop/edrop.txt` | CIDR, semicolon comments | Extended DROP, updated daily |
+| Spamhaus DROP | `https://www.spamhaus.org/drop/drop.txt` | CIDR, semicolon comments | eDROP was merged into DROP in April 2024; update no more than hourly. |
 | CINS Army Score | `https://cinsscore.com/list/ci-badguys.txt` | One IP per line | IPs with poor reputation, updated daily |
 | Emerging Threats compromised IPs | `https://rules.emergingthreats.net/blockrules/compromised-ips.txt` | One IP per line | Known compromised hosts |
 
-Some feeds include comment lines (`;` or `#` prefixed). serpent-wrt ignores `#` lines. For feeds using `;` comments, strip them before loading:
+Some feeds include semicolon comments. Strip those comments before validation;
+do not stream downloads directly over the active file.
+
+## Validated, atomic download and reload
+
+Stage downloads in the same directory, require HTTPS success, validate the
+candidate through the CLI, and restore the previous file if validation fails:
 
 ```sh
-curl -s https://www.spamhaus.org/drop/drop.txt | sed 's/;.*//' | grep -v '^$' > /etc/serpent-wrt/threat-feed.txt
+feed=/etc/serpent-wrt/threat-feed.txt
+config=/etc/serpent-wrt/serpent-wrt.yaml
+tmp="$(mktemp "${feed}.XXXXXX")"
+backup="${feed}.bak"
+trap 'rm -f "$tmp"' EXIT
+
+curl --fail --show-error --location --proto '=https' --tlsv1.2 \
+  https://feodotracker.abuse.ch/downloads/ipblocklist.txt \
+  | sed 's/[[:space:]]*;.*$//; /^#/d; /^[[:space:]]*$/d' > "$tmp"
+
+cp -p "$feed" "$backup"
+mv "$tmp" "$feed"
+if serpent-wrt --config "$config" feed validate; then
+  /etc/init.d/serpent-wrt reload_feed
+  rm -f "$backup"
+else
+  mv "$backup" "$feed"
+  exit 1
+fi
 ```
 
-## Downloading and hot-reloading
-
-serpent-wrt reloads the feed on `SIGHUP` without restart:
-
-```sh
-# Download fresh feed
-curl -s https://feodotracker.abuse.ch/downloads/ipblocklist.txt \
-  | grep -v '^#' | grep -v '^$' \
-  > /etc/serpent-wrt/threat-feed.txt
-
-# Signal serpent-wrt to reload
-kill -HUP $(pidof serpent-wrt)
-```
-
-Or use the API if enabled:
-
-```sh
-curl -X POST http://127.0.0.1:8080/reload
-```
+`reload_feed` validates again before signaling the daemon. The daemon also
+rejects an invalid candidate during reload and retains its prior in-memory
+entries.
 
 ## Local CLI management
 
@@ -120,12 +130,10 @@ curl -X PUT http://127.0.0.1:8080/feed \
   -d '{"entries":["198.51.100.1","203.0.113.0/24"]}'
 ```
 
-To automate, add a cron job:
-
-```sh
-# /etc/crontabs/root (OpenWRT cron)
-0 */6 * * * curl -s https://feodotracker.abuse.ch/downloads/ipblocklist.txt | grep -v '^#' | grep -v '^$' > /etc/serpent-wrt/threat-feed.txt && kill -HUP $(pidof serpent-wrt)
-```
+For cron automation, put the validated sequence above in a root-owned script,
+make it executable only by root, and invoke that script from `/etc/crontabs/root`.
+Avoid download-to-active-file one-liners: an HTTP error page, interrupted
+download, or malformed source must not replace the last known-good feed.
 
 ## Size guidance
 
