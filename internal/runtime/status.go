@@ -218,7 +218,7 @@ func (e *Engine) nftStatus(setupState, setupErr string) NftStatus {
 
 func nftCheckState(setupState string, check enforcer.NftCheck) (string, string) {
 	if !check.Available {
-		return "unavailable", "nft CLI is unavailable; enforcement cannot apply blocks"
+		return "unavailable", "nft CLI is unavailable; enforcement cannot update the timed set"
 	}
 	if !check.TablePresent {
 		return "missing_table", nftReloadDiagnostic(setupState, "table")
@@ -231,7 +231,7 @@ func nftCheckState(setupState string, check enforcer.NftCheck) (string, string) 
 
 func nftReloadDiagnostic(setupState, missing string) string {
 	if setupState == nftSetupReady {
-		return "nft " + missing + " is missing after setup; a firewall reload may have removed serpent-wrt enforcement state"
+		return "nft " + missing + " is missing after setup; a firewall reload may have removed serpent-wrt set state"
 	}
 	return "nft " + missing + " is not present yet"
 }

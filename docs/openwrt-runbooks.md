@@ -80,12 +80,39 @@ logread -e serpent-wrt
    - Confirm lease enrichment is useful and not reporting stale hostnames.
    - Confirm `/stats` shows detections and suppressions that match expectations.
 
-## Enforcement Rollout
+## Timed Set And Firewall Policy Rollout
 
-Only enable enforcement after a clean detect-only window. Keep console or
-out-of-band access available for the first enforcement test.
+`enforcement_enabled` controls timed nftables set updates. The current daemon
+creates the configured table and set and inserts detected source IPs, but it
+does **not** install a base chain or drop rule. An entry has no traffic effect
+until a separately managed firewall policy references the set.
 
-1. Use a short block duration for the first pass:
+Do not interpret `blocks_applied`, `/blocked`, or a successful `nftcheck` as
+proof that packets were dropped. Keep console or out-of-band access available
+while testing any firewall policy.
+
+1. Complete a clean detect-only tuning window first.
+
+2. Design the firewall integration for the target OpenWrt release. For fw4,
+   prefer a version-controlled nftables include managed by the package or local
+   configuration. Confirm its chain, hook, direction, and source-address
+   semantics with `fw4 print`. Do not add an ad hoc rule that disappears on the
+   next firewall reload.
+
+   OpenWrt documents the supported include positions under
+   [Firewall configuration: Includes](https://openwrt.org/docs/guide-user/firewall/firewall_configuration#includes_2203_and_later_with_fw4).
+
+3. Verify the installed policy actually references the configured set:
+
+   ```sh
+   fw4 print
+   nft -a list ruleset
+   ```
+
+   The ruleset must contain a rule that references `@blocked_ips` (or the
+   configured set name) in the intended forwarding path.
+
+4. Enable short-lived timed-set updates:
 
    ```yaml
    enforcement_enabled: true
@@ -94,41 +121,28 @@ out-of-band access available for the first enforcement test.
    nft_set: blocked_ips
    ```
 
-2. Validate the config and nft resource plan:
+5. Validate and restart:
 
    ```sh
    /etc/init.d/serpent-wrt configtest
-   /etc/init.d/serpent-wrt nftcheck
-   serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml nftcheck --format json
-   ```
-
-3. Restart the daemon so it creates or verifies the configured nft table and
-   set:
-
-   ```sh
    /etc/init.d/serpent-wrt restart
-   /etc/init.d/serpent-wrt status
-   ```
-
-4. Confirm `/status` reports enforcement enabled and nft diagnostics are ready:
-
-   ```sh
+   /etc/init.d/serpent-wrt nftcheck
    curl -s http://127.0.0.1:8080/status
    ```
 
-   The nft diagnostic fields should report `setup_state` and `check_state`
-   values consistent with ready resources. Investigate `missing_table`,
-   `missing_set`, `check_error`, or `last_error` before relying on blocks.
-
-5. Watch block counters and current blocks:
+6. In a disposable lab, add a known test address to the set or trigger a
+   controlled detection, then test a real forwarded flow from that address.
+   Verify both the set entry and packet counters on the referencing rule:
 
    ```sh
-   curl -s http://127.0.0.1:8080/stats
    curl -s http://127.0.0.1:8080/blocked
    nft list set inet serpent_wrt blocked_ips
+   nft -a list ruleset
    ```
 
-6. If enforcement behaves as expected, increase `block_duration` gradually.
+7. Reload the firewall and repeat the rule-reference and packet-flow checks.
+   Only increase `block_duration` after the policy survives reload and the
+   end-to-end traffic test passes.
 
 ## Rollback
 
@@ -152,7 +166,7 @@ router behavior.
    /etc/init.d/serpent-wrt restart
    ```
 
-3. Clear active dynamic blocks if immediate unblock is required:
+3. Clear timed-set entries if immediate removal is required:
 
    ```sh
    nft flush set inet serpent_wrt blocked_ips

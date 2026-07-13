@@ -14,11 +14,11 @@
     <group>serpent-wrt,</group>
   </rule>
 
-  <!-- Enforcement action (IP blocked via nftables) -->
+  <!-- Enforcement action (IP added to configured nftables timed set) -->
   <rule id="100201" level="6">
     <decoded_as>serpent-wrt</decoded_as>
     <field name="type">^enforcement$</field>
-    <description>serpent-wrt blocked IP via nftables</description>
+    <description>serpent-wrt added IP to nftables timed set</description>
     <group>serpent-wrt,active_response,</group>
   </rule>
 

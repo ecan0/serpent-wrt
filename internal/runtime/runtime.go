@@ -366,11 +366,11 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	if e.cfg.EnforcementEnabled && det.SrcIP != nil {
 		if err := e.enf.Block(det.SrcIP); err != nil {
 			atomic.AddUint64(&e.blocksFailed, 1)
-			e.log.Error(fmt.Sprintf("block %s: %v", det.SrcIP, err))
+			e.log.Error(fmt.Sprintf("add %s to nftables set: %v", det.SrcIP, err))
 			return
 		}
 		e.log.Enforcement(
-			fmt.Sprintf("blocked %s triggered by %s", det.SrcIP, det.Type),
+			fmt.Sprintf("added %s to nftables set after %s detection", det.SrcIP, det.Type),
 			det.SrcIP,
 		)
 		atomic.AddUint64(&e.blocksApplied, 1)

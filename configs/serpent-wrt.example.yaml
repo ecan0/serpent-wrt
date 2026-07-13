@@ -4,7 +4,7 @@ profile: home  # home, homelab, quiet, or paranoid
 lease_enrichment: true
 dnsmasq_leases_path: /tmp/dhcp.leases
 
-enforcement_enabled: false  # set true after verifying nftables rules work correctly
+enforcement_enabled: false  # set true only after a firewall rule references nft_set
 block_duration: 1h
 
 # LAN CIDRs — used for direction classification (LAN→WAN vs WAN→LAN).
@@ -63,6 +63,7 @@ detectors:
     min_hits: 5
     tolerance: 3s
     window: 5m
+    exclude_ports: [53, 123]
 
   # Inbound: external IP probes many distinct ports on one internal host.
   ext_scan:
