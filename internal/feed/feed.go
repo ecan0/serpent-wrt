@@ -23,9 +23,11 @@ func New() *Feed {
 	}
 }
 
-// Load parses the threat feed file and atomically replaces the current entries.
+// Load strictly parses the threat feed file and atomically replaces the current
+// entries. Invalid or unsupported entries fail the load so a bad update cannot
+// silently weaken detection coverage.
 func (f *Feed) Load(path string) error {
-	ips, cidrs, err := parseFile(path)
+	ips, cidrs, err := parseFileMode(path, true)
 	if err != nil {
 		return err
 	}
@@ -72,10 +74,6 @@ func ValidateFile(path string) (int, error) {
 		return 0, err
 	}
 	return len(ips) + len(cidrs), nil
-}
-
-func parseFile(path string) (map[string]struct{}, []*net.IPNet, error) {
-	return parseFileMode(path, false)
 }
 
 func parseFileMode(path string, strict bool) (map[string]struct{}, []*net.IPNet, error) {
