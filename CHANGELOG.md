@@ -24,6 +24,10 @@ This project follows semantic versioning for tagged releases.
   release-tarball patch for the 25.12 package toolchain.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
+- Threat feed loads and reloads now reject malformed or unsupported entries
+  atomically instead of silently dropping bad lines.
+- HTTP routes now enforce documented methods, and feed mutation requests reject
+  trailing JSON values.
 - Daemon startup now emits configuration warnings, including the distinction
   between nftables timed-set updates and an external packet-drop rule.
 - Documentation now records polling/beacon limitations and the current
