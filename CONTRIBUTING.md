@@ -35,6 +35,11 @@ make release-check
 This runs tests, vet, whitespace checks, the OpenWrt package metadata check, and
 representative OpenWrt target builds.
 
+CI intentionally runs on project-controlled self-hosted runners. Preserve that
+architecture when editing workflows. Runner provisioning and isolation are
+maintained in the private infrastructure source of truth; do not copy hostnames,
+credentials, tokens, or private network details into this public repository.
+
 ## Cross-compiling for OpenWrt
 
 serpent-wrt builds as a static binary for common OpenWrt targets:

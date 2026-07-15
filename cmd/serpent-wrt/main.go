@@ -313,6 +313,10 @@ func runDaemon(cfgPath string, stderr io.Writer, bannerMode string) int {
 		return 1
 	}
 
+	for _, warning := range config.Warnings(cfg) {
+		writef(stderr, "serpent-wrt: config warning: %s\n", warning)
+	}
+
 	var remote *events.UDPSyslog
 	if cfg.SyslogTarget != "" {
 		remote, err = events.NewUDPSyslog(cfg.SyslogProto, cfg.SyslogTarget)

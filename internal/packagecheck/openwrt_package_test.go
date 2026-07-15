@@ -199,12 +199,15 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 	workflow := readRepoFile(t, ".github/workflows/ci.yml")
 	for _, want := range []string{
 		"go-version-file: go.mod",
-		`go-version: "1.26.4"`,
 		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("CI workflow missing %q", want)
 		}
+	}
+
+	if strings.Contains(workflow, "go-version:") {
+		t.Fatal("CI workflow must derive the Go version from go.mod")
 	}
 
 	if strings.Contains(workflow, "go install golang.org/x/vuln/cmd/govulncheck@latest") {

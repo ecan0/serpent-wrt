@@ -144,7 +144,7 @@ func TestNftCheckState(t *testing.T) {
 			name:           "unavailable",
 			check:          enforcer.NftCheck{Available: false},
 			wantState:      "unavailable",
-			wantDiagnostic: "nft CLI is unavailable; enforcement cannot apply blocks",
+			wantDiagnostic: "nft CLI is unavailable; enforcement cannot update the timed set",
 		},
 		{
 			name:           "missing table before setup",
@@ -160,7 +160,7 @@ func TestNftCheckState(t *testing.T) {
 				TablePresent: true,
 			},
 			wantState:      "missing_set",
-			wantDiagnostic: "nft set is missing after setup; a firewall reload may have removed serpent-wrt enforcement state",
+			wantDiagnostic: "nft set is missing after setup; a firewall reload may have removed serpent-wrt set state",
 		},
 		{
 			name:       "ready",

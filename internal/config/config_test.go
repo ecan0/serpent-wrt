@@ -397,6 +397,9 @@ func TestWarningsEnforcementFootguns(t *testing.T) {
 		SelfIPs:            []string{"192.168.1.1"},
 	}
 	warnings := strings.Join(config.Warnings(cfg), "\n")
+	if !strings.Contains(warnings, "verify a firewall drop rule references that set") {
+		t.Fatalf("warnings=%q, want firewall policy warning", warnings)
+	}
 	if !strings.Contains(warnings, "paranoid with enforcement_enabled true") {
 		t.Fatalf("warnings=%q, want paranoid enforcement warning", warnings)
 	}

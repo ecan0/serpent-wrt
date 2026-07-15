@@ -41,6 +41,30 @@ flowchart TD
     L --> P["named nft set"]
 ```
 
+## Collection Semantics
+
+The collector reads a snapshot of the current conntrack table. It does not
+receive packet events or authoritative connection-create events. Distinct-value
+detectors tolerate repeated snapshots of the same entry, but the beacon detector
+uses eligible observations as cadence samples. A long-lived UDP entry or a TCP
+entry that remains in a non-established state can therefore look periodic at the
+poll interval. Treat beaconing as an experimental lead, tune `exclude_ports`,
+and validate it against representative router traffic before coupling it to a
+response policy.
+
+## Enforcement Boundary
+
+When `enforcement_enabled` is true, the daemon creates the configured inet table
+and timed IPv4 set, then adds detected source addresses to that set. It does not
+create a base chain or packet-drop rule. An operator-managed firewall policy must
+reference the set before entries affect traffic. `/blocked`,
+`blocks_applied`, and nft readiness report successful set management, not proof
+that packets were dropped.
+
+For OpenWrt, a supported fw4 package include is the preferred future integration
+instead of ad hoc runtime rules. Until that integration exists, verify the full
+ruleset and an actual packet-flow test before describing enforcement as active.
+
 ## Detectors
 
 | Detector | Direction | Security outcome |

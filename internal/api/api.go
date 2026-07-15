@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -41,16 +42,17 @@ func newServer(addr string, eng engine) *Server {
 	s := &Server{eng: eng}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", s.handleHealthz)
-	mux.HandleFunc("/status", s.handleStatus)
-	mux.HandleFunc("/stats", s.handleStats)
-	mux.HandleFunc("/reload", s.handleReload)
-	mux.HandleFunc("/detections/recent", s.handleRecentDetections)
-	mux.HandleFunc("/blocked", s.handleBlocked)
-	mux.HandleFunc("/feed", s.handleFeed)
-	mux.HandleFunc("/feed/validate", s.handleFeedValidate)
-	mux.HandleFunc("/feed/add", s.handleFeedAdd)
-	mux.HandleFunc("/feed/remove", s.handleFeedRemove)
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /status", s.handleStatus)
+	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("POST /reload", s.handleReload)
+	mux.HandleFunc("GET /detections/recent", s.handleRecentDetections)
+	mux.HandleFunc("GET /blocked", s.handleBlocked)
+	mux.HandleFunc("GET /feed", s.handleFeed)
+	mux.HandleFunc("PUT /feed", s.handleFeed)
+	mux.HandleFunc("POST /feed/validate", s.handleFeedValidate)
+	mux.HandleFunc("POST /feed/add", s.handleFeedAdd)
+	mux.HandleFunc("POST /feed/remove", s.handleFeedRemove)
 
 	s.srv = &http.Server{
 		Addr:         addr,
@@ -246,6 +248,10 @@ func decodeJSONRequest(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		http.Error(w, "request body must contain a single JSON object", http.StatusBadRequest)
 		return false
 	}
 	return true

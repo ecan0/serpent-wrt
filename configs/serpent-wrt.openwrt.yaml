@@ -46,6 +46,7 @@ detectors:
     min_hits: 5
     tolerance: 3s
     window: 5m
+    exclude_ports: [53, 123]
   ext_scan:
     distinct_port_threshold: 15
     window: 60s

@@ -18,12 +18,20 @@ This project follows semantic versioning for tagged releases.
 - OpenWrt package CI now targets OpenWrt 25.12.4 SDKs, keeps verbose SDK make
   output opt-in with `OPENWRT_MAKE_FLAGS`, and preserves the package build patch
   for the Go 1.26.2 toolchain provided by the 25.12 packages feed.
-- CI now runs `govulncheck` with Go 1.26.4 and a pinned scanner release. OpenWrt
-  package builds keep the release-tarball patch for the 25.12 package toolchain.
-- Raised the active module and CI Go toolchain to 1.26.4 for standard-library
-  vulnerability fixes while preserving the OpenWrt release package patch.
+- CI now runs the pinned `govulncheck` release with the Go version from
+  `go.mod`. The active module and CI toolchain are Go 1.26.5 for current
+  standard-library security fixes; OpenWrt package builds retain the
+  release-tarball patch for the 25.12 package toolchain.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
+- Threat feed loads and reloads now reject malformed or unsupported entries
+  atomically instead of silently dropping bad lines.
+- HTTP routes now enforce documented methods, and feed mutation requests reject
+  trailing JSON values.
+- Daemon startup now emits configuration warnings, including the distinction
+  between nftables timed-set updates and an external packet-drop rule.
+- Documentation now records polling/beacon limitations and the current
+  nftables set-only enforcement boundary.
 
 ## v0.3.1 - 2026-05-17
 
