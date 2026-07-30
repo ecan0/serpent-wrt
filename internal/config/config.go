@@ -12,9 +12,15 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/lease"
 )
 
+const (
+	CollectorPolling = "polling"
+	CollectorNetlink = "netlink"
+)
+
 // Config holds all runtime configuration for serpent-wrt.
 type Config struct {
 	PollInterval       time.Duration     `yaml:"poll_interval"`
+	Collector          string            `yaml:"collector"`
 	ThreatFeedPath     string            `yaml:"threat_feed_path"`
 	Profile            string            `yaml:"profile"`
 	LeaseEnrichment    bool              `yaml:"lease_enrichment"`
@@ -161,6 +167,13 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.PollInterval <= 0 {
 		c.PollInterval = 5 * time.Second
+	}
+	c.Collector = strings.TrimSpace(c.Collector)
+	if c.Collector == "" {
+		c.Collector = CollectorPolling
+	}
+	if c.Collector != CollectorPolling && c.Collector != CollectorNetlink {
+		return fmt.Errorf("collector must be polling or netlink, got %q", c.Collector)
 	}
 	if c.LeaseEnrichment && c.DnsmasqLeasesPath == "" {
 		c.DnsmasqLeasesPath = lease.DefaultPath

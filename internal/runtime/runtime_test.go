@@ -1,13 +1,17 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ecan0/serpent-wrt/internal/collector"
 	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/detector"
 	"github.com/ecan0/serpent-wrt/internal/events"
@@ -37,6 +41,79 @@ func testConfig() *config.Config {
 func testEngine(t *testing.T) *Engine {
 	t.Helper()
 	return NewEngine(testConfig(), events.NewLogger(nil))
+}
+
+func TestRunNetlinkCollectorProcessesEvents(t *testing.T) {
+	cfg := testConfig()
+	cfg.Collector = config.CollectorNetlink
+	e := NewEngine(cfg, events.NewLogger(nil))
+
+	records := make(chan flow.FlowRecord)
+	done := make(chan error, 1)
+	e.startEvents = func(context.Context) (*collector.EventStream, error) {
+		go func() {
+			records <- flow.FlowRecord{
+				Proto:   "tcp",
+				SrcIP:   net.ParseIP("192.168.1.20"),
+				DstIP:   net.ParseIP("8.8.8.8"),
+				SrcPort: 50000,
+				DstPort: 443,
+				State:   "SYN_SENT",
+				SeenAt:  time.Now(),
+			}
+			close(records)
+			done <- nil
+			close(done)
+		}()
+		return &collector.EventStream{Records: records, Done: done}, nil
+	}
+	e.collectSnapshot = func() ([]flow.FlowRecord, error) {
+		t.Fatal("polling collector must not run while netlink stream is active")
+		return nil, nil
+	}
+
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := e.GetStats().FlowsSeen; got != 1 {
+		t.Fatalf("flows seen: got %d, want 1", got)
+	}
+	status := e.GetStatus().Collector
+	if status.Configured != config.CollectorNetlink || status.Active != config.CollectorNetlink {
+		t.Fatalf("collector status: got configured=%q active=%q", status.Configured, status.Active)
+	}
+}
+
+func TestRunNetlinkCollectorFallsBackToPolling(t *testing.T) {
+	cfg := testConfig()
+	cfg.Collector = config.CollectorNetlink
+	cfg.PollInterval = time.Millisecond
+	e := NewEngine(cfg, events.NewLogger(nil))
+	e.startEvents = func(context.Context) (*collector.EventStream, error) {
+		return nil, errors.New("netlink unavailable")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	polls := 0
+	e.collectSnapshot = func() ([]flow.FlowRecord, error) {
+		polls++
+		cancel()
+		return nil, nil
+	}
+
+	if err := e.Run(ctx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if polls == 0 {
+		t.Fatal("polling collector did not run after netlink startup failure")
+	}
+	status := e.GetStatus().Collector
+	if status.Configured != config.CollectorNetlink || status.Active != config.CollectorPolling {
+		t.Fatalf("collector status: got configured=%q active=%q", status.Configured, status.Active)
+	}
+	if !strings.Contains(status.FallbackError, "netlink unavailable") {
+		t.Fatalf("fallback error: got %q", status.FallbackError)
+	}
 }
 
 // --- isLAN ---

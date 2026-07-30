@@ -68,7 +68,8 @@ OpenWrt x86/generic targets usually need the 32-bit x86 build (`GOARCH=386`).
 
 ```mermaid
 flowchart TD
-    A["/proc/net/nf_conntrack"] --> B["collector"]
+    A["polling conntrack snapshots"] --> B["collector"]
+    A2["optional conntrack NEW events"] --> B
     B --> C["flow records"]
     C --> D["direction classifier"]
     D --> E["LAN to WAN detectors"]
@@ -91,7 +92,7 @@ Design guardrails:
 - detect-only by default
 - no packet capture or payload inspection
 - no persistent database
-- polling remains the stable collector path
+- polling is the default and automatic fallback; netlink events are opt-in
 - IPv4-only in current releases
 
 More detail: [Architecture](docs/architecture.md).
@@ -174,7 +175,8 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
   a packet-drop rule. Traffic is blocked only when a separately managed firewall
   rule references that set.
 - `/blocked` and `blocks_applied` report set state, not observed packet drops.
-- The polling collector sees snapshots, not packets or connection-create events.
+- Polling sees snapshots and can repeat long-lived flows. Optional netlink mode
+  consumes connection-create events and returns to polling if the stream fails.
   Validate beacon alerts on representative traffic before using them for response.
 - OpenWrt firewall reloads can remove custom nftables state, so check
   `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.

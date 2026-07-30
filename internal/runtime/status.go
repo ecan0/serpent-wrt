@@ -20,6 +20,7 @@ type Status struct {
 	StartedAt     time.Time            `json:"started_at"`
 	UptimeSeconds int64                `json:"uptime_seconds"`
 	Feed          FeedStatus           `json:"feed"`
+	Collector     CollectorStatus      `json:"collector"`
 	Enforcement   EnforcementStatus    `json:"enforcement"`
 	Runtime       RuntimeStatus        `json:"runtime"`
 	Detectors     DetectorConfigStatus `json:"detectors"`
@@ -29,6 +30,13 @@ type Status struct {
 type FeedStatus struct {
 	Path  string `json:"path"`
 	Count int    `json:"count"`
+}
+
+// CollectorStatus reports the requested collector and any polling fallback.
+type CollectorStatus struct {
+	Configured    string `json:"configured"`
+	Active        string `json:"active"`
+	FallbackError string `json:"fallback_error,omitempty"`
 }
 
 // EnforcementStatus summarizes enforcement and nft setup state.
@@ -139,6 +147,12 @@ func (e *Engine) GetStatus() Status {
 	nftErr := e.nftSetupError
 	e.nftMu.Unlock()
 
+	e.collectorMu.Lock()
+	collectorConfigured := e.collectorConfigured
+	collectorActive := e.collectorActive
+	collectorErr := e.collectorError
+	e.collectorMu.Unlock()
+
 	e.buildMu.Lock()
 	build := e.buildInfo
 	e.buildMu.Unlock()
@@ -150,6 +164,11 @@ func (e *Engine) GetStatus() Status {
 		Feed: FeedStatus{
 			Path:  e.cfg.ThreatFeedPath,
 			Count: e.feed.Len(),
+		},
+		Collector: CollectorStatus{
+			Configured:    collectorConfigured,
+			Active:        collectorActive,
+			FallbackError: collectorErr,
 		},
 		Enforcement: EnforcementStatus{
 			Enabled:       e.cfg.EnforcementEnabled,

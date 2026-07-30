@@ -21,7 +21,7 @@ are limited to 1 MiB.
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
-| `/status` | GET | Feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
+| `/status` | GET | Collector mode/fallback, feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
 | `/stats` | GET | Flow, detection, suppression, dedup, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables timed-set contents; not proof of packet drops. |
