@@ -100,7 +100,14 @@ type Engine struct {
 	log  *events.Logger
 	enf  *enforcer.Enforcer
 
-	feedFileMu sync.Mutex
+	collectSnapshot func() ([]flow.FlowRecord, error)
+	startEvents     func(context.Context) (*collector.EventStream, error)
+
+	collectorMu         sync.Mutex
+	collectorConfigured string
+	collectorActive     string
+	collectorError      string
+	feedFileMu          sync.Mutex
 
 	// outbound detectors
 	feedMatch *detector.FeedMatch
@@ -148,11 +155,19 @@ type Engine struct {
 // NewEngine constructs an Engine from the provided config.
 func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 	f := feed.New()
+	collectorMode := cfg.Collector
+	if collectorMode == "" {
+		collectorMode = config.CollectorPolling
+	}
 	e := &Engine{
 		cfg:                   cfg,
 		feed:                  f,
 		log:                   log,
 		enf:                   enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration),
+		collectSnapshot:       collector.Collect,
+		startEvents:           collector.StartEvents,
+		collectorConfigured:   collectorMode,
+		collectorActive:       collectorMode,
 		feedMatch:             detector.NewFeedMatch(f),
 		fanout:                detector.NewFanout(cfg.Detectors.Fanout.DistinctDstThreshold, cfg.Detectors.Fanout.Window),
 		portScan:              detector.NewPortScan(cfg.Detectors.Scan.DistinctPortThreshold, cfg.Detectors.Scan.Window),
@@ -214,6 +229,26 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 	}
 
+	if e.collectorConfigured == config.CollectorNetlink {
+		if err := e.runNetlink(ctx); err == nil {
+			return nil
+		} else if ctx.Err() == nil {
+			e.setCollectorState(config.CollectorPolling, err)
+			e.log.System(events.LevelWarn, events.SystemFields{
+				Component: "collector",
+				Action:    "fallback",
+				Status:    "degraded",
+				Error:     err.Error(),
+			}, fmt.Sprintf("netlink collector unavailable; using polling: %v", err))
+		} else {
+			return nil
+		}
+	}
+
+	return e.runPolling(ctx)
+}
+
+func (e *Engine) runPolling(ctx context.Context) error {
 	ticker := time.NewTicker(e.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -233,8 +268,57 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
+func (e *Engine) runNetlink(ctx context.Context) error {
+	stream, err := e.startEvents(ctx)
+	if err != nil {
+		return err
+	}
+	e.setCollectorState(config.CollectorNetlink, nil)
+	e.log.System(events.LevelInfo, events.SystemFields{
+		Component: "collector",
+		Action:    "start",
+		Status:    "success",
+	}, "conntrack NEW event stream active")
+
+	pruneTicker := time.NewTicker(e.cfg.PollInterval * pruneEvery)
+	defer pruneTicker.Stop()
+
+	records := stream.Records
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case record, ok := <-records:
+			if !ok {
+				records = nil
+				continue
+			}
+			atomic.AddUint64(&e.flowsSeen, 1)
+			e.processFlow(record)
+		case err, ok := <-stream.Done:
+			if !ok {
+				return fmt.Errorf("conntrack event stream closed without status")
+			}
+			return err
+		case <-pruneTicker.C:
+			e.prune()
+		}
+	}
+}
+
+func (e *Engine) setCollectorState(active string, err error) {
+	e.collectorMu.Lock()
+	e.collectorActive = active
+	if err == nil {
+		e.collectorError = ""
+	} else {
+		e.collectorError = err.Error()
+	}
+	e.collectorMu.Unlock()
+}
+
 func (e *Engine) poll() {
-	flows, err := collector.Collect()
+	flows, err := e.collectSnapshot()
 	if err != nil {
 		e.log.System(events.LevelError, events.SystemFields{
 			Component: "collector",

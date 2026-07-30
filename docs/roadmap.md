@@ -86,8 +86,11 @@ and reproducible release attestations should accompany these tracks.
 
 ### Optional netlink collector
 
-Prototype conntrack netlink events as an optional collector. Polling must remain
-the fallback path, and netlink must not become a mandatory runtime dependency.
+- `collector: netlink` consumes conntrack NEW events through the optional
+  `conntrack` CLI.
+- Polling remains the default and automatic fallback.
+- `/status` exposes the configured collector, active collector, and fallback
+  error.
 
 ### IPv6 support
 

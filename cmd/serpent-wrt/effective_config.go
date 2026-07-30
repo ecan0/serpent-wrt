@@ -11,6 +11,7 @@ import (
 
 type effectiveConfig struct {
 	PollInterval       string                     `yaml:"poll_interval" json:"poll_interval"`
+	Collector          string                     `yaml:"collector" json:"collector"`
 	ThreatFeedPath     string                     `yaml:"threat_feed_path" json:"threat_feed_path"`
 	Profile            string                     `yaml:"profile" json:"profile"`
 	LeaseEnrichment    bool                       `yaml:"lease_enrichment" json:"lease_enrichment"`
@@ -87,6 +88,7 @@ func writeEffectiveConfig(w io.Writer, cfg *config.Config) error {
 func newEffectiveConfig(cfg *config.Config) effectiveConfig {
 	return effectiveConfig{
 		PollInterval:       formatConfigDuration(cfg.PollInterval),
+		Collector:          cfg.Collector,
 		ThreatFeedPath:     cfg.ThreatFeedPath,
 		Profile:            cfg.Profile,
 		LeaseEnrichment:    cfg.LeaseEnrichment,

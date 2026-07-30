@@ -37,6 +37,8 @@ This project follows semantic versioning for tagged releases.
   between nftables timed-set updates and an external packet-drop rule.
 - Documentation now records polling/beacon limitations and the current
   nftables set-only enforcement boundary.
+- Added an optional conntrack NEW-event collector with automatic polling
+  fallback, effective-config output, and collector state in `/status`.
 
 ## v0.3.1 - 2026-05-17
 
