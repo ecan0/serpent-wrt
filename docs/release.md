@@ -51,6 +51,13 @@ This checklist is for project releases and OpenWrt package refreshes.
    enforcement, rollback, and firewall reload recovery checks that surround
    runtime validation.
 
+   On trusted `dev` pushes, CI performs the same install and smoke test on the
+   `openwrt-x86-64` VM defined by `test-wrt-iac`. The repository variable
+   `OPENWRT_X86_64_HOST` supplies its local-network management address and the
+   `DEPLOY_KEY` secret supplies SSH authentication. The VM uses the
+   x86/generic OpenWrt image, so the 32-bit binary is intentional despite the
+   VM's x86-64 host architecture.
+
 6. After the release prep PR merges, open the release PR from `dev` to `main`
    and require `CI Gate`.
 7. After the release PR merges, tag the release from `main`:

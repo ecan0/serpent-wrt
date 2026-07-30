@@ -161,13 +161,13 @@ jobs:
         run: govulncheck ./...
 
   deploy-test:
-    name: Runtime test (openwrt-x86-generic)
+    name: Runtime test (test-wrt-iac/openwrt-x86-64)
     runs-on: self-hosted
     timeout-minutes: 15
     needs: [changes, build, test, lint, scan]
     if: always() && needs.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
-      OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
+      OPENWRT_HOST: ${{ vars.OPENWRT_X86_64_HOST }}
       OPENWRT_USER: root
     steps:
       - name: Check deploy target configured
@@ -175,7 +175,7 @@ jobs:
           if [ -n "$OPENWRT_HOST" ]; then
             echo "DEPLOY_ENABLED=true" >> "$GITHUB_ENV"
           else
-            echo "OPENWRT_HOST secret not set - skipping deploy"
+            echo "OPENWRT_X86_64_HOST repository variable not set - skipping deploy"
           fi
 
       - uses: actions/checkout@v7

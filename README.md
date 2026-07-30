@@ -191,6 +191,10 @@ Development flows through `dev`; `main` is the protected release and tag branch.
 Use `feature/<slice-name>` for product work and `ci/<slice-name>` for CI,
 release, docs/process, and automation work.
 
+Trusted `dev` pushes also install the generated x86/generic binary on the
+`openwrt-x86-64` lab VM defined by `test-wrt-iac`. Its local-network address
+and SSH credential stay in repository settings rather than source.
+
 Useful checks:
 
 ```sh

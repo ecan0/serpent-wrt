@@ -207,6 +207,8 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
 		"runs-on: ${{ needs.changes.outputs.runner_label }}",
 		"HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
+		"Runtime test (test-wrt-iac/openwrt-x86-64)",
+		"OPENWRT_HOST: ${{ vars.OPENWRT_X86_64_HOST }}",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("CI workflow missing %q", want)
