@@ -62,8 +62,16 @@ This checklist is for project releases and OpenWrt package refreshes.
 
 8. Publish the GitHub Release. The `OpenWrt APK Packages` workflow runs on
    published releases, builds APKs from official OpenWrt 25.12 SDKs, and
-   attaches the package artifacts plus `SHA256SUMS` files to the release. For
-   an existing release, run the workflow manually and set `release_tag`.
+   attaches each target's APK, CycloneDX SBOM, and `SHA256SUMS` file. It also
+   creates GitHub build-provenance and SBOM attestations for every APK. For an
+   existing release, run the workflow manually and set `release_tag`.
+
+   Verify a downloaded package against this repository:
+
+   ```sh
+   gh attestation verify serpent-wrt-<version>-<target>.apk \
+     --repo ecan0/serpent-wrt
+   ```
 9. Delete temporary release branches after the tag, release, and package
    artifacts are published.
 

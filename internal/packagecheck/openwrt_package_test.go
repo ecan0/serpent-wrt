@@ -187,6 +187,11 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"OPENWRT_APK_WORK_DIR",
 		"OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}",
 		"actions/upload-artifact@v7",
+		"actions/setup-go@v6",
+		"github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0",
+		"actions/attest@v4",
+		"subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk",
+		"sbom-path: artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json",
 		"gh release upload",
 	} {
 		if !strings.Contains(workflow, want) {
@@ -200,6 +205,8 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 	for _, want := range []string{
 		"go-version-file: go.mod",
 		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
+		"runs-on: ${{ needs.changes.outputs.runner_label }}",
+		"HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("CI workflow missing %q", want)

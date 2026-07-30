@@ -113,14 +113,18 @@ enrichment from dnsmasq leases.
 ## OpenWrt APKs
 
 The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
-25.12 SDKs and attaches target-specific packages plus `SHA256SUMS` files to
-GitHub Releases.
+25.12 SDKs. Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file
+to GitHub Releases; GitHub artifact attestations bind the APK to its build and
+SBOM.
 
 Current release assets:
 
 - `serpent-wrt-0.3.1-r4-x86-64.apk`
 - `serpent-wrt-0.3.1-r4-x86-generic.apk`
 - `serpent-wrt-0.3.1-r4-mediatek-filogic.apk`
+
+Verify a downloaded APK with
+`gh attestation verify <apk> --repo ecan0/serpent-wrt`.
 
 Install and package details: [OpenWrt install](docs/openwrt-install.md).
 

@@ -16,11 +16,29 @@ concurrency:
 jobs:
   changes:
     name: Detect changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       code_changed: ${{ steps.filter.outputs.code_changed }}
+      runner_label: ${{ steps.runner.outputs.label }}
     steps:
+      - id: runner
+        name: Select code execution runner
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+            label=ubuntu-latest
+          else
+            label=self-hosted
+          fi
+
+          echo "Fork PR code runner: $label"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -60,7 +78,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -83,7 +101,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -103,7 +121,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -124,7 +142,7 @@ jobs:
 
   scan:
     name: Scan
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -198,7 +216,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [changes, build, test, lint, scan]
     if: always()
