@@ -24,6 +24,11 @@ This project follows semantic versioning for tagged releases.
   release-tarball patch for the 25.12 package toolchain.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
+- Fork pull requests now execute build, test, lint, and vulnerability checks on
+  GitHub-hosted runners; trusted branches retain the project-controlled runner
+  path without exposing it to untrusted code.
+- OpenWrt release artifacts now include target-specific CycloneDX SBOMs, and
+  APKs receive GitHub build-provenance and SBOM attestations.
 - Threat feed loads and reloads now reject malformed or unsupported entries
   atomically instead of silently dropping bad lines.
 - HTTP routes now enforce documented methods, and feed mutation requests reject

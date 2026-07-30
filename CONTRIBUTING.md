@@ -35,10 +35,12 @@ make release-check
 This runs tests, vet, whitespace checks, the OpenWrt package metadata check, and
 representative OpenWrt target builds.
 
-CI intentionally runs on project-controlled self-hosted runners. Preserve that
-architecture when editing workflows. Runner provisioning and isolation are
-maintained in the private infrastructure source of truth; do not copy hostnames,
-credentials, tokens, or private network details into this public repository.
+Trusted branches intentionally run build, test, lint, and vulnerability jobs on
+project-controlled self-hosted runners. Fork pull requests are automatically
+routed to GitHub-hosted runners so untrusted code never executes on project
+infrastructure. Private runner provisioning and isolation remain outside this
+repository; do not copy hostnames, credentials, tokens, or private network
+details into public files.
 
 ## Cross-compiling for OpenWrt
 
