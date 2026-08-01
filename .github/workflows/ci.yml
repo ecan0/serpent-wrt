@@ -196,9 +196,14 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-      - name: Check connectivity
+      - name: Check SSH connectivity
         if: env.DEPLOY_ENABLED == 'true'
-        run: ping -c 2 "${OPENWRT_HOST#*@}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${OPENWRT_HOST#*@}"
+          timeout 5 bash -c ":</dev/tcp/${host}/22"
+          echo "TCP/22 reachable on ${host}; SSH authentication will be verified by the runtime test."
 
       - name: Build OpenWrt x86 generic binary
         if: env.DEPLOY_ENABLED == 'true'
