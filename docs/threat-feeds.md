@@ -4,9 +4,11 @@
 
 serpent-wrt reads a plain-text file with one entry per line. Each entry is either:
 
-- A single IPv4 address: `198.51.100.1`
-- A CIDR block: `198.51.100.0/24`
+- A single IPv4 or IPv6 address: `198.51.100.1` or `2001:db8::1`
+- An IPv4 or IPv6 CIDR block: `198.51.100.0/24` or `2001:db8::/32`
 
+IPv6 entries are normalized before storage and matched by the same feed API as
+IPv4 entries.
 Blank lines and lines starting with `#` are ignored.
 
 Loading and reloading are strict: any other non-comment line rejects the whole
@@ -93,7 +95,7 @@ with `reload_feed`, `SIGHUP`, or the API reload endpoint.
 ## Local API management
 
 The localhost API can manage the configured flat feed file. Entries are
-validated as IPv4 addresses or IPv4 CIDRs, duplicate imports are collapsed, and
+validated as IPv4 or IPv6 addresses/CIDRs, duplicate imports are collapsed, and
 writes are bounded to 20,000 entries. Successful add/remove/replace operations
 reload the daemon feed automatically.
 

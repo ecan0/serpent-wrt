@@ -35,8 +35,7 @@ const (
 
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
 
-// isUnroutable reports whether ip should never appear as a threat actor —
-// unspecified (0.0.0.0), loopback, link-local, multicast, or broadcast.
+// isUnroutable reports whether ip should never appear as a threat actor.
 func isUnroutable(ip net.IP) bool {
 	if ip == nil {
 		return true
@@ -198,7 +197,10 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 	}
 	for _, s := range cfg.SelfIPs {
 		if ip := net.ParseIP(s); ip != nil {
-			e.selfIPs = append(e.selfIPs, ip.To4())
+			if ip.To4() != nil {
+				ip = ip.To4()
+			}
+			e.selfIPs = append(e.selfIPs, ip)
 		}
 	}
 	return e

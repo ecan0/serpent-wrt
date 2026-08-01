@@ -86,19 +86,18 @@ func (e *Enforcer) EnsureSet() error {
 	return e.runScript(ensureSetScript(e.table, e.set))
 }
 
-// Block adds ip to the nftables blocked set with a timeout.
-// If ip is already tracked as blocked, the call is a no-op.
+// Block adds ip to the nftables blocked set with a timeout. Both address
+// families are supported by the inet_addr set.
 func (e *Enforcer) Block(ip net.IP) error {
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return nil // IPv6 not supported in MVP
+	if ip == nil {
+		return nil
 	}
-	key := ip4.String()
+	key := ip.String()
 
 	e.mu.Lock()
 	if exp, ok := e.blocked[key]; ok && time.Now().Before(exp) {
 		e.mu.Unlock()
-		return nil // already blocked
+		return nil
 	}
 	e.mu.Unlock()
 
@@ -114,12 +113,11 @@ func (e *Enforcer) Block(ip net.IP) error {
 
 // IsBlocked reports whether ip is currently tracked as blocked.
 func (e *Enforcer) IsBlocked(ip net.IP) bool {
-	ip4 := ip.To4()
-	if ip4 == nil {
+	if ip == nil {
 		return false
 	}
 	e.mu.Lock()
-	exp, ok := e.blocked[ip4.String()]
+	exp, ok := e.blocked[ip.String()]
 	e.mu.Unlock()
 	return ok && time.Now().Before(exp)
 }
@@ -203,7 +201,7 @@ func runNftCheck(args ...string) error {
 
 func ensureSetScript(table, set string) string {
 	return fmt.Sprintf(
-		"add table inet %s\nadd set inet %s %s { type ipv4_addr; flags timeout; }\n",
+		"add table inet %s\nadd set inet %s %s { type inet_addr; flags timeout; }\n",
 		table, table, set,
 	)
 }

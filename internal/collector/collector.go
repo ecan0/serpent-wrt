@@ -132,7 +132,7 @@ func parse(scanner *bufio.Scanner) ([]flow.FlowRecord, error) {
 //	[NEW] tcp 6 120 SYN_SENT src=192.168.1.1 dst=8.8.8.8 sport=45678 dport=443
 func parseLine(line string, now time.Time) (flow.FlowRecord, bool) {
 	line = strings.TrimSpace(line)
-	if line == "" || strings.HasPrefix(line, "ipv6") {
+	if line == "" {
 		return flow.FlowRecord{}, false
 	}
 
@@ -182,12 +182,12 @@ func parseLine(line string, now time.Time) (flow.FlowRecord, bool) {
 		switch k {
 		case "src":
 			if seen&1 == 0 {
-				srcIP = net.ParseIP(v).To4()
+				srcIP = net.ParseIP(v)
 				seen |= 1
 			}
 		case "dst":
 			if seen&2 == 0 {
-				dstIP = net.ParseIP(v).To4()
+				dstIP = net.ParseIP(v)
 				seen |= 2
 			}
 		case "sport":
