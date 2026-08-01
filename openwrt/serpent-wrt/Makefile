@@ -2,14 +2,14 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=serpent-wrt
 PKG_VERSION:=0.4.0
-# Tagged release archive source. Keep PKG_SOURCE_VERSION aligned with the tag
-# target commit so runtime build metadata reports the released source.
+# Immutable v0.4.0 source commit. Keep this separate from package metadata
+# commits so the source archive hash remains reproducible.
 PKG_SOURCE_DATE:=2026-08-01
 PKG_SOURCE_VERSION:=ba9ff5cd6cfdc3c9af214c5bd8a922c511668859
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?
+PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/$(PKG_SOURCE_VERSION)?
 PKG_HASH:=aa86d216c5b37dd8b2cd183e510134c151c64776dfa94148f7afcf63b6ed4f43
 
 PKG_MAINTAINER:=ecan0
