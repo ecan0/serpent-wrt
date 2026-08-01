@@ -134,7 +134,7 @@ jobs:
           GOARCH: ${{ matrix.go_arch }}
           GOOS: linux
         run: |
-          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+          GOARCH=amd64 GOOS=linux go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
           cyclonedx-gomod app \
             -json \
             -licenses \
