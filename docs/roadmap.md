@@ -89,8 +89,8 @@ the fallback path, and netlink must not become a mandatory runtime dependency.
 
 ### IPv6 support
 
-Add IPv6 parsing, detection, status, config, feed, and enforcement support as a
-dedicated release track.
+- IPv4 and IPv6 parsing, detection, status, config, feed, suppression, and
+  enforcement support are implemented and covered by tests.
 
 ### DNS context
 

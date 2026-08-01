@@ -21,7 +21,7 @@ are limited to 1 MiB.
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
-| `/status` | GET | Feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
+| `/status` | GET | Collector mode/fallback, feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
 | `/stats` | GET | Flow, detection, suppression, dedup, and block counters. |
 | `/detections/recent` | GET | Last 100 detections in memory. |
 | `/blocked` | GET | Current nftables timed-set contents; not proof of packet drops. |
@@ -29,7 +29,7 @@ are limited to 1 MiB.
 | `/feed` | GET | List normalized local threat feed entries. |
 | `/feed` | PUT | Replace the local threat feed with validated entries. |
 | `/feed/validate` | POST | Validate one entry or a candidate entry list without writing. |
-| `/feed/add` | POST | Add one IPv4/IP-CIDR feed entry and reload if changed. |
+| `/feed/add` | POST | Add one IPv4/IPv6 IP-or-CIDR feed entry and reload if changed. |
 | `/feed/remove` | POST | Remove one feed entry and reload if changed. |
 
 ## Examples

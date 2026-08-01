@@ -207,13 +207,12 @@ func (c *Config) applyDefaults() error {
 	}
 	for i, cidr := range c.LANCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
-			return fmt.Errorf("lan_cidrs[%d] must be valid CIDR, got %q: %w", i, cidr, err)
+			return fmt.Errorf("lan_cidrs[%d] must be valid IPv4 or IPv6 CIDR, got %q: %w", i, cidr, err)
 		}
 	}
 	for i, selfIP := range c.SelfIPs {
-		ip := net.ParseIP(selfIP)
-		if ip == nil || ip.To4() == nil {
-			return fmt.Errorf("self_ips[%d] must be an IPv4 address, got %q", i, selfIP)
+		if ip := net.ParseIP(selfIP); ip == nil {
+			return fmt.Errorf("self_ips[%d] must be a valid IPv4 or IPv6 address, got %q", i, selfIP)
 		}
 	}
 	c.applyDetectorProfile(profile)
@@ -277,14 +276,14 @@ func (c *Config) validateSuppressionRules() error {
 		}
 		for j := range rule.SrcAddrs {
 			rule.SrcAddrs[j] = strings.TrimSpace(rule.SrcAddrs[j])
-			if err := validateIPv4AddrOrCIDR(rule.SrcAddrs[j]); err != nil {
-				return fmt.Errorf("suppression_rules[%d].src_addrs[%d] must be an IPv4 address or CIDR, got %q: %w", i, j, rule.SrcAddrs[j], err)
+			if err := validateIPAddrOrCIDR(rule.SrcAddrs[j]); err != nil {
+				return fmt.Errorf("suppression_rules[%d].src_addrs[%d] must be an IPv4 or IPv6 address or CIDR, got %q: %w", i, j, rule.SrcAddrs[j], err)
 			}
 		}
 		for j := range rule.DstAddrs {
 			rule.DstAddrs[j] = strings.TrimSpace(rule.DstAddrs[j])
-			if err := validateIPv4AddrOrCIDR(rule.DstAddrs[j]); err != nil {
-				return fmt.Errorf("suppression_rules[%d].dst_addrs[%d] must be an IPv4 address or CIDR, got %q: %w", i, j, rule.DstAddrs[j], err)
+			if err := validateIPAddrOrCIDR(rule.DstAddrs[j]); err != nil {
+				return fmt.Errorf("suppression_rules[%d].dst_addrs[%d] must be an IPv4 or IPv6 address or CIDR, got %q: %w", i, j, rule.DstAddrs[j], err)
 			}
 		}
 		for j, port := range rule.DstPorts {
@@ -305,23 +304,16 @@ func isKnownDetector(name string) bool {
 	}
 }
 
-func validateIPv4AddrOrCIDR(value string) error {
+func validateIPAddrOrCIDR(value string) error {
 	if value == "" {
 		return fmt.Errorf("empty value")
 	}
 	if strings.Contains(value, "/") {
-		ip, _, err := net.ParseCIDR(value)
-		if err != nil {
-			return err
-		}
-		if ip.To4() == nil {
-			return fmt.Errorf("not IPv4")
-		}
-		return nil
+		_, _, err := net.ParseCIDR(value)
+		return err
 	}
-	ip := net.ParseIP(value)
-	if ip == nil || ip.To4() == nil {
-		return fmt.Errorf("not IPv4")
+	if net.ParseIP(value) == nil {
+		return fmt.Errorf("not an IPv4 or IPv6 address")
 	}
 	return nil
 }

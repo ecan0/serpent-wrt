@@ -14,14 +14,17 @@ serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest --effective --
 
 ```yaml
 poll_interval: 5s
+collector: polling
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 profile: home
 
 lan_cidrs:
   - 198.51.100.0/24
+  - 2001:db8:100::/64
 
 self_ips:
   - 198.51.100.1
+  - 2001:db8:100::1
 
 lease_enrichment: true
 dnsmasq_leases_path: /tmp/dhcp.leases
@@ -74,9 +77,8 @@ suppression_rules:
     dst_ports: [22]
 ```
 
-Each rule matches only when every configured dimension matches. Supported
 matchers are `detectors`, `src_addrs`, `dst_addrs`, and `dst_ports`; address
-matchers accept IPv4 addresses or CIDRs.
+matchers accept IPv4 or IPv6 addresses and CIDRs.
 
 ## Detector Thresholds
 

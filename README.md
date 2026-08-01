@@ -23,7 +23,7 @@ agent stack.
 ## What It Does
 
 - Watches `nf_conntrack` flow metadata.
-- Matches flows against a local IPv4/IP-CIDR threat feed.
+- Matches flows against a local IPv4/IPv6 IP-and-CIDR threat feed.
 - Detects feed hits, fanout, port scans, beacon-like traffic, inbound scans,
   and brute-force/service-spray patterns.
 - Emits NDJSON security events and optional remote syslog.
@@ -92,7 +92,7 @@ Design guardrails:
 - no packet capture or payload inspection
 - no persistent database
 - polling remains the stable collector path
-- IPv4-only in current releases
+- IPv4 and IPv6 flow metadata are supported
 
 More detail: [Architecture](docs/architecture.md).
 
@@ -176,10 +176,10 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
 - `/blocked` and `blocks_applied` report set state, not observed packet drops.
 - The polling collector sees snapshots, not packets or connection-create events.
   Validate beacon alerts on representative traffic before using them for response.
+- IPv6 enforcement uses the same inet nftables set, but the firewall policy must
+  reference it for both address families.
 - OpenWrt firewall reloads can remove custom nftables state, so check
   `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.
-- IPv6, packet capture, persistent storage, dashboards, ML scoring, and remote
-  feed sync are outside the current release scope.
 
 ## Development
 

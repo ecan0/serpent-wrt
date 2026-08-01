@@ -32,6 +32,9 @@ This project follows semantic versioning for tagged releases.
   between nftables timed-set updates and an external packet-drop rule.
 - Documentation now records polling/beacon limitations and the current
   nftables set-only enforcement boundary.
+- IPv4 and IPv6 addresses/CIDRs are now supported in feeds, conntrack parsing,
+  suppression rules, LAN/self-IP configuration, status events, and nftables
+  timed-set enforcement.
 
 ## v0.3.1 - 2026-05-17
 

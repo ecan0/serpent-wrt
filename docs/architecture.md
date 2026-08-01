@@ -87,6 +87,6 @@ traffic.
 - Detect-only by default.
 - No packet capture or payload inspection.
 - No persistent database.
-- IPv4-only for current releases.
+- IPv4 and IPv6 flow metadata are supported.
 - Polling remains the stable fallback even if an optional netlink collector is
   added later.
