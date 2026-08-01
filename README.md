@@ -128,9 +128,9 @@ SBOM.
 
 Current release assets:
 
-- `serpent-wrt-0.3.1-r4-x86-64.apk`
-- `serpent-wrt-0.3.1-r4-x86-generic.apk`
-- `serpent-wrt-0.3.1-r4-mediatek-filogic.apk`
+- `serpent-wrt-0.4.0-r4-x86-64.apk`
+- `serpent-wrt-0.4.0-r4-x86-generic.apk`
+- `serpent-wrt-0.4.0-r4-mediatek-filogic.apk`
 
 Verify a downloaded APK with
 `gh attestation verify <apk> --repo ecan0/serpent-wrt`.

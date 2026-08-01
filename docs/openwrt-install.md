@@ -9,16 +9,16 @@ The `OpenWrt APK Packages` workflow builds target-specific APKs from official
 OpenWrt SDKs and attaches them to GitHub Releases with matching `SHA256SUMS`
 files.
 
-Current v0.3.1 r4 assets:
+Current v0.4.0 r4 assets:
 
-- `serpent-wrt-0.3.1-r4-x86-64.apk`
-- `serpent-wrt-0.3.1-r4-x86-generic.apk`
-- `serpent-wrt-0.3.1-r4-mediatek-filogic.apk`
+- `serpent-wrt-0.4.0-r4-x86-64.apk`
+- `serpent-wrt-0.4.0-r4-x86-generic.apk`
+- `serpent-wrt-0.4.0-r4-mediatek-filogic.apk`
 - `SHA256SUMS-x86-64`
 - `SHA256SUMS-x86-generic`
 - `SHA256SUMS-mediatek-filogic`
 
-Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.3.1>
+Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.4.0>
 
 ## Package Scaffold
 
