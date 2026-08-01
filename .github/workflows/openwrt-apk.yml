@@ -139,7 +139,6 @@ jobs:
             -json \
             -licenses \
             -main cmd/serpent-wrt \
-            -noserial \
             -notimestamp \
             -output-version 1.4 \
             -output "artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json" \
