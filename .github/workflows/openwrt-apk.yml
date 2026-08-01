@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
-          key: openwrt-apk-${{ runner.os }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-v1
+          key: openwrt-apk-${{ runner.os }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-v2
 
       - name: Install SDK build dependencies
         run: |
