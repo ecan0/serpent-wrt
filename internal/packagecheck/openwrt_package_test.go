@@ -40,7 +40,7 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	goVersionPatch := readRepoFile(t, "openwrt/serpent-wrt/patches/001-openwrt-go-1.26.2.patch")
 	for _, want := range []string{
 		"OpenWrt 25.12.4 ships Go 1.26.2",
-		"-go 1.26.3",
+		"-go 1.26.5",
 		"+go 1.26.2",
 	} {
 		if !strings.Contains(goVersionPatch, want) {
