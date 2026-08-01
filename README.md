@@ -20,6 +20,10 @@ It reads conntrack metadata that Linux routers already maintain. It does not
 capture packets, inspect payloads, run a database, or require a heavyweight
 agent stack.
 
+**Start here:** [install on OpenWrt](docs/openwrt-install.md) ·
+[configure](docs/configuration.md) · [operate safely](docs/openwrt-runbooks.md) ·
+[understand the design](docs/architecture.md)
+
 ## What It Does
 
 - Watches `nf_conntrack` flow metadata.
@@ -32,6 +36,10 @@ agent stack.
 - Optionally adds detected source IPs to nftables sets with kernel-managed timeouts.
 - Ships OpenWrt package metadata, procd init files, release APK artifacts, and
   runtime smoke coverage.
+
+The default path is detect-only. Enforcement is an explicit operator choice:
+the daemon manages timed nftables set entries, while the firewall policy that
+references those entries remains under operator control.
 
 ## Quick Start
 
@@ -154,12 +162,14 @@ serpent-wrt feed remove 198.51.100.1
 
 Reference docs:
 
-- [Configuration](docs/configuration.md)
-- [HTTP API](docs/api.md)
-- [Threat feeds](docs/threat-feeds.md)
-- [OpenWrt runbooks](docs/openwrt-runbooks.md)
-- [Release process](docs/release.md)
-- [Roadmap](docs/roadmap.md)
+- [Configuration](docs/configuration.md) — fields, profiles, thresholds, and
+  suppression rules.
+- [HTTP API](docs/api.md) — localhost status, events, and feed management.
+- [Threat feeds](docs/threat-feeds.md) — format, validation, and safe reloads.
+- [OpenWrt runbooks](docs/openwrt-runbooks.md) — detect-only, enforcement, and
+  rollback checks.
+- [Release process](docs/release.md) — branch, package, and attestation flow.
+- [Roadmap](docs/roadmap.md) — shipped scope and deliberate non-goals.
 
 ## Events And SIEM
 
