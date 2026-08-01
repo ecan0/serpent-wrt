@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,14 +34,17 @@ jobs:
       matrix:
         include:
           - target: x86/64
+            go_arch: amd64
             slug: x86-64
             sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
             sdk_sha256: 28e004c1be4d215d19c1f12a6aa4c8d8f80689549eb707d0ff5a71f16fa8d05f
           - target: x86/generic
+            go_arch: "386"
             slug: x86-generic
             sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/generic/openwrt-sdk-25.12.4-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
             sdk_sha256: d4139c65d5d952a9aac9e33db8732def020dbbba7e6498bbc9062a304794dff5
           - target: mediatek/filogic
+            go_arch: arm64
             slug: mediatek-filogic
             sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/openwrt-sdk-25.12.4-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
             sdk_sha256: 411a2277ca10f909c30275a506aab4dc28a4f1281d7fda4f19faaa2ded6630bb
@@ -47,6 +53,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref || github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
 
       - name: Restore OpenWrt SDK cache
         uses: actions/cache@v6
@@ -87,6 +97,36 @@ jobs:
           OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
           OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}
         run: sh scripts/build-openwrt-apk.sh
+      - name: Generate CycloneDX SBOM
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.go_arch }}
+          GOOS: linux
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+          cyclonedx-gomod app \
+            -json \
+            -licenses \
+            -main cmd/serpent-wrt \
+            -noserial \
+            -notimestamp \
+            -output "artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json" \
+            .
+
+          cd "artifacts/openwrt-apk/${{ matrix.slug }}"
+          sha256sum serpent-wrt-*.apk serpent-wrt-*.cdx.json > "SHA256SUMS-${{ matrix.slug }}"
+
+      - name: Attest package provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
+
+      - name: Attest package SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
+          sbom-path: artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json
+
 
       - uses: actions/upload-artifact@v7
         with:

@@ -1,4 +1,5 @@
 poll_interval: 5s
+collector: polling  # polling (default) or optional conntrack netlink events
 threat_feed_path: /etc/serpent-wrt/threat-feed.txt
 profile: home  # home, homelab, quiet, or paranoid
 lease_enrichment: true

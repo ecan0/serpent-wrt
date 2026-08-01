@@ -2,6 +2,9 @@ package collector
 
 import (
 	"bufio"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +33,23 @@ func TestParseLineTCPEstablished(t *testing.T) {
 	}
 	if r.State != "ESTABLISHED" {
 		t.Errorf("state: got %q, want ESTABLISHED", r.State)
+	}
+}
+
+func TestParseLineConntrackNewEvent(t *testing.T) {
+	line := "[NEW] tcp 6 120 SYN_SENT src=192.168.1.10 dst=8.8.8.8 sport=45678 dport=443"
+	r, ok := parseLine(line, time.Now())
+	if !ok {
+		t.Fatal("expected conntrack NEW event to parse")
+	}
+	if r.Proto != "tcp" || r.State != "SYN_SENT" {
+		t.Fatalf("protocol/state: got %s/%s, want tcp/SYN_SENT", r.Proto, r.State)
+	}
+	if r.SrcIP.String() != "192.168.1.10" || r.DstIP.String() != "8.8.8.8" {
+		t.Fatalf("tuple: got %s -> %s", r.SrcIP, r.DstIP)
+	}
+	if r.SrcPort != 45678 || r.DstPort != 443 {
+		t.Fatalf("ports: got %d -> %d", r.SrcPort, r.DstPort)
 	}
 }
 
@@ -147,5 +167,36 @@ func TestParseMultipleLines(t *testing.T) {
 	}
 	if len(records) != 3 {
 		t.Errorf("got %d records, want 3 (including IPv6)", len(records))
+	}
+}
+
+func TestStartEventsStreamsNewRecords(t *testing.T) {
+	command := filepath.Join(t.TempDir(), "fake-conntrack")
+	script := "#!/bin/sh\nprintf '%s\\n' '[NEW] udp 17 30 src=192.168.1.2 dst=1.1.1.1 sport=53000 dport=53'\n"
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := startEvents(context.Background(), command)
+	if err != nil {
+		t.Fatalf("start events: %v", err)
+	}
+	record, ok := <-stream.Records
+	if !ok {
+		t.Fatal("event stream closed before yielding a record")
+	}
+	if record.Proto != "udp" || record.DstIP.String() != "1.1.1.1" || record.DstPort != 53 {
+		t.Fatalf("record: got %#v", record)
+	}
+	if err := <-stream.Done; err == nil || !strings.Contains(err.Error(), "event stream ended") {
+		t.Fatalf("done: got %v, want clean-end error", err)
+	}
+}
+
+func TestStartEventsReportsMissingCommand(t *testing.T) {
+	command := filepath.Join(t.TempDir(), "missing-conntrack")
+	if _, err := startEvents(context.Background(), command); err == nil ||
+		!strings.Contains(err.Error(), "start conntrack event stream") {
+		t.Fatalf("error: got %v, want command startup failure", err)
 	}
 }

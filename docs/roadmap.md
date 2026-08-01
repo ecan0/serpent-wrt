@@ -78,14 +78,19 @@ and reproducible release attestations should accompany these tracks.
 
 ### Package hardening
 
-- Tagged release archive source and fixed package hash.
-- Harden the intentional self-hosted build path and add release provenance,
-  SBOM, and attestation outputs without moving routine CI off those runners.
+- Release package metadata uses a tagged archive and fixed source hash.
+- Release builds publish target-specific CycloneDX SBOMs and GitHub build/SBOM
+  attestations.
+- Fork pull requests execute on GitHub-hosted runners; routine trusted CI keeps
+  the isolated project-controlled runner path.
 
 ### Optional netlink collector
 
-Prototype conntrack netlink events as an optional collector. Polling must remain
-the fallback path, and netlink must not become a mandatory runtime dependency.
+- `collector: netlink` consumes conntrack NEW events through the optional
+  `conntrack` CLI.
+- Polling remains the default and automatic fallback.
+- `/status` exposes the configured collector, active collector, and fallback
+  error.
 
 ### IPv6 support
 

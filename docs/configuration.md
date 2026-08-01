@@ -42,6 +42,21 @@ dedup_window: 5m
 
 ## Important Fields
 
+### Collector
+
+`collector: polling` is the default and requires no userspace event tool.
+`collector: netlink` consumes only NEW connection events through
+`conntrack -E -e NEW`, which avoids treating repeated snapshots as new
+observations. Install the optional OpenWrt `conntrack` package before enabling
+it:
+
+```sh
+apk add conntrack
+```
+
+If the command cannot start or its event stream exits, serpent-wrt records the
+failure in `/status` and automatically returns to polling until restart.
+
 - `lan_cidrs` defines outbound vs inbound flow direction.
 - `self_ips` prevents router-originated management, NTP, DHCP, and similar
   traffic from becoming detections.

@@ -56,6 +56,14 @@ make deploy-x86 DEPLOY_HOST=root@openwrt-target
 OpenWrt x86/generic images often report `i686`; use the 32-bit x86 build for
 that target.
 
+Polling is the default collector. To try connection-create events without
+making them a package dependency, install the optional CLI and set
+`collector: netlink`:
+
+```sh
+apk add conntrack
+```
+
 Manual install path:
 
 ```sh

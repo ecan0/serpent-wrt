@@ -6,13 +6,13 @@ storage.
 
 ## Why Conntrack
 
-Linux already maintains connection metadata through `nf_conntrack`. Reading
-that table once per poll cycle is cheaper than copying every packet to
-userspace.
+Linux already maintains connection metadata through `nf_conntrack`. The default
+collector reads that table once per poll cycle. Optional netlink mode consumes
+only connection-create events through the existing `conntrack` CLI.
 
 | Capability | Packet capture | Conntrack metadata |
 | --- | --- | --- |
-| CPU cost | Per packet | Per poll cycle |
+| CPU cost | Per packet | Per poll cycle or new connection event |
 | Memory profile | Capture buffers and optional reassembly | Existing kernel flow table |
 | Data collected | Payload and headers | Protocol, IPs, ports, state, time |
 | Storage pressure | Often paired with PCAP files | None by default |
@@ -43,12 +43,19 @@ flowchart TD
 
 ## Collection Semantics
 
-The collector reads a snapshot of the current conntrack table. It does not
-receive packet events or authoritative connection-create events. Distinct-value
-detectors tolerate repeated snapshots of the same entry, but the beacon detector
-uses eligible observations as cadence samples. A long-lived UDP entry or a TCP
-entry that remains in a non-established state can therefore look periodic at the
-poll interval. Treat beaconing as an experimental lead, tune `exclude_ports`,
+`collector: polling` is the default. It reads snapshots of the current
+conntrack table. Distinct-value detectors tolerate repeated snapshots of the
+same entry, but the beacon detector uses eligible observations as cadence
+samples. A long-lived UDP entry or a TCP entry that remains in a
+non-established state can therefore look periodic at the poll interval.
+
+`collector: netlink` runs `conntrack -E -e NEW` and processes each new
+connection once. The `conntrack` CLI is an optional runtime tool, not a required
+daemon dependency. If it is missing, lacks permission, or its event stream
+ends, serpent-wrt logs the reason and uses polling until restart. `/status`
+reports both the configured and active collector plus any fallback error.
+
+Treat beaconing as an experimental lead in either mode, tune `exclude_ports`,
 and validate it against representative router traffic before coupling it to a
 response policy.
 
