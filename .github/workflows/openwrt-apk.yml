@@ -58,6 +58,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
       - name: Restore OpenWrt SDK cache
         uses: actions/cache@v6
         with:
