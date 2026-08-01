@@ -14,7 +14,7 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	required := []string{
 		"PKG_NAME:=serpent-wrt",
 		"PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz",
-		"PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/$(PKG_SOURCE_VERSION)?",
+		"PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?",
 		"PKG_LICENSE:=MIT",
 		"PKG_LICENSE_FILES:=LICENSE",
 		"PKG_BUILD_DEPENDS:=golang/host",
