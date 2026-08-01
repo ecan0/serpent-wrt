@@ -57,7 +57,7 @@ func TestFormatDurationSeconds(t *testing.T) {
 func TestEnsureSetScript(t *testing.T) {
 	got := ensureSetScript("serpent_wrt", "blocked_ips")
 	want := "add table inet serpent_wrt\n" +
-		"add set inet serpent_wrt blocked_ips { type ipv4_addr; flags timeout; }\n"
+		"add set inet serpent_wrt blocked_ips { type inet_addr; flags timeout; }\n"
 	if got != want {
 		t.Fatalf("ensureSetScript:\ngot  %q\nwant %q", got, want)
 	}
@@ -86,22 +86,17 @@ func TestIsBlockedEmpty(t *testing.T) {
 	}
 }
 
-func TestIsBlockedIPv6(t *testing.T) {
-	e := New("serpent_wrt", "blocked_ips", time.Hour)
-	ip := net.ParseIP("::1")
-	if e.IsBlocked(ip) {
-		t.Error("IsBlocked should always return false for IPv6")
-	}
-}
+func TestBlockIPv6TracksSuccessfulBlock(t *testing.T) {
+	restore := stubNftScript(t, func(_ string) error { return nil })
+	defer restore()
 
-func TestBlockIPv6NoOp(t *testing.T) {
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
-	ip := net.ParseIP("::1")
+	ip := net.ParseIP("2001:db8::1")
 	if err := e.Block(ip); err != nil {
-		t.Errorf("Block(IPv6) should be a no-op, got error: %v", err)
+		t.Fatalf("Block(IPv6): %v", err)
 	}
-	if e.IsBlocked(ip) {
-		t.Error("IPv6 should not appear as blocked")
+	if !e.IsBlocked(ip) {
+		t.Fatal("IPv6 should appear as blocked")
 	}
 }
 

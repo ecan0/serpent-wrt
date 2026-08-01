@@ -94,8 +94,8 @@ and reproducible release attestations should accompany these tracks.
 
 ### IPv6 support
 
-Add IPv6 parsing, detection, status, config, feed, and enforcement support as a
-dedicated release track.
+- IPv4 and IPv6 parsing, detection, status, config, feed, suppression, and
+  enforcement support are implemented and covered by tests.
 
 ### DNS context
 

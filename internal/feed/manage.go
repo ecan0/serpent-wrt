@@ -41,7 +41,8 @@ type managedLine struct {
 	ok    bool
 }
 
-// NormalizeEntry validates and canonicalizes one IPv4 or IPv4 CIDR feed entry.
+// NormalizeEntry validates and canonicalizes one IPv4 or IPv6 address/CIDR
+// feed entry.
 func NormalizeEntry(value string) (Entry, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -52,24 +53,21 @@ func NormalizeEntry(value string) (Entry, error) {
 	}
 	if strings.Contains(value, "/") {
 		ip, ipnet, err := net.ParseCIDR(value)
-		if err != nil || ip.To4() == nil {
-			return Entry{}, fmt.Errorf("entry must be an IPv4 address or CIDR, got %q", value)
+		if err != nil {
+			return Entry{}, fmt.Errorf("entry must be an IP address or CIDR, got %q", value)
 		}
 		ones, bits := ipnet.Mask.Size()
-		if bits != 32 {
-			return Entry{}, fmt.Errorf("entry must be an IPv4 CIDR, got %q", value)
-		}
-		network := ip.Mask(ipnet.Mask).To4()
-		if network == nil {
-			return Entry{}, fmt.Errorf("entry must be an IPv4 CIDR, got %q", value)
+		network := ip.Mask(ipnet.Mask)
+		if network == nil || (bits != 32 && bits != 128) {
+			return Entry{}, fmt.Errorf("entry must be an IPv4 or IPv6 CIDR, got %q", value)
 		}
 		return Entry{Value: fmt.Sprintf("%s/%d", network.String(), ones), Type: "cidr"}, nil
 	}
 	ip := net.ParseIP(value)
-	if ip == nil || ip.To4() == nil {
-		return Entry{}, fmt.Errorf("entry must be an IPv4 address or CIDR, got %q", value)
+	if ip == nil {
+		return Entry{}, fmt.Errorf("entry must be an IP address or CIDR, got %q", value)
 	}
-	return Entry{Value: ip.To4().String(), Type: "ip"}, nil
+	return Entry{Value: ip.String(), Type: "ip"}, nil
 }
 
 // ListFile returns normalized entries from a feed file, failing on malformed

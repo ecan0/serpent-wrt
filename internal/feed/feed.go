@@ -9,8 +9,8 @@ import (
 	"sync"
 )
 
-// Feed holds parsed threat intel entries and supports safe concurrent reload.
-// Entries are either exact IPv4 addresses or CIDRs.
+// Feed holds parsed threat-intelligence entries and supports safe concurrent
+// reload. Entries may be IPv4 or IPv6 addresses/CIDRs.
 type Feed struct {
 	mu    sync.RWMutex
 	ips   map[string]struct{}
@@ -40,18 +40,17 @@ func (f *Feed) Load(path string) error {
 
 // Contains reports whether ip matches any entry in the feed.
 func (f *Feed) Contains(ip net.IP) bool {
-	ip4 := ip.To4()
-	if ip4 == nil {
+	if ip == nil {
 		return false
 	}
-	key := ip4.String()
+	key := ip.String()
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	if _, ok := f.ips[key]; ok {
 		return true
 	}
 	for _, cidr := range f.cidrs {
-		if cidr.Contains(ip4) {
+		if cidr.Contains(ip) {
 			return true
 		}
 	}
@@ -98,28 +97,21 @@ func parseFileMode(path string, strict bool) (map[string]struct{}, []*net.IPNet,
 			ip, ipnet, err := net.ParseCIDR(line)
 			if err != nil {
 				if strict {
-					return nil, nil, fmt.Errorf("line %d: invalid IPv4 CIDR %q: %w", lineNo, line, err)
-				}
-				continue // skip malformed entries
-			}
-			if ip.To4() == nil {
-				if strict {
-					return nil, nil, fmt.Errorf("line %d: IPv6 CIDR is not supported: %q", lineNo, line)
+					return nil, nil, fmt.Errorf("line %d: invalid IP CIDR %q: %w", lineNo, line, err)
 				}
 				continue
 			}
-			cidrs = append(cidrs, ipnet)
+			network := ip.Mask(ipnet.Mask)
+			cidrs = append(cidrs, &net.IPNet{IP: network, Mask: ipnet.Mask})
 		} else {
 			ip := net.ParseIP(line)
-			if ip == nil || ip.To4() == nil {
+			if ip == nil {
 				if strict {
-					return nil, nil, fmt.Errorf("line %d: invalid IPv4 address %q", lineNo, line)
+					return nil, nil, fmt.Errorf("line %d: invalid IP address %q", lineNo, line)
 				}
 				continue
 			}
-			if ip4 := ip.To4(); ip4 != nil {
-				ips[ip4.String()] = struct{}{}
-			}
+			ips[ip.String()] = struct{}{}
 		}
 	}
 	return ips, cidrs, scanner.Err()

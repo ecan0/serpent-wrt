@@ -20,10 +20,14 @@ It reads conntrack metadata that Linux routers already maintain. It does not
 capture packets, inspect payloads, run a database, or require a heavyweight
 agent stack.
 
+**Start here:** [install on OpenWrt](docs/openwrt-install.md) ·
+[configure](docs/configuration.md) · [operate safely](docs/openwrt-runbooks.md) ·
+[understand the design](docs/architecture.md)
+
 ## What It Does
 
 - Watches `nf_conntrack` flow metadata.
-- Matches flows against a local IPv4/IP-CIDR threat feed.
+- Matches flows against a local IPv4/IPv6 IP-and-CIDR threat feed.
 - Detects feed hits, fanout, port scans, beacon-like traffic, inbound scans,
   and brute-force/service-spray patterns.
 - Emits NDJSON security events and optional remote syslog.
@@ -32,6 +36,10 @@ agent stack.
 - Optionally adds detected source IPs to nftables sets with kernel-managed timeouts.
 - Ships OpenWrt package metadata, procd init files, release APK artifacts, and
   runtime smoke coverage.
+
+The default path is detect-only. Enforcement is an explicit operator choice:
+the daemon manages timed nftables set entries, while the firewall policy that
+references those entries remains under operator control.
 
 ## Quick Start
 
@@ -92,8 +100,8 @@ Design guardrails:
 - detect-only by default
 - no packet capture or payload inspection
 - no persistent database
-- polling is the default and automatic fallback; netlink events are opt-in
-- IPv4-only in current releases
+- polling remains the stable collector path
+- IPv4 and IPv6 flow metadata are supported
 
 More detail: [Architecture](docs/architecture.md).
 
@@ -154,12 +162,14 @@ serpent-wrt feed remove 198.51.100.1
 
 Reference docs:
 
-- [Configuration](docs/configuration.md)
-- [HTTP API](docs/api.md)
-- [Threat feeds](docs/threat-feeds.md)
-- [OpenWrt runbooks](docs/openwrt-runbooks.md)
-- [Release process](docs/release.md)
-- [Roadmap](docs/roadmap.md)
+- [Configuration](docs/configuration.md) — fields, profiles, thresholds, and
+  suppression rules.
+- [HTTP API](docs/api.md) — localhost status, events, and feed management.
+- [Threat feeds](docs/threat-feeds.md) — format, validation, and safe reloads.
+- [OpenWrt runbooks](docs/openwrt-runbooks.md) — detect-only, enforcement, and
+  rollback checks.
+- [Release process](docs/release.md) — branch, package, and attestation flow.
+- [Roadmap](docs/roadmap.md) — shipped scope and deliberate non-goals.
 
 ## Events And SIEM
 
@@ -182,10 +192,10 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
 - Polling sees snapshots and can repeat long-lived flows. Optional netlink mode
   consumes connection-create events and returns to polling if the stream fails.
   Validate beacon alerts on representative traffic before using them for response.
+- IPv6 enforcement uses the same inet nftables set, but the firewall policy must
+  reference it for both address families.
 - OpenWrt firewall reloads can remove custom nftables state, so check
   `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.
-- IPv6, packet capture, persistent storage, dashboards, ML scoring, and remote
-  feed sync are outside the current release scope.
 
 ## Development
 

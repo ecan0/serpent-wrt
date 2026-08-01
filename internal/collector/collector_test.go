@@ -84,11 +84,14 @@ func TestParseLineUDP(t *testing.T) {
 	}
 }
 
-func TestParseLineIPv6Skipped(t *testing.T) {
-	line := "ipv6 10 tcp 6 3599 ESTABLISHED src=::1 dst=::2 sport=12345 dport=80 src=::2 dst=::1 sport=80 dport=12345"
-	_, ok := parseLine(line, time.Now())
-	if ok {
-		t.Fatal("expected IPv6 line to be skipped")
+func TestParseLineIPv6(t *testing.T) {
+	line := "ipv6 10 tcp 6 3599 ESTABLISHED src=2001:db8::1 dst=2001:db8::2 sport=12345 dport=443 src=2001:db8::2 dst=2001:db8::1 sport=443 dport=12345"
+	r, ok := parseLine(line, time.Now())
+	if !ok {
+		t.Fatal("expected IPv6 line to parse")
+	}
+	if r.SrcIP.String() != "2001:db8::1" || r.DstIP.String() != "2001:db8::2" {
+		t.Fatalf("tuple: got %s -> %s", r.SrcIP, r.DstIP)
 	}
 }
 
@@ -162,8 +165,8 @@ func TestParseMultipleLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if len(records) != 2 {
-		t.Errorf("got %d records, want 2 (IPv6 and empty skipped)", len(records))
+	if len(records) != 3 {
+		t.Errorf("got %d records, want 3 (including IPv6)", len(records))
 	}
 }
 

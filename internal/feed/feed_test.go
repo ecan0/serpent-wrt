@@ -79,21 +79,24 @@ not-an-ip
 	}
 }
 
-func TestFeedLoadRejectsIPv6(t *testing.T) {
+func TestFeedLoadAcceptsIPv6(t *testing.T) {
 	path := writeFeed(t, `
 2001:db8::/32
+2001:db8::1
 1.2.3.4
 `)
 	f := feed.New()
-	err := f.Load(path)
-	if err == nil {
-		t.Fatal("expected IPv6 feed load to fail")
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load IPv6 feed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "IPv6 CIDR") {
-		t.Fatalf("error: got %q, want IPv6 CIDR context", err)
+	if !f.Contains(net.ParseIP("2001:db8::1")) {
+		t.Error("expected IPv6 exact address to match")
 	}
-	if f.Len() != 0 {
-		t.Fatalf("failed load changed feed: got %d entries, want 0", f.Len())
+	if !f.Contains(net.ParseIP("2001:db8:1::1")) {
+		t.Error("expected IPv6 CIDR to match")
+	}
+	if f.Len() != 3 {
+		t.Fatalf("len: got %d, want 3", f.Len())
 	}
 }
 
@@ -138,14 +141,14 @@ func TestFeedFailedReloadKeepsPreviousEntries(t *testing.T) {
 	}
 }
 
-func TestFeedIPv4Only(t *testing.T) {
+func TestFeedSupportsIPv6(t *testing.T) {
 	f := feed.New()
-	if err := f.Load("../../testdata/threat-feed.txt"); err != nil {
-		t.Fatalf("load: %v", err)
+	path := writeFeed(t, "2001:db8::/32\n")
+	if err := f.Load(path); err != nil {
+		t.Fatalf("load IPv6 feed: %v", err)
 	}
-	// IPv6 addresses should never match
-	if f.Contains(net.ParseIP("::1")) {
-		t.Error("IPv6 loopback should not match feed")
+	if !f.Contains(net.ParseIP("2001:db8::1")) {
+		t.Error("IPv6 address should match")
 	}
 }
 
@@ -178,25 +181,14 @@ not-an-ip
 	}
 }
 
-func TestValidateFileRejectsIPv6(t *testing.T) {
-	path := writeFeed(t, "::1\n")
-	_, err := feed.ValidateFile(path)
-	if err == nil {
-		t.Fatal("expected IPv6 error")
+func TestValidateFileAcceptsIPv6(t *testing.T) {
+	path := writeFeed(t, "::1\n2001:db8::/32\n")
+	count, err := feed.ValidateFile(path)
+	if err != nil {
+		t.Fatalf("validate IPv6 feed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "invalid IPv4 address") {
-		t.Fatalf("error: got %q, want IPv4 context", err)
-	}
-}
-
-func TestValidateFileRejectsIPv6CIDR(t *testing.T) {
-	path := writeFeed(t, "2001:db8::/32\n")
-	_, err := feed.ValidateFile(path)
-	if err == nil {
-		t.Fatal("expected IPv6 CIDR error")
-	}
-	if !strings.Contains(err.Error(), "IPv6 CIDR") {
-		t.Fatalf("error: got %q, want IPv6 CIDR context", err)
+	if count != 2 {
+		t.Fatalf("count: got %d, want 2", count)
 	}
 }
 

@@ -104,32 +104,30 @@ func ipNets(values []string) []*net.IPNet {
 
 func ipNet(value string) *net.IPNet {
 	if strings.Contains(value, "/") {
-		ip, network, err := net.ParseCIDR(value)
-		if err != nil || ip.To4() == nil {
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
 			return nil
 		}
 		return network
 	}
 	ip := net.ParseIP(value)
-	if ip == nil || ip.To4() == nil {
+	if ip == nil {
 		return nil
 	}
-	return &net.IPNet{
-		IP:   ip.To4(),
-		Mask: net.CIDRMask(32, 32),
+	bits := 128
+	if ip.To4() != nil {
+		ip = ip.To4()
+		bits = 32
 	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}
 }
 
 func containsIP(networks []*net.IPNet, ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return false
-	}
 	for _, network := range networks {
-		if network.Contains(ip4) {
+		if network.Contains(ip) {
 			return true
 		}
 	}

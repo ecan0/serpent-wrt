@@ -29,7 +29,7 @@ are limited to 1 MiB.
 | `/feed` | GET | List normalized local threat feed entries. |
 | `/feed` | PUT | Replace the local threat feed with validated entries. |
 | `/feed/validate` | POST | Validate one entry or a candidate entry list without writing. |
-| `/feed/add` | POST | Add one IPv4/IP-CIDR feed entry and reload if changed. |
+| `/feed/add` | POST | Add one IPv4/IPv6 IP-or-CIDR feed entry and reload if changed. |
 | `/feed/remove` | POST | Remove one feed entry and reload if changed. |
 
 ## Examples
