@@ -27,6 +27,14 @@ func TestGetStatusInitial(t *testing.T) {
 	if s.Feed.Path != "../../testdata/threat-feed.txt" {
 		t.Errorf("Feed.Path: got %q", s.Feed.Path)
 	}
+	if s.Collector.Configured != config.CollectorPolling ||
+		s.Collector.Active != config.CollectorPolling {
+		t.Errorf("Collector: got configured=%q active=%q, want polling",
+			s.Collector.Configured, s.Collector.Active)
+	}
+	if s.Collector.FallbackError != "" {
+		t.Errorf("Collector.FallbackError: got %q, want empty", s.Collector.FallbackError)
+	}
 	if s.Enforcement.Enabled {
 		t.Error("Enforcement.Enabled should be false")
 	}

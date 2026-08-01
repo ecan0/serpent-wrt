@@ -332,8 +332,8 @@ func runDaemon(cfgPath string, stderr io.Writer, bannerMode string) int {
 		Component: "runtime",
 		Action:    "start",
 		Status:    "starting",
-	}, fmt.Sprintf("serpent-wrt starting (poll=%s enforcement=%v api=%v syslog=%v)",
-		cfg.PollInterval, cfg.EnforcementEnabled, cfg.APIEnabled, cfg.SyslogTarget != ""))
+	}, fmt.Sprintf("serpent-wrt starting (collector=%s poll=%s enforcement=%v api=%v syslog=%v)",
+		cfg.Collector, cfg.PollInterval, cfg.EnforcementEnabled, cfg.APIEnabled, cfg.SyslogTarget != ""))
 
 	eng := runtime.NewEngine(cfg, log)
 	eng.SetBuildInfo(runtime.BuildInfo{

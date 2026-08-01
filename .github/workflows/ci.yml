@@ -16,11 +16,29 @@ concurrency:
 jobs:
   changes:
     name: Detect changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       code_changed: ${{ steps.filter.outputs.code_changed }}
+      runner_label: ${{ steps.runner.outputs.label }}
     steps:
+      - id: runner
+        name: Select code execution runner
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+            label=ubuntu-latest
+          else
+            label=self-hosted
+          fi
+
+          echo "Fork PR code runner: $label"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -60,7 +78,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -83,7 +101,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -103,7 +121,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -124,7 +142,7 @@ jobs:
 
   scan:
     name: Scan
-    runs-on: self-hosted
+    runs-on: ${{ needs.changes.outputs.runner_label }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
@@ -143,13 +161,13 @@ jobs:
         run: govulncheck ./...
 
   deploy-test:
-    name: Runtime test (openwrt-x86-generic)
+    name: Runtime test (test-wrt-iac/openwrt-x86-64)
     runs-on: self-hosted
     timeout-minutes: 15
     needs: [changes, build, test, lint, scan]
     if: always() && needs.changes.outputs.code_changed == 'true' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     env:
-      OPENWRT_HOST: ${{ secrets.OPENWRT_HOST }}
+      OPENWRT_HOST: ${{ vars.OPENWRT_X86_64_HOST }}
       OPENWRT_USER: root
     steps:
       - name: Check deploy target configured
@@ -157,7 +175,7 @@ jobs:
           if [ -n "$OPENWRT_HOST" ]; then
             echo "DEPLOY_ENABLED=true" >> "$GITHUB_ENV"
           else
-            echo "OPENWRT_HOST secret not set - skipping deploy"
+            echo "OPENWRT_X86_64_HOST repository variable not set - skipping deploy"
           fi
 
       - uses: actions/checkout@v7
@@ -178,9 +196,14 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-      - name: Check connectivity
+      - name: Check SSH connectivity
         if: env.DEPLOY_ENABLED == 'true'
-        run: ping -c 2 "${OPENWRT_HOST#*@}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${OPENWRT_HOST#*@}"
+          timeout 5 bash -c ":</dev/tcp/${host}/22"
+          echo "TCP/22 reachable on ${host}; SSH authentication will be verified by the runtime test."
 
       - name: Build OpenWrt x86 generic binary
         if: env.DEPLOY_ENABLED == 'true'
@@ -198,7 +221,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [changes, build, test, lint, scan]
     if: always()

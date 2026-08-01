@@ -17,6 +17,8 @@ func TestNormalizeEntry(t *testing.T) {
 		{" 1.2.3.4 ", "1.2.3.4", "ip"},
 		{"10.0.0.1", "10.0.0.1", "ip"},
 		{"5.6.7.9/24", "5.6.7.0/24", "cidr"},
+		{"2001:db8::1", "2001:db8::1", "ip"},
+		{"2001:db8::1/32", "2001:db8::/32", "cidr"},
 	}
 	for _, tc := range cases {
 		got, err := feed.NormalizeEntry(tc.in)
@@ -30,7 +32,7 @@ func TestNormalizeEntry(t *testing.T) {
 }
 
 func TestNormalizeEntryRejectsInvalid(t *testing.T) {
-	for _, in := range []string{"", "# comment", "not-an-ip", "::1", "2001:db8::/32"} {
+	for _, in := range []string{"", "# comment", "not-an-ip"} {
 		if _, err := feed.NormalizeEntry(in); err == nil {
 			t.Fatalf("NormalizeEntry(%q): expected error", in)
 		}

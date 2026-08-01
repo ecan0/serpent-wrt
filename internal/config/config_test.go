@@ -40,6 +40,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.PollInterval != 5*time.Second {
 		t.Errorf("default poll_interval: got %v", cfg.PollInterval)
 	}
+	if cfg.Collector != config.CollectorPolling {
+		t.Errorf("default collector: got %q, want polling", cfg.Collector)
+	}
 	if cfg.NftTable != "serpent_wrt" {
 		t.Errorf("default nft_table: got %q", cfg.NftTable)
 	}
@@ -51,6 +54,25 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.LeaseEnrichment {
 		t.Error("lease_enrichment should default to false")
+	}
+}
+
+func TestLoadNetlinkCollector(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\ncollector: netlink\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load netlink config: %v", err)
+	}
+	if cfg.Collector != config.CollectorNetlink {
+		t.Fatalf("collector: got %q, want netlink", cfg.Collector)
+	}
+}
+
+func TestLoadRejectsUnknownCollector(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\ncollector: pcap\n")
+	_, err := config.Load(f)
+	if err == nil || !strings.Contains(err.Error(), "collector must be polling or netlink") {
+		t.Fatalf("error: got %v, want collector validation", err)
 	}
 }
 

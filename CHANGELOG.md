@@ -24,6 +24,11 @@ This project follows semantic versioning for tagged releases.
   release-tarball patch for the 25.12 package toolchain.
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
+- Fork pull requests now execute build, test, lint, and vulnerability checks on
+  GitHub-hosted runners; trusted branches retain the project-controlled runner
+  path without exposing it to untrusted code.
+- OpenWrt release artifacts now include target-specific CycloneDX SBOMs, and
+  APKs receive GitHub build-provenance and SBOM attestations.
 - Threat feed loads and reloads now reject malformed or unsupported entries
   atomically instead of silently dropping bad lines.
 - HTTP routes now enforce documented methods, and feed mutation requests reject
@@ -32,6 +37,9 @@ This project follows semantic versioning for tagged releases.
   between nftables timed-set updates and an external packet-drop rule.
 - Documentation now records polling/beacon limitations and the current
   nftables set-only enforcement boundary.
+- IPv4 and IPv6 addresses/CIDRs are now supported in feeds, conntrack parsing,
+  suppression rules, LAN/self-IP configuration, status events, and nftables
+  timed-set enforcement.
 
 ## v0.3.1 - 2026-05-17
 

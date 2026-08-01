@@ -79,6 +79,7 @@ suppression_rules:
 		"effective config:",
 		"profile: quiet",
 		"poll_interval: 5s",
+		"collector: polling",
 		"dnsmasq_leases_path: /tmp/dhcp.leases",
 		"block_duration: 1h",
 		"dedup_window: 5m",
@@ -144,6 +145,9 @@ suppression_rules:
 	}
 	if effective["profile"] != "quiet" {
 		t.Fatalf("profile: got %v, want quiet", effective["profile"])
+	}
+	if effective["collector"] != "polling" {
+		t.Fatalf("collector: got %v, want polling", effective["collector"])
 	}
 	if effective["dnsmasq_leases_path"] != "/tmp/dhcp.leases" {
 		t.Fatalf("dnsmasq_leases_path: got %v", effective["dnsmasq_leases_path"])
@@ -396,12 +400,12 @@ func TestRunFeedAddRejectsInvalidEntry(t *testing.T) {
 	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"feed", "--config", cfg, "add", "::1"}, &stdout, &stderr)
+	code := run([]string{"feed", "--config", cfg, "add", "not-an-ip"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("run feed add: exit=%d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "IPv4 address or CIDR") {
-		t.Fatalf("stderr=%q, want IPv4 validation error", stderr.String())
+	if !strings.Contains(stderr.String(), "IP address or CIDR") {
+		t.Fatalf("stderr=%q, want IP validation error", stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout=%q, want empty", stdout.String())

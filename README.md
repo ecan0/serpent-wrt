@@ -20,10 +20,14 @@ It reads conntrack metadata that Linux routers already maintain. It does not
 capture packets, inspect payloads, run a database, or require a heavyweight
 agent stack.
 
+**Start here:** [install on OpenWrt](docs/openwrt-install.md) ·
+[configure](docs/configuration.md) · [operate safely](docs/openwrt-runbooks.md) ·
+[understand the design](docs/architecture.md)
+
 ## What It Does
 
 - Watches `nf_conntrack` flow metadata.
-- Matches flows against a local IPv4/IP-CIDR threat feed.
+- Matches flows against a local IPv4/IPv6 IP-and-CIDR threat feed.
 - Detects feed hits, fanout, port scans, beacon-like traffic, inbound scans,
   and brute-force/service-spray patterns.
 - Emits NDJSON security events and optional remote syslog.
@@ -32,6 +36,10 @@ agent stack.
 - Optionally adds detected source IPs to nftables sets with kernel-managed timeouts.
 - Ships OpenWrt package metadata, procd init files, release APK artifacts, and
   runtime smoke coverage.
+
+The default path is detect-only. Enforcement is an explicit operator choice:
+the daemon manages timed nftables set entries, while the firewall policy that
+references those entries remains under operator control.
 
 ## Quick Start
 
@@ -68,7 +76,8 @@ OpenWrt x86/generic targets usually need the 32-bit x86 build (`GOARCH=386`).
 
 ```mermaid
 flowchart TD
-    A["/proc/net/nf_conntrack"] --> B["collector"]
+    A["polling conntrack snapshots"] --> B["collector"]
+    A2["optional conntrack NEW events"] --> B
     B --> C["flow records"]
     C --> D["direction classifier"]
     D --> E["LAN to WAN detectors"]
@@ -92,7 +101,7 @@ Design guardrails:
 - no packet capture or payload inspection
 - no persistent database
 - polling remains the stable collector path
-- IPv4-only in current releases
+- IPv4 and IPv6 flow metadata are supported
 
 More detail: [Architecture](docs/architecture.md).
 
@@ -113,14 +122,18 @@ enrichment from dnsmasq leases.
 ## OpenWrt APKs
 
 The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
-25.12 SDKs and attaches target-specific packages plus `SHA256SUMS` files to
-GitHub Releases.
+25.12 SDKs. Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file
+to GitHub Releases; GitHub artifact attestations bind the APK to its build and
+SBOM.
 
 Current release assets:
 
 - `serpent-wrt-0.3.1-r4-x86-64.apk`
 - `serpent-wrt-0.3.1-r4-x86-generic.apk`
 - `serpent-wrt-0.3.1-r4-mediatek-filogic.apk`
+
+Verify a downloaded APK with
+`gh attestation verify <apk> --repo ecan0/serpent-wrt`.
 
 Install and package details: [OpenWrt install](docs/openwrt-install.md).
 
@@ -149,12 +162,14 @@ serpent-wrt feed remove 198.51.100.1
 
 Reference docs:
 
-- [Configuration](docs/configuration.md)
-- [HTTP API](docs/api.md)
-- [Threat feeds](docs/threat-feeds.md)
-- [OpenWrt runbooks](docs/openwrt-runbooks.md)
-- [Release process](docs/release.md)
-- [Roadmap](docs/roadmap.md)
+- [Configuration](docs/configuration.md) — fields, profiles, thresholds, and
+  suppression rules.
+- [HTTP API](docs/api.md) — localhost status, events, and feed management.
+- [Threat feeds](docs/threat-feeds.md) — format, validation, and safe reloads.
+- [OpenWrt runbooks](docs/openwrt-runbooks.md) — detect-only, enforcement, and
+  rollback checks.
+- [Release process](docs/release.md) — branch, package, and attestation flow.
+- [Roadmap](docs/roadmap.md) — shipped scope and deliberate non-goals.
 
 ## Events And SIEM
 
@@ -174,18 +189,23 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
   a packet-drop rule. Traffic is blocked only when a separately managed firewall
   rule references that set.
 - `/blocked` and `blocks_applied` report set state, not observed packet drops.
-- The polling collector sees snapshots, not packets or connection-create events.
+- Polling sees snapshots and can repeat long-lived flows. Optional netlink mode
+  consumes connection-create events and returns to polling if the stream fails.
   Validate beacon alerts on representative traffic before using them for response.
+- IPv6 enforcement uses the same inet nftables set, but the firewall policy must
+  reference it for both address families.
 - OpenWrt firewall reloads can remove custom nftables state, so check
   `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.
-- IPv6, packet capture, persistent storage, dashboards, ML scoring, and remote
-  feed sync are outside the current release scope.
 
 ## Development
 
 Development flows through `dev`; `main` is the protected release and tag branch.
 Use `feature/<slice-name>` for product work and `ci/<slice-name>` for CI,
 release, docs/process, and automation work.
+
+Trusted `dev` pushes also install the generated x86/generic binary on the
+`openwrt-x86-64` lab VM defined by `test-wrt-iac`. Its local-network address
+and SSH credential stay in repository settings rather than source.
 
 Useful checks:
 
