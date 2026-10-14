@@ -1,10 +1,11 @@
 // Package detector implements flow-based threat detectors.
-// Each detector examines a FlowRecord and returns a Detection when a
-// heuristic threshold is crossed, or nil if nothing is triggered.
+// Each detector examines a FlowRecord and returns a Detection at its threshold, or nil otherwise.
 package detector
 
 import (
 	"net"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -30,17 +31,36 @@ const (
 	ReasonInboundServiceSpray          Reason = "inbound_service_spray"
 )
 
-// Detection represents a triggered heuristic event.
+// Detection represents a triggered heuristic event. DstIP and DstPort retain
+// the original conntrack destination. Translated destination fields preserve
+// the DNAT endpoint. Scan detections include their count and observed ports.
 type Detection struct {
-	Type       string // detector name, e.g. "feed_match", "fanout", "port_scan"
-	Severity   Severity
-	Confidence uint8 // 0-100 confidence score for the detector's current signal
-	Reason     Reason
-	SrcIP      net.IP
-	DstIP      net.IP
-	DstPort    uint16
-	Message    string
-	At         time.Time
+	Type              string
+	Severity          Severity
+	Confidence        uint8
+	Reason            Reason
+	SrcIP             net.IP
+	DstIP             net.IP
+	DstPort           uint16
+	TranslatedDstIP   net.IP
+	TranslatedDstPort uint16
+	DistinctPortCount int
+	ObservedDstPorts  []uint16
+	Message           string
+	At                time.Time
+}
+
+func observedPorts(values []string) []uint16 {
+	ports := make([]uint16, 0, len(values))
+	for _, value := range values {
+		parsed, err := strconv.ParseUint(value, 10, 16)
+		if err != nil {
+			continue
+		}
+		ports = append(ports, uint16(parsed))
+	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
+	return ports
 }
 
 // Normalize fills metadata defaults for tests or future detectors that construct

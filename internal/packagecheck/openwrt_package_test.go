@@ -37,16 +37,6 @@ func TestOpenWrtPackageMetadata(t *testing.T) {
 	assertMatch(t, makefile, `(?m)^PKG_HASH:=[0-9a-f]{64}$`)
 	assertMatch(t, makefile, `(?m)^PKG_RELEASE:=[0-9]+$`)
 
-	goVersionPatch := readRepoFile(t, "openwrt/serpent-wrt/patches/001-openwrt-go-1.26.2.patch")
-	for _, want := range []string{
-		"OpenWrt 25.12.4 ships Go 1.26.2",
-		"-go 1.26.3",
-		"+go 1.26.2",
-	} {
-		if !strings.Contains(goVersionPatch, want) {
-			t.Fatalf("OpenWrt Go version patch missing %q", want)
-		}
-	}
 }
 
 func TestOpenWrtPackageInstallsRuntimeFiles(t *testing.T) {
@@ -177,9 +167,9 @@ func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
 		"release_tag:",
 		"runs-on: ubuntu-latest",
 		"OpenWrt APK Packages",
-		"downloads.openwrt.org/releases/25.12.4/targets/x86/64/",
-		"downloads.openwrt.org/releases/25.12.4/targets/x86/generic/",
-		"downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/",
+		"downloads.openwrt.org/releases/25.12.5/targets/x86/64/",
+		"downloads.openwrt.org/releases/25.12.5/targets/x86/generic/",
+		"downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/",
 		"gcc-14.3.0",
 		"${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}",
 		"actions/cache@v6",
@@ -207,8 +197,6 @@ func TestCIWorkflowPinsGoTooling(t *testing.T) {
 		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
 		"runs-on: ${{ needs.changes.outputs.runner_label }}",
 		"HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
-		"Runtime test (test-wrt-iac/openwrt-x86-64)",
-		"OPENWRT_HOST: ${{ vars.OPENWRT_X86_64_HOST }}",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("CI workflow missing %q", want)

@@ -92,14 +92,30 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.eng.ReloadFeed(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"status": "error", "error": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]string{"status": "reloaded"})
 }
 
-func (s *Server) handleRecentDetections(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, s.eng.RecentDetections())
+func (s *Server) handleRecentDetections(w http.ResponseWriter, r *http.Request) {
+	runID := r.URL.Query().Get("run_id")
+	caseID := r.URL.Query().Get("case_id")
+	if (runID == "") != (caseID == "") {
+		http.Error(w, "run_id and case_id must be provided together", http.StatusBadRequest)
+		return
+	}
+	detections := s.eng.RecentDetections()
+	if runID != "" {
+		filtered := make([]runtime.DetectionRecord, 0, len(detections))
+		for _, detection := range detections {
+			if detection.RunID == runID && detection.CaseID == caseID {
+				filtered = append(filtered, detection)
+			}
+		}
+		detections = filtered
+	}
+	writeJSON(w, detections)
 }
 
 func (s *Server) handleBlocked(w http.ResponseWriter, _ *http.Request) {
@@ -200,7 +216,12 @@ func (s *Server) handleFeedRemove(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
+	writeJSONStatus(w, http.StatusOK, v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)

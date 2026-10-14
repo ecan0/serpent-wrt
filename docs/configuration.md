@@ -2,7 +2,7 @@
 
 Start from [configs/serpent-wrt.example.yaml](../configs/serpent-wrt.example.yaml).
 
-Validate before starting or reloading:
+Validate before start or reload:
 
 ```sh
 serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest
@@ -37,47 +37,60 @@ block_duration: 1h
 nft_table: serpent_wrt
 nft_set: blocked_ips
 
+
 dedup_window: 5m
 ```
+
+The daemon uses `<nft_set>_v4` and `<nft_set>_v6` for IPv4 and IPv6 addresses.
+Keep the base name at 252 bytes or fewer to leave room for the family suffix.
 
 ## Important Fields
 
 ### Collector
 
-`collector: polling` is the default and requires no userspace event tool.
-`collector: netlink` consumes only NEW connection events through
-`conntrack -E -e NEW`, which avoids treating repeated snapshots as new
-observations. Install the optional OpenWrt `conntrack` package before enabling
-it:
+The default collector uses snapshots and requires no userspace event tool.
+The `netlink` collector consumes only NEW connection events through
+`conntrack -E -e NEW`. Repeated snapshots do not create new observations.
+Install the optional OpenWrt `conntrack` package first:
 
 ```sh
 apk add conntrack
 ```
 
-If the command cannot start or its event stream exits, serpent-wrt records the
-failure in `/status` and automatically returns to polling until restart.
+If the command cannot start or its event stream ends, the daemon records a
+failure in `/status`. It then uses snapshot mode until restart.
 
-- `lan_cidrs` defines outbound vs inbound flow direction.
-- `self_ips` prevents router-originated management, NTP, DHCP, and similar
-  traffic from becoming detections.
-- `profile` applies detector defaults. `home` is baseline, `homelab` and
-  `quiet` raise thresholds, and `paranoid` lowers thresholds.
-- `lease_enrichment` reads dnsmasq leases and adds hostname/MAC context when
-  available.
-- `enforcement_enabled` defaults to `false`; when enabled, the daemon populates
-  the configured timed nftables set.
-- `nft_table` and `nft_set` identify that set. A separately managed firewall
-  drop rule must reference it before entries affect traffic.
-- `dedup_window` suppresses repeated alerts from the same detector/source/target
-  combination.
+- `lan_cidrs` defines outbound versus inbound flow direction.
+
+- `self_ips` filters router-originated management traffic, such as NTP and DHCP.
+
+- `profile` applies detector defaults. `home` is baseline.
+  `homelab` and `quiet` raise thresholds, and `paranoid` lowers them.
+
+- `lease_enrichment` reads dnsmasq leases and adds hostname/MAC context when available.
+
+- `enforcement_enabled` defaults to `false`.
+  When true, the daemon populates the configured family-specific nftables set.
+
+- `nft_table` and `nft_set` identify the table and set-name prefix.
+  The daemon appends `_v4` and `_v6` to the set prefix.
+  Firewall policy must use the correct set before an entry affects traffic.
+
+- `dedup_window` suppresses repeated signals without detector-owned episode state.
+
+- `event_context` can add `run_id` and `case_id` to each detection event.
+  Set both values together. The daemon writes them to stdout, the API, and
+  remote syslog. They support event correlation; they do not control detection.
+
 - `syslog_target` and `syslog_proto` forward JSON events to a SIEM.
-- `api_bind` should remain loopback-only. The API has no authentication or TLS
-  and includes threat-feed mutation endpoints.
+
+- `api_bind` must remain loopback-only.
+  The API has no authentication or TLS and includes threat-feed mutation endpoints.
 
 ## Suppression Rules
 
-Suppression rules quiet expected scanners, monitors, and health checks before
-logging, recent-event storage, stats-by-type increments, or enforcement.
+Suppression rules filter expected scanners, monitors, and health checks before
+the daemon writes logs, stores recent events, updates stats-by-type, or enforces.
 
 ```yaml
 suppression_rules:
@@ -92,8 +105,8 @@ suppression_rules:
     dst_ports: [22]
 ```
 
-matchers are `detectors`, `src_addrs`, `dst_addrs`, and `dst_ports`; address
-matchers accept IPv4 or IPv6 addresses and CIDRs.
+Matchers are `detectors`, `src_addrs`, `dst_addrs`, and `dst_ports`.
+Address matchers accept IPv4 or IPv6 addresses and CIDRs.
 
 ## Detector Thresholds
 
@@ -121,8 +134,23 @@ detectors:
 
 Explicit detector settings override profile defaults.
 
-`min_interval` rejects bursty observations. `exclude_ports` is especially
-important with the polling collector because one long-lived UDP conntrack entry
-can be observed in multiple snapshots. Excluding DNS and NTP is a conservative
-starting point, not a substitute for validating beacon alerts on the target
-router.
+The first conntrack snapshot is a baseline.
+Later snapshots process each tuple only when it first appears.
+A tuple that remains in the table does not create more beacon samples.
+A tuple that leaves and later reappears counts as new.
+Snapshot time sets beacon cadence. Precision depends on `poll_interval`.
+
+`port_scan` and `ext_scan` emit once when the time-window count of distinct ports reaches the threshold.
+Each record includes the threshold count and a sorted port array.
+Expiry rearms the episode when the count drops below the threshold.
+Each distinct-value threshold must be 256 or lower.
+`beacon.min_hits` must be 64 or lower.
+`serpent-wrt nftcheck` validates both set definitions without rule changes, even when enforcement is disabled.
+
+## Retained State Limits
+
+Each distinct-value tracker retains at most 1,024 keys, 256 values per key, and 4,096 values total.
+Each beacon detector retains at most 512 source/destination pairs, 64 timestamps per pair, and 8,192 timestamps total.
+When a value or sample limit is full, the detector rejects new state and keeps the values it already retains.
+Configuration thresholds cannot exceed the per-key value limit.
+These limits bound detector state. They do not set a total process-memory budget.

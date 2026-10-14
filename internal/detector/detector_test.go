@@ -46,6 +46,7 @@ func TestFeedMatchHit(t *testing.T) {
 	det := d.Check(makeFlow("192.168.1.1", "1.2.3.4", 443, "SYN_SENT"))
 	if det == nil {
 		t.Fatal("expected detection for 1.2.3.4 (in feed)")
+		return
 	}
 	if det.Type != "feed_match" {
 		t.Errorf("type: got %q, want feed_match", det.Type)
@@ -64,6 +65,30 @@ func TestFeedMatchCIDR(t *testing.T) {
 	det := d.Check(makeFlow("192.168.1.1", "5.6.7.100", 80, "SYN_SENT"))
 	if det == nil {
 		t.Fatal("expected detection for 5.6.7.100 (in CIDR 5.6.7.0/24)")
+	}
+}
+
+func TestFeedMatchTranslatedDestination(t *testing.T) {
+	f := feed.New()
+	if err := f.Load("../../testdata/threat-feed.txt"); err != nil {
+		t.Fatalf("load feed: %v", err)
+	}
+	d := detector.NewFeedMatch(f)
+	r := makeFlow("192.168.1.10", "192.0.2.50", 18443, "SYN_SENT")
+	r.ReplySrcIP = net.ParseIP("1.2.3.4")
+	r.ReplySrcPort = 18180
+
+	det := d.Check(r)
+	if det == nil {
+		t.Fatal("expected feed match for translated destination 1.2.3.4")
+		return
+	}
+	assertDetectionMeta(t, det, detector.SeverityHigh, detector.ReasonThreatFeedDestination)
+	if det.DstIP.String() != "192.0.2.50" || det.DstPort != 18443 {
+		t.Fatalf("original destination: got %s:%d", det.DstIP, det.DstPort)
+	}
+	if det.TranslatedDstIP.String() != "1.2.3.4" || det.TranslatedDstPort != 18180 {
+		t.Fatalf("translated destination: got %s:%d", det.TranslatedDstIP, det.TranslatedDstPort)
 	}
 }
 
@@ -95,6 +120,7 @@ func TestFanoutThreshold(t *testing.T) {
 	det := d.Check(makeFlow(src, "3.3.3.3", 80, ""))
 	if det == nil {
 		t.Fatal("expected detection at threshold 3")
+		return
 	}
 	if det.Type != "fanout" {
 		t.Errorf("type: got %q, want fanout", det.Type)
@@ -133,6 +159,7 @@ func TestPortScanThreshold(t *testing.T) {
 	det := d.Check(makeFlow(src, dst, 443, ""))
 	if det == nil {
 		t.Fatal("expected detection at threshold 3")
+		return
 	}
 	if det.Type != "port_scan" {
 		t.Errorf("type: got %q, want port_scan", det.Type)
@@ -149,6 +176,65 @@ func TestPortScanDuplicatePort(t *testing.T) {
 	det := d.Check(makeFlow(src, dst, 80, ""))
 	if det != nil {
 		t.Fatal("unexpected detection for repeated same port")
+	}
+}
+
+func TestPortScanEmitsOneEvidenceRecordPerWindowEpisode(t *testing.T) {
+	d := detector.NewPortScan(3, 25*time.Millisecond)
+	src, dst := "192.168.1.2", "10.0.0.2"
+	var first *detector.Detection
+	for _, port := range []uint16{22, 80, 443} {
+		first = d.Check(makeFlow(src, dst, port, ""))
+	}
+	if first == nil || first.DistinctPortCount != 3 {
+		t.Fatalf("threshold alert: got %+v, want three distinct ports", first)
+	}
+	if got := first.ObservedDstPorts; len(got) != 3 || got[0] != 22 || got[1] != 80 || got[2] != 443 {
+		t.Fatalf("threshold port evidence: got %v, want [22 80 443]", got)
+	}
+	for _, port := range []uint16{8080, 8443} {
+		if det := d.Check(makeFlow(src, dst, port, "")); det != nil {
+			t.Fatalf("same scan episode emitted another alert: %+v", det)
+		}
+	}
+
+	time.Sleep(35 * time.Millisecond)
+	for _, port := range []uint16{53, 80, 443} {
+		first = d.Check(makeFlow(src, dst, port, ""))
+	}
+	if first == nil || first.DistinctPortCount != 3 {
+		t.Fatalf("new episode after window expiry: got %+v", first)
+	}
+	if got := first.ObservedDstPorts; len(got) != 3 || got[0] != 53 || got[1] != 80 || got[2] != 443 {
+		t.Fatalf("new episode port evidence: got %v, want [53 80 443]", got)
+	}
+}
+
+func TestExtScanEmitsOneEvidenceRecordPerWindowEpisode(t *testing.T) {
+	d := detector.NewExtScan(3, 25*time.Millisecond)
+	src, dst := "203.0.113.10", "192.168.1.10"
+	var first *detector.Detection
+	for _, port := range []uint16{22, 80, 443} {
+		first = d.Check(makeFlow(src, dst, port, ""))
+	}
+	if first == nil || first.DistinctPortCount != 3 {
+		t.Fatalf("threshold alert: got %+v, want three distinct ports", first)
+	}
+	if got := first.ObservedDstPorts; len(got) != 3 || got[0] != 22 || got[1] != 80 || got[2] != 443 {
+		t.Fatalf("threshold port evidence: got %v, want [22 80 443]", got)
+	}
+	for _, port := range []uint16{8080, 8443} {
+		if det := d.Check(makeFlow(src, dst, port, "")); det != nil {
+			t.Fatalf("same scan episode emitted another alert: %+v", det)
+		}
+	}
+
+	time.Sleep(35 * time.Millisecond)
+	for _, port := range []uint16{53, 80, 443} {
+		first = d.Check(makeFlow(src, dst, port, ""))
+	}
+	if first == nil || first.DistinctPortCount != 3 {
+		t.Fatalf("new episode after window expiry: got %+v", first)
 	}
 }
 
@@ -218,6 +304,7 @@ func TestFeedMatchInboundSrc(t *testing.T) {
 	det := d.Check(makeFlow("1.2.3.4", "192.168.1.100", 80, "SYN_SENT"))
 	if det == nil {
 		t.Fatal("expected detection when src_ip is in feed")
+		return
 	}
 	if det.Type != "feed_match" {
 		t.Errorf("type: got %q, want feed_match", det.Type)
@@ -260,6 +347,7 @@ func TestExtScanThreshold(t *testing.T) {
 	det := d.Check(makeFlow(ext, target, 443, ""))
 	if det == nil {
 		t.Fatal("expected ext_scan detection at threshold")
+		return
 	}
 	if det.Type != "ext_scan" {
 		t.Errorf("type: got %q, want ext_scan", det.Type)
@@ -297,6 +385,7 @@ func TestBruteForceThreshold(t *testing.T) {
 	det := d.Check(makeFlow(ext, "192.168.1.3", 22, ""))
 	if det == nil {
 		t.Fatal("expected brute_force detection at threshold")
+		return
 	}
 	if det.Type != "brute_force" {
 		t.Errorf("type: got %q, want brute_force", det.Type)

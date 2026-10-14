@@ -27,9 +27,15 @@ type effectiveConfig struct {
 	APIBind            string                     `yaml:"api_bind" json:"api_bind"`
 	SyslogTarget       string                     `yaml:"syslog_target" json:"syslog_target"`
 	SyslogProto        string                     `yaml:"syslog_proto" json:"syslog_proto"`
+	EventContext       *effectiveEventContext     `yaml:"event_context,omitempty" json:"event_context,omitempty"`
 	DedupWindow        string                     `yaml:"dedup_window" json:"dedup_window"`
 	Detectors          effectiveDetectorsConfig   `yaml:"detectors" json:"detectors"`
 	SuppressionRules   []effectiveSuppressionRule `yaml:"suppression_rules" json:"suppression_rules"`
+}
+
+type effectiveEventContext struct {
+	RunID  string `yaml:"run_id" json:"run_id"`
+	CaseID string `yaml:"case_id" json:"case_id"`
 }
 
 type effectiveDetectorsConfig struct {
@@ -86,6 +92,13 @@ func writeEffectiveConfig(w io.Writer, cfg *config.Config) error {
 }
 
 func newEffectiveConfig(cfg *config.Config) effectiveConfig {
+	var eventContext *effectiveEventContext
+	if cfg.EventContext != nil {
+		eventContext = &effectiveEventContext{
+			RunID:  cfg.EventContext.RunID,
+			CaseID: cfg.EventContext.CaseID,
+		}
+	}
 	return effectiveConfig{
 		PollInterval:       formatConfigDuration(cfg.PollInterval),
 		Collector:          cfg.Collector,
@@ -104,6 +117,7 @@ func newEffectiveConfig(cfg *config.Config) effectiveConfig {
 		APIBind:            cfg.APIBind,
 		SyslogTarget:       cfg.SyslogTarget,
 		SyslogProto:        cfg.SyslogProto,
+		EventContext:       eventContext,
 		DedupWindow:        formatConfigDuration(cfg.DedupWindow),
 		Detectors: effectiveDetectorsConfig{
 			Fanout: effectiveFanoutConfig{

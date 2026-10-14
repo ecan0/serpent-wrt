@@ -15,7 +15,13 @@ import (
 	"github.com/ecan0/serpent-wrt/internal/flow"
 )
 
-const procPath = "/proc/net/nf_conntrack"
+const (
+	// MaxSnapshotFlows limits parsed conntrack records per polling snapshot.
+	// Collect retains one extra record as an overflow signal for the runtime.
+	MaxSnapshotFlows = 16384
+
+	procPath = "/proc/net/nf_conntrack"
+)
 
 // EventStream carries normalized conntrack NEW events until Done reports why
 // the stream ended. A nil Done value means the context was cancelled.
@@ -26,7 +32,8 @@ type EventStream struct {
 
 // Collect returns current conntrack entries as normalized FlowRecords.
 // It reads /proc/net/nf_conntrack directly, falling back to the conntrack
-// command if the proc file is unavailable.
+// command if the proc file is unavailable. It stops after MaxSnapshotFlows+1
+// records so the runtime can detect overflow without retaining the full table.
 func Collect() ([]flow.FlowRecord, error) {
 	f, err := os.Open(procPath)
 	if err == nil {
@@ -101,11 +108,49 @@ func startEvents(ctx context.Context, command string) (*EventStream, error) {
 }
 
 func collectCmd() ([]flow.FlowRecord, error) {
-	out, err := exec.Command("conntrack", "-L").CombinedOutput()
+	return collectCommand("conntrack")
+}
+
+func collectCommand(command string) ([]flow.FlowRecord, error) {
+	cmd := exec.Command(command, "-L")
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("conntrack -L: %w (output: %s)", err, out)
+		return nil, fmt.Errorf("conntrack -L stdout: %w", err)
 	}
-	return parse(bufio.NewScanner(strings.NewReader(string(out))))
+	stderr := cappedBuffer{limit: 4096}
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("conntrack -L: %w", err)
+	}
+
+	records, parseErr := parse(bufio.NewScanner(stdout))
+	if len(records) > MaxSnapshotFlows {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return records, nil
+	}
+	if parseErr != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("parse conntrack -L output: %w", parseErr)
+	}
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("conntrack -L: %w (output: %s)", err, stderr.String())
+	}
+	return records, nil
+}
+
+type cappedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := b.limit - b.Len(); remaining > 0 {
+		_, _ = b.Buffer.Write(p[:min(n, remaining)])
+	}
+	return n, nil
 }
 
 func parse(scanner *bufio.Scanner) ([]flow.FlowRecord, error) {
@@ -114,14 +159,16 @@ func parse(scanner *bufio.Scanner) ([]flow.FlowRecord, error) {
 	for scanner.Scan() {
 		if r, ok := parseLine(scanner.Text(), now); ok {
 			records = append(records, r)
+			if len(records) > MaxSnapshotFlows {
+				return records, nil
+			}
 		}
 	}
 	return records, scanner.Err()
 }
 
-// parseLine parses one line from /proc/net/nf_conntrack, conntrack -L, or
-// conntrack -E output. Only IPv4 TCP and UDP entries are parsed; IPv6 is
-// skipped.
+// parseLine parses one conntrack snapshot or event. It parses original and
+// reply tuples for IPv4 and IPv6 TCP or UDP entries.
 //
 // Example TCP snapshot:
 //
@@ -161,48 +208,70 @@ func parseLine(line string, now time.Time) (flow.FlowRecord, bool) {
 		}
 	}
 
-	// Extract the forward-direction tuple from key=value pairs.
-	// Use a bitmask to take only the first occurrence of each key.
+	// Conntrack output lists the original tuple first and the reply tuple second.
 	var (
-		srcIP   net.IP
-		dstIP   net.IP
-		srcPort uint16
-		dstPort uint16
-		seen    uint8 // bits: 1=src 2=dst 4=sport 8=dport
+		srcIP        net.IP
+		dstIP        net.IP
+		srcPort      uint16
+		dstPort      uint16
+		replySrcIP   net.IP
+		replyDstIP   net.IP
+		replySrcPort uint16
+		replyDstPort uint16
+		seen         uint8 // bits: 1=src 2=dst 4=sport 8=dport
+		replySeen    uint8
 	)
 	for _, f := range fields {
-		if seen == 0x0f {
-			break // all four forward fields captured
-		}
 		kv := strings.SplitN(f, "=", 2)
 		if len(kv) != 2 {
 			continue
 		}
 		k, v := kv[0], kv[1]
+		var bit uint8
 		switch k {
 		case "src":
-			if seen&1 == 0 {
-				srcIP = net.ParseIP(v)
-				seen |= 1
-			}
+			bit = 1
 		case "dst":
-			if seen&2 == 0 {
-				dstIP = net.ParseIP(v)
-				seen |= 2
-			}
+			bit = 2
 		case "sport":
-			if seen&4 == 0 {
+			bit = 4
+		case "dport":
+			bit = 8
+		default:
+			continue
+		}
+		if seen&bit == 0 {
+			switch k {
+			case "src":
+				srcIP = net.ParseIP(v)
+			case "dst":
+				dstIP = net.ParseIP(v)
+			case "sport":
 				p, _ := strconv.ParseUint(v, 10, 16)
 				srcPort = uint16(p)
-				seen |= 4
-			}
-		case "dport":
-			if seen&8 == 0 {
+			case "dport":
 				p, _ := strconv.ParseUint(v, 10, 16)
 				dstPort = uint16(p)
-				seen |= 8
 			}
+			seen |= bit
+			continue
 		}
+		if replySeen&bit != 0 {
+			continue
+		}
+		switch k {
+		case "src":
+			replySrcIP = net.ParseIP(v)
+		case "dst":
+			replyDstIP = net.ParseIP(v)
+		case "sport":
+			p, _ := strconv.ParseUint(v, 10, 16)
+			replySrcPort = uint16(p)
+		case "dport":
+			p, _ := strconv.ParseUint(v, 10, 16)
+			replyDstPort = uint16(p)
+		}
+		replySeen |= bit
 	}
 
 	if srcIP == nil || dstIP == nil {
@@ -210,12 +279,17 @@ func parseLine(line string, now time.Time) (flow.FlowRecord, bool) {
 	}
 
 	return flow.FlowRecord{
-		Proto:   proto,
-		SrcIP:   srcIP,
-		DstIP:   dstIP,
-		SrcPort: srcPort,
-		DstPort: dstPort,
-		State:   state,
-		SeenAt:  now,
+		Proto:        proto,
+		SrcIP:        srcIP,
+		DstIP:        dstIP,
+		SrcPort:      srcPort,
+		DstPort:      dstPort,
+		State:        state,
+		SeenAt:       now,
+		ReplySrcIP:   replySrcIP,
+		ReplyDstIP:   replyDstIP,
+		ReplySrcPort: replySrcPort,
+		ReplyDstPort: replyDstPort,
 	}, true
+
 }

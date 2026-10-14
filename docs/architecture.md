@@ -6,9 +6,9 @@ storage.
 
 ## Why Conntrack
 
-Linux already maintains connection metadata through `nf_conntrack`. The default
-collector reads that table once per poll cycle. Optional netlink mode consumes
-only connection-create events through the existing `conntrack` CLI.
+Linux keeps connection metadata in `nf_conntrack`. The default collector
+reads that table once per poll cycle. Optional netlink mode consumes only
+connection-create events through the available `conntrack` CLI.
 
 | Capability | Packet capture | Conntrack metadata |
 | --- | --- | --- |
@@ -43,34 +43,63 @@ flowchart TD
 
 ## Collection Semantics
 
-`collector: polling` is the default. It reads snapshots of the current
-conntrack table. Distinct-value detectors tolerate repeated snapshots of the
-same entry, but the beacon detector uses eligible observations as cadence
-samples. A long-lived UDP entry or a TCP entry that remains in a
-non-established state can therefore look periodic at the poll interval.
+Snapshot mode is the default. The first snapshot is a baseline.
+Later snapshots process each tuple only when it first appears.
+A tuple that stays in the table creates no new activity.
+A tuple that leaves and later returns counts as new.
 
-`collector: netlink` runs `conntrack -E -e NEW` and processes each new
-connection once. The `conntrack` CLI is an optional runtime tool, not a required
-daemon dependency. If it is missing, lacks permission, or its event stream
-ends, serpent-wrt logs the reason and uses polling until restart. `/status`
-reports both the configured and active collector plus any fallback error.
+The parser stops after 16,385 valid conntrack records. The extra record signals overflow.
+The runtime clears its comparison history and pauses new-flow detection.
+It resumes only after a complete snapshot with no more than 16,384 records.
+That snapshot becomes the new baseline.
+The poll interval sets cadence resolution.
 
-Treat beaconing as an experimental lead in either mode, tune `exclude_ports`,
-and validate it against representative router traffic before coupling it to a
-response policy.
+`collector: netlink` runs `conntrack -E -e NEW` and records each new event once.
+It uses event receipt time for cadence analysis.
+The `conntrack` CLI is optional, not a required daemon dependency.
+If it is missing, lacks permission, or its event stream ends, serpent-wrt logs the reason and falls back to snapshots.
+Snapshot mode then establishes a fresh baseline before it processes new tuples.
+`/status` reports the configured and active collector plus any fallback error.
+
+Beacon history stores at most 512 source/destination pairs, 64 timestamps per pair, and 8,192 timestamps total.
+When a history limit is full, the collector drops new samples until expiry frees space.
+Do not interpret these limits as a total process-memory budget.
+
+## NAT Tuple Semantics
+
+Conntrack snapshots retain the original tuple and the reply tuple.
+The original destination stays in `dst_ip` and `dst_port`.
+When the reply source differs, `translated_dst_ip` and `translated_dst_port` report the translated destination.
+Direction classification uses the translated destination when present.
+The `conntrack -E -e NEW` event can lack reply tuple data, so it cannot establish DNAT translation alone.
+
+## Scan Alert Semantics
+
+`port_scan` and `ext_scan` emit one alert when the count in the time window first reaches its threshold.
+The alert includes `distinct_port_count` and the sorted `observed_dst_ports` at the threshold.
+Expiry rearms the episode when the distinct-port count drops below the threshold.
+A later threshold event starts a new alert episode.
+
+Each distinct-value tracker stores at most 1,024 keys, 256 values per key, and 4,096 values total.
+When a value limit is full, the tracker rejects new distinct values and preserves values it already stores.
+The detector can therefore miss activity after a state limit.
+Configuration rejects thresholds above the per-key value limit.
 
 ## Enforcement Boundary
 
-When `enforcement_enabled` is true, the daemon creates the configured inet table
-and timed IPv4 set, then adds detected source addresses to that set. It does not
-create a base chain or packet-drop rule. An operator-managed firewall policy must
-reference the set before entries affect traffic. `/blocked`,
-`blocks_applied`, and nft readiness report successful set management, not proof
-that packets were dropped.
+When `enforcement_enabled` is true, the daemon validates its nft batch with `nft --check` before it applies the batch.
+It creates one `ipv4_addr` set and one `ipv6_addr` set in the configured inet table.
+The configured set name is the base name. The daemon adds `_v4` or `_v6` to each set name.
 
+`serpent-wrt nftcheck` parses the set definitions even when enforcement is disabled.
+It does not apply a ruleset or prove packet drops.
+
+The daemon does not create a base chain or packet-drop rule.
+An operator-managed firewall policy must use the correct family set.
+`/blocked`, `blocks_applied`, and nft readiness report set management, not packet drops.
 For OpenWrt, a supported fw4 package include is the preferred future integration
 instead of ad hoc runtime rules. Until that integration exists, verify the full
-ruleset and an actual packet-flow test before describing enforcement as active.
+ruleset and an actual packet-flow test before you claim enforcement works.
 
 ## Detectors
 
@@ -84,9 +113,8 @@ ruleset and an actual packet-flow test before describing enforcement as active.
 | `ext_scan` | WAN to LAN | External source probes many ports on one internal host. |
 | `brute_force` | WAN to LAN | External source hits the same service port across many internal hosts. |
 
-Detections include a stable `reason`, severity, and confidence score so SIEM
-rules can distinguish threat-feed hits, scans, service sprays, and beacon-like
-traffic.
+Detection events include original and translated destination fields for DNAT snapshots.
+Scan events include the threshold count and sorted distinct ports when the detector reaches its threshold.
 
 ## Invariants
 
@@ -95,5 +123,4 @@ traffic.
 - No packet capture or payload inspection.
 - No persistent database.
 - IPv4 and IPv6 flow metadata are supported.
-- Polling remains the stable fallback even if an optional netlink collector is
-  added later.
+- Snapshot mode is the default collector and fallback when netlink is unavailable.

@@ -36,18 +36,18 @@ jobs:
           - target: x86/64
             go_arch: amd64
             slug: x86-64
-            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: 28e004c1be4d215d19c1f12a6aa4c8d8f80689549eb707d0ff5a71f16fa8d05f
+            sdk_url: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: 0c8df0151a1e88feb7c03d694d61f6a18d51872815b7c811d76e2b77504d5e9c
           - target: x86/generic
             go_arch: "386"
             slug: x86-generic
-            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/x86/generic/openwrt-sdk-25.12.4-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: d4139c65d5d952a9aac9e33db8732def020dbbba7e6498bbc9062a304794dff5
+            sdk_url: https://downloads.openwrt.org/releases/25.12.5/targets/x86/generic/openwrt-sdk-25.12.5-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: 0bd51089e1c94c736a4d2d345b24844aab091f1c50502e8e6facddcc6114fde6
           - target: mediatek/filogic
             go_arch: arm64
             slug: mediatek-filogic
-            sdk_url: https://downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/openwrt-sdk-25.12.4-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-            sdk_sha256: 411a2277ca10f909c30275a506aab4dc28a4f1281d7fda4f19faaa2ded6630bb
+            sdk_url: https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+            sdk_sha256: ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25
 
     steps:
       - uses: actions/checkout@v7

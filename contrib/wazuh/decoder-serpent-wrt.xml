@@ -1,15 +1,25 @@
-<!--
-  Wazuh decoder for serpent-wrt NDJSON events received via syslog.
-  The syslog MSG field contains the full JSON object.
+<!-- serpent-wrt decoder
+     Matches syslog messages tagged 'serpent-wrt' and decodes the JSON payload.
 
-  Install: copy to /var/ossec/etc/decoders/ and restart Wazuh.
+     Event format (from log/syslog, RFC 3164):
+       <pri>date host serpent-wrt[pid]: {"time":"...","level":"warn","type":"detection",...}
+
+     Wazuh strips the syslog envelope; the decoder sees:
+       {"time":"...","level":"warn","type":"detection","detector":"fanout",...}
 -->
+
+<!-- Stage 1: match on the syslog program name -->
 <decoder name="serpent-wrt">
-  <program_name>serpent-wrt</program_name>
-  <prematch>{"time":</prematch>
+  <program_name>^serpent-wrt$</program_name>
 </decoder>
 
+<!-- Stage 2: decode the JSON body using Wazuh's built-in JSON decoder plugin.
+     Extracted fields land under data.* in the alert:
+       data.level, data.type, data.detector,
+       data.src_ip, data.dst_ip, data.dst_port, data.message
+-->
 <decoder name="serpent-wrt-json">
   <parent>serpent-wrt</parent>
+  <use_own_name>false</use_own_name>
   <plugin_decoder>JSON_Decoder</plugin_decoder>
 </decoder>

@@ -8,12 +8,12 @@
 <br>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
-[![Go 1.26.5](https://img.shields.io/badge/go-1.26.5-blue.svg)](https://go.dev/)
+[![Go 1.26.9](https://img.shields.io/badge/go-1.26.9-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt APK](https://img.shields.io/badge/OpenWrt-APK%20packages-blueviolet.svg)](openwrt/serpent-wrt)
 
 `serpent-wrt` is a lightweight OpenWrt/Linux IDS for router-safe detection,
-local threat-intel matching, and structured security events. It can populate
+local threat-feed checks, and structured security events. It can populate
 timed nftables sets for operator-integrated response policies.
 
 It reads conntrack metadata that Linux routers already maintain. It does not
@@ -26,20 +26,21 @@ agent stack.
 
 ## What It Does
 
-- Watches `nf_conntrack` flow metadata.
+- Watches current conntrack metadata and processes each new tuple once per collector observation.
 - Matches flows against a local IPv4/IPv6 IP-and-CIDR threat feed.
 - Detects feed hits, fanout, port scans, beacon-like traffic, inbound scans,
-  and brute-force/service-spray patterns.
-- Emits NDJSON security events and optional remote syslog.
+  and service-spray patterns.
+- Scan alerts retain a sorted distinct-port list and emit once per episode.
+- Emits structured NDJSON and optional remote syslog. DNAT snapshots include original and translated destinations.
 - Exposes a localhost API for health, status, stats, recent detections, feed
   management, reloads, and current timed-set entries.
-- Optionally adds detected source IPs to nftables sets with kernel-managed timeouts.
+- Optionally adds detected source IPs to separate IPv4 and IPv6 nftables sets.
 - Ships OpenWrt package metadata, procd init files, release APK artifacts, and
   runtime smoke coverage.
 
 The default path is detect-only. Enforcement is an explicit operator choice:
 the daemon manages timed nftables set entries, while the firewall policy that
-references those entries remains under operator control.
+uses those entries remains under operator control.
 
 ## Quick Start
 
@@ -100,7 +101,7 @@ Design guardrails:
 - detect-only by default
 - no packet capture or payload inspection
 - no persistent database
-- polling remains the stable collector path
+- snapshot mode remains the stable collector path
 - IPv4 and IPv6 flow metadata are supported
 
 More detail: [Architecture](docs/architecture.md).
@@ -122,9 +123,9 @@ enrichment from dnsmasq leases.
 ## OpenWrt APKs
 
 The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
-25.12 SDKs. Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file
-to GitHub Releases; GitHub artifact attestations bind the APK to its build and
-SBOM.
+25.12 SDKs.
+Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file to GitHub Releases.
+GitHub artifact attestations bind each APK to its build and SBOM.
 
 Current release assets:
 
@@ -185,27 +186,20 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
 ## Safety And Limits
 
 - Timed-set updates are disabled unless `enforcement_enabled: true`.
-- `serpent-wrt` creates and populates a named nftables set; it does not install
-  a packet-drop rule. Traffic is blocked only when a separately managed firewall
-  rule references that set.
+- `serpent-wrt` validates the IPv4 and IPv6 set batch with `nft --check` before it applies the batch.
+- The daemon creates and populates separate `_v4` and `_v6` sets. It does not install a packet-drop rule. A separately managed firewall rule must use each set for its address family.
 - `/blocked` and `blocks_applied` report set state, not observed packet drops.
-- Polling sees snapshots and can repeat long-lived flows. Optional netlink mode
-  consumes connection-create events and returns to polling if the stream fails.
-  Validate beacon alerts on representative traffic before using them for response.
-- IPv6 enforcement uses the same inet nftables set, but the firewall policy must
-  reference it for both address families.
-- OpenWrt firewall reloads can remove custom nftables state, so check
-  `/status`, run `nftcheck`, and verify the referencing firewall rule after reloads.
+- Snapshot mode uses its first conntrack snapshot as a baseline and processes each new tuple once. A tuple that remains in the table does not create repeated beacon samples.
+- Netlink consumes `NEW` events. If the stream fails, snapshot mode sets a fresh baseline before it processes new tuples.
+- IPv6 enforcement requires the firewall policy to reference the IPv6 set.
+- `nftcheck` validates the parser definitions even when enforcement is disabled. Parser acceptance does not prove packet drops.
+- OpenWrt firewall reloads can remove custom nftables state. Check `/status`, run `nftcheck`, and verify the firewall rule that uses the sets after each reload.
 
 ## Development
 
-Development flows through `dev`; `main` is the protected release and tag branch.
+Development flows through `dev`. `main` is the protected release and tag branch.
 Use `feature/<slice-name>` for product work and `ci/<slice-name>` for CI,
 release, docs/process, and automation work.
-
-Trusted `dev` pushes also install the generated x86/generic binary on the
-`openwrt-x86-64` lab VM defined by `test-wrt-iac`. Its local-network address
-and SSH credential stay in repository settings rather than source.
 
 Useful checks:
 

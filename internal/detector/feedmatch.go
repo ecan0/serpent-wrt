@@ -31,6 +31,21 @@ func (d *FeedMatch) Check(r flow.FlowRecord) *Detection {
 			At:         time.Now(),
 		}
 	}
+	if translatedIP, translatedPort, translated := r.TranslatedDst(); translated && d.feed.Contains(translatedIP) {
+		return &Detection{
+			Type:              "feed_match",
+			Severity:          SeverityHigh,
+			Confidence:        95,
+			Reason:            ReasonThreatFeedDestination,
+			SrcIP:             r.SrcIP,
+			DstIP:             r.DstIP,
+			DstPort:           r.DstPort,
+			TranslatedDstIP:   translatedIP,
+			TranslatedDstPort: translatedPort,
+			Message:           fmt.Sprintf("connection translated to threat feed entry %s", translatedIP),
+			At:                time.Now(),
+		}
+	}
 	if r.SrcIP != nil && d.feed.Contains(r.SrcIP) {
 		return &Detection{
 			Type:       "feed_match",

@@ -3,6 +3,7 @@ package enforcer
 import (
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,23 +55,6 @@ func TestFormatDurationSeconds(t *testing.T) {
 	}
 }
 
-func TestEnsureSetScript(t *testing.T) {
-	got := ensureSetScript("serpent_wrt", "blocked_ips")
-	want := "add table inet serpent_wrt\n" +
-		"add set inet serpent_wrt blocked_ips { type inet_addr; flags timeout; }\n"
-	if got != want {
-		t.Fatalf("ensureSetScript:\ngot  %q\nwant %q", got, want)
-	}
-}
-
-func TestBlockScript(t *testing.T) {
-	got := blockScript("serpent_wrt", "blocked_ips", "1.2.3.4", 90*time.Second)
-	want := "add element inet serpent_wrt blocked_ips { 1.2.3.4 timeout 90s }\n"
-	if got != want {
-		t.Fatalf("blockScript:\ngot  %q\nwant %q", got, want)
-	}
-}
-
 func TestNew(t *testing.T) {
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
 	if e == nil {
@@ -87,7 +71,11 @@ func TestIsBlockedEmpty(t *testing.T) {
 }
 
 func TestBlockIPv6TracksSuccessfulBlock(t *testing.T) {
-	restore := stubNftScript(t, func(_ string) error { return nil })
+	var applied string
+	restore := stubNftScript(t, func(script string) error {
+		applied = script
+		return nil
+	})
 	defer restore()
 
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
@@ -97,6 +85,9 @@ func TestBlockIPv6TracksSuccessfulBlock(t *testing.T) {
 	}
 	if !e.IsBlocked(ip) {
 		t.Fatal("IPv6 should appear as blocked")
+	}
+	if !strings.Contains(applied, "blocked_ips_v6") || strings.Contains(applied, "blocked_ips_v4") {
+		t.Fatalf("IPv6 block used the wrong set: %s", applied)
 	}
 }
 
@@ -119,8 +110,175 @@ func TestBlockTracksSuccessfulBlock(t *testing.T) {
 	if err := e.Block(ip); err != nil {
 		t.Fatalf("duplicate Block: %v", err)
 	}
+	if !strings.Contains(scripts[0], "blocked_ips_v4") || strings.Contains(scripts[0], "blocked_ips_v6") {
+		t.Fatalf("IPv4 block used the wrong set: %s", scripts[0])
+	}
 	if len(scripts) != 1 {
 		t.Fatalf("nft scripts: got %d, want 1", len(scripts))
+	}
+}
+
+func TestEnsureSetDoesNotApplyWhenParserRejectsDefinitions(t *testing.T) {
+	restoreNft := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "table" {
+			return errors.New("table missing")
+		}
+		t.Fatalf("unexpected nft query: %#v", args)
+		return nil
+	})
+	defer restoreNft()
+	applied := false
+	restoreApply := stubNftScript(t, func(string) error {
+		applied = true
+		return nil
+	})
+	defer restoreApply()
+	restoreCheck := stubNftScriptCheck(t, func(script string) error {
+		if !strings.Contains(script, "type ipv4_addr") || !strings.Contains(script, "type ipv6_addr") {
+			t.Fatalf("validation omitted an address family: %s", script)
+		}
+		return errors.New("unknown datatype inet_addr")
+	})
+	defer restoreCheck()
+
+	err := New("serpent_wrt", "blocked_ips", time.Hour).EnsureSet()
+	if err == nil || !strings.Contains(err.Error(), "unknown datatype inet_addr") {
+		t.Fatalf("EnsureSet error: got %v, want parser diagnostic", err)
+	}
+	if applied {
+		t.Fatal("EnsureSet applied definitions that failed parser validation")
+	}
+}
+
+func TestEnsureSetAppliesBothSupportedFamiliesAfterValidation(t *testing.T) {
+	restoreNft := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "table" {
+			return errors.New("table missing")
+		}
+		t.Fatalf("unexpected nft query: %#v", args)
+		return nil
+	})
+	defer restoreNft()
+	var checked, applied string
+	restoreApply := stubNftScript(t, func(script string) error {
+		applied = script
+		return nil
+	})
+	defer restoreApply()
+	restoreCheck := stubNftScriptCheck(t, func(script string) error {
+		checked = script
+		return nil
+	})
+	defer restoreCheck()
+
+	if err := New("serpent_wrt", "blocked_ips", time.Hour).EnsureSet(); err != nil {
+		t.Fatalf("EnsureSet: %v", err)
+	}
+	if checked == "" || checked != applied {
+		t.Fatalf("apply script was not the validated batch: checked=%q applied=%q", checked, applied)
+	}
+	if !strings.Contains(applied, "blocked_ips_v4 { type ipv4_addr;") ||
+		!strings.Contains(applied, "blocked_ips_v6 { type ipv6_addr;") {
+		t.Fatalf("dual-stack set definitions missing: %s", applied)
+	}
+}
+
+func TestValidateSetDefinitionsOnlyChecksTheBatch(t *testing.T) {
+	restoreNft := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "table" {
+			return errors.New("validation table absent")
+		}
+		t.Fatalf("unexpected nft command: %#v", args)
+		return nil
+	})
+	defer restoreNft()
+	var checked string
+	restoreCheck := stubNftScriptCheck(t, func(script string) error {
+		checked = script
+		return nil
+	})
+	defer restoreCheck()
+	applied := false
+	restoreApply := stubNftScript(t, func(string) error {
+		applied = true
+		return nil
+	})
+	defer restoreApply()
+
+	if err := New("serpent_wrt", "blocked_ips", time.Hour).ValidateSetDefinitions(); err != nil {
+		t.Fatalf("ValidateSetDefinitions: %v", err)
+	}
+	if !strings.Contains(checked, "type ipv4_addr") || !strings.Contains(checked, "type ipv6_addr") {
+		t.Fatalf("validation batch omitted an address family: %s", checked)
+	}
+	if applied {
+		t.Fatal("parser validation applied a ruleset")
+	}
+}
+
+func TestEnsureSetIsNoopWhenBothFamiliesExist(t *testing.T) {
+	restoreNft := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "table" && (len(args) < 4 || args[3] != "serpent_wrt") {
+			return errors.New("validation table absent")
+		}
+		return nil
+	})
+	defer restoreNft()
+	checked := false
+	restoreCheck := stubNftScriptCheck(t, func(string) error {
+		checked = true
+		return nil
+	})
+	defer restoreCheck()
+	applied := false
+	restoreApply := stubNftScript(t, func(string) error {
+		applied = true
+		return nil
+	})
+	defer restoreApply()
+
+	if err := New("serpent_wrt", "blocked_ips", time.Hour).EnsureSet(); err != nil {
+		t.Fatalf("EnsureSet: %v", err)
+	}
+	if !checked || applied {
+		t.Fatalf("existing sets should validate without apply: checked=%t applied=%t", checked, applied)
+	}
+}
+
+func TestEnsureSetAddsOnlyMissingAddressFamily(t *testing.T) {
+	restoreNft := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 1 && args[1] == "table" && (len(args) < 4 || args[3] != "serpent_wrt") {
+			return errors.New("validation table absent")
+		}
+		if len(args) > 1 && args[1] == "table" {
+			return nil
+		}
+		if len(args) > 4 && args[4] == "blocked_ips_v6" {
+			return errors.New("IPv6 set missing")
+		}
+		return nil
+	})
+	defer restoreNft()
+	var checked, applied string
+	restoreCheck := stubNftScriptCheck(t, func(script string) error {
+		checked = script
+		return nil
+	})
+	defer restoreCheck()
+	restoreApply := stubNftScript(t, func(script string) error {
+		applied = script
+		return nil
+	})
+	defer restoreApply()
+
+	if err := New("serpent_wrt", "blocked_ips", time.Hour).EnsureSet(); err != nil {
+		t.Fatalf("EnsureSet: %v", err)
+	}
+	if checked == "" || checked != applied ||
+		!strings.Contains(applied, "blocked_ips_v6") ||
+		strings.Contains(applied, "blocked_ips_v4") ||
+		strings.Contains(applied, "add table") {
+		t.Fatalf("partial repair batch is wrong: %q", applied)
 	}
 }
 
@@ -162,18 +320,35 @@ func TestCheckReady(t *testing.T) {
 	})
 	defer restore()
 
-	e := New("serpent_wrt", "blocked_ips", time.Hour)
-	check := e.Check()
-	if !check.Available || !check.TablePresent || !check.SetPresent || check.Error != "" {
-		t.Fatalf("check: got %+v, want ready", check)
+	check := New("serpent_wrt", "blocked_ips", time.Hour).Check()
+	if !check.Available || !check.TablePresent || !check.SetPresent ||
+		!check.IPv4SetPresent || !check.IPv6SetPresent || check.Error != "" {
+		t.Fatalf("check: got %+v, want both address-family sets ready", check)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("nft calls: got %d, want 2", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("nft calls: got %d, want table and two set checks", len(calls))
 	}
-	wantTable := []string{"list", "table", "inet", "serpent_wrt"}
-	wantSet := []string{"list", "set", "inet", "serpent_wrt", "blocked_ips"}
-	if !sameStrings(calls[0], wantTable) || !sameStrings(calls[1], wantSet) {
-		t.Fatalf("calls: got %#v, want %#v then %#v", calls, wantTable, wantSet)
+	if calls[1][4] != "blocked_ips_v4" || calls[2][4] != "blocked_ips_v6" {
+		t.Fatalf("set checks: got %#v", calls)
+	}
+}
+
+func TestCheckMissingIPv6SetReportsPartialState(t *testing.T) {
+	restore := stubNft(t, nil, func(args ...string) error {
+		if len(args) > 4 && args[4] == "blocked_ips_v6" {
+			return errors.New("IPv6 set missing")
+		}
+		return nil
+	})
+	defer restore()
+
+	check := New("serpent_wrt", "blocked_ips", time.Hour).Check()
+	if !check.Available || !check.TablePresent || check.SetPresent ||
+		!check.IPv4SetPresent || check.IPv6SetPresent {
+		t.Fatalf("check: got %+v, want IPv4 present and IPv6 missing", check)
+	}
+	if !strings.Contains(check.Error, "IPv6 set missing") {
+		t.Fatalf("error: got %q, want IPv6 set diagnostic", check.Error)
 	}
 }
 
@@ -186,12 +361,12 @@ func TestCheckMissingSet(t *testing.T) {
 	})
 	defer restore()
 
-	e := New("serpent_wrt", "blocked_ips", time.Hour)
-	check := e.Check()
-	if !check.Available || !check.TablePresent || check.SetPresent {
-		t.Fatalf("check: got %+v, want missing set", check)
+	check := New("serpent_wrt", "blocked_ips", time.Hour).Check()
+	if !check.Available || !check.TablePresent || check.SetPresent ||
+		check.IPv4SetPresent || check.IPv6SetPresent {
+		t.Fatalf("check: got %+v, want missing sets", check)
 	}
-	if check.Error != "set missing" {
+	if !strings.Contains(check.Error, "set missing") {
 		t.Fatalf("error: got %q, want set missing", check.Error)
 	}
 }
@@ -246,6 +421,47 @@ func TestIsBlockedAfterDirectInject(t *testing.T) {
 	}
 }
 
+func TestListBlockedCombinesAddressFamilies(t *testing.T) {
+	restore := stubNftListSet(t, func(table, set string) ([]string, error) {
+		if table != "serpent_wrt" {
+			t.Fatalf("table: got %q, want serpent_wrt", table)
+		}
+		switch set {
+		case "blocked_ips_v4":
+			return []string{"192.0.2.1"}, nil
+		case "blocked_ips_v6":
+			return []string{"2001:db8::1"}, nil
+		default:
+			t.Fatalf("unexpected nft set %q", set)
+			return nil, nil
+		}
+	})
+	defer restore()
+
+	blocked, err := New("serpent_wrt", "blocked_ips", time.Hour).ListBlocked()
+	if err != nil {
+		t.Fatalf("ListBlocked: %v", err)
+	}
+	if len(blocked) != 2 || blocked[0] != "192.0.2.1" || blocked[1] != "2001:db8::1" {
+		t.Fatalf("blocked entries: got %#v", blocked)
+	}
+}
+
+func TestListBlockedReportsPartialSetFailure(t *testing.T) {
+	restore := stubNftListSet(t, func(_, set string) ([]string, error) {
+		if set == "blocked_ips_v6" {
+			return nil, errors.New("IPv6 set missing")
+		}
+		return []string{"192.0.2.1"}, nil
+	})
+	defer restore()
+
+	if _, err := New("serpent_wrt", "blocked_ips", time.Hour).ListBlocked(); err == nil ||
+		!strings.Contains(err.Error(), "IPv6 set missing") {
+		t.Fatalf("ListBlocked error: got %v, want IPv6 set error", err)
+	}
+}
+
 func stubNft(t *testing.T, lookPathErr error, runner func(args ...string) error) func() {
 	t.Helper()
 	oldLookPath := lookPath
@@ -277,14 +493,20 @@ func stubNftScript(t *testing.T, runner func(string) error) func() {
 	}
 }
 
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+func stubNftListSet(t *testing.T, runner func(table, set string) ([]string, error)) func() {
+	t.Helper()
+	oldRunNftListSet := runNftListSet
+	runNftListSet = runner
+	return func() {
+		runNftListSet = oldRunNftListSet
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
+}
+
+func stubNftScriptCheck(t *testing.T, runner func(string) error) func() {
+	t.Helper()
+	oldRunNftScriptCheck := runNftScriptCheck
+	runNftScriptCheck = runner
+	return func() {
+		runNftScriptCheck = oldRunNftScriptCheck
 	}
-	return true
 }

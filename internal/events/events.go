@@ -27,27 +27,33 @@ const (
 
 // Event is a structured JSON log entry written to stdout.
 type Event struct {
-	Time        time.Time `json:"time"`
-	Level       Level     `json:"level"`
-	Type        EventType `json:"type"`
-	Component   string    `json:"component,omitempty"`
-	Action      string    `json:"action,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	FeedCount   *int      `json:"feed_count,omitempty"`
-	Addr        string    `json:"addr,omitempty"`
-	Detector    string    `json:"detector,omitempty"`
-	Severity    string    `json:"severity,omitempty"`
-	Confidence  uint8     `json:"confidence,omitempty"`
-	Reason      string    `json:"reason,omitempty"`
-	SrcIP       string    `json:"src_ip,omitempty"`
-	SrcHostname string    `json:"src_hostname,omitempty"`
-	SrcMAC      string    `json:"src_mac,omitempty"`
-	DstIP       string    `json:"dst_ip,omitempty"`
-	DstHostname string    `json:"dst_hostname,omitempty"`
-	DstMAC      string    `json:"dst_mac,omitempty"`
-	DstPort     uint16    `json:"dst_port,omitempty"`
-	Message     string    `json:"message"`
+	Time              time.Time `json:"time"`
+	Level             Level     `json:"level"`
+	Type              EventType `json:"type"`
+	RunID             string    `json:"run_id,omitempty"`
+	CaseID            string    `json:"case_id,omitempty"`
+	Component         string    `json:"component,omitempty"`
+	Action            string    `json:"action,omitempty"`
+	Status            string    `json:"status,omitempty"`
+	Error             string    `json:"error,omitempty"`
+	FeedCount         *int      `json:"feed_count,omitempty"`
+	Addr              string    `json:"addr,omitempty"`
+	Detector          string    `json:"detector,omitempty"`
+	Severity          string    `json:"severity,omitempty"`
+	Confidence        uint8     `json:"confidence,omitempty"`
+	Reason            string    `json:"reason,omitempty"`
+	SrcIP             string    `json:"src_ip,omitempty"`
+	SrcHostname       string    `json:"src_hostname,omitempty"`
+	SrcMAC            string    `json:"src_mac,omitempty"`
+	DstIP             string    `json:"dst_ip,omitempty"`
+	DstHostname       string    `json:"dst_hostname,omitempty"`
+	DstMAC            string    `json:"dst_mac,omitempty"`
+	DstPort           uint16    `json:"dst_port,omitempty"`
+	TranslatedDstIP   string    `json:"translated_dst_ip,omitempty"`
+	TranslatedDstPort uint16    `json:"translated_dst_port,omitempty"`
+	DistinctPortCount int       `json:"distinct_port_count,omitempty"`
+	ObservedDstPorts  []uint16  `json:"observed_dst_ports,omitempty"`
+	Message           string    `json:"message"`
 }
 
 // SystemFields carries structured context for operational system events.

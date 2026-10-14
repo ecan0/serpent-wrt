@@ -1,73 +1,92 @@
-<!--
-  Wazuh rules for serpent-wrt detections.
-  Rule IDs: 100200–100209 (custom range).
+<!-- serpent-wrt rules
+     Rule ID range: 100200–100299
 
-  Install: copy to /var/ossec/etc/rules/ and restart Wazuh.
+     Hierarchy:
+       100200  base catch-all (level 3) — any serpent-wrt event
+       100201  detection event (level 10)
+         100202  feed_match   (level 12) — known-bad IP contact
+         100203  port_scan    (level 10) — recon
+         100204  fanout       (level 10) — connection spread
+         100205  beacon       (level 10) — C2 periodic pattern
+         100206  ext_scan     (level 10) — external scan
+         100207  brute_force  (level 10) — repeated authentication attempts
+       100210  enforcement event (level 10) — IP blocked by nftables
 -->
-<group name="serpent-wrt,">
 
-  <!-- Base rule: any serpent-wrt detection event -->
+<group name="serpent-wrt,network,threat-detection,">
+
+  <!-- Base rule: any event from serpent-wrt.
+       Matches the parent decoder name ('serpent-wrt') — JSON fields are
+       decoded by the child JSON_Decoder plugin but the active decoder
+       name reported to rules is the parent. -->
   <rule id="100200" level="3">
     <decoded_as>serpent-wrt</decoded_as>
-    <field name="type">^detection$</field>
-    <description>serpent-wrt detection event</description>
+    <description>serpent-wrt: event received</description>
     <group>serpent-wrt,</group>
   </rule>
 
-  <!-- Enforcement action (IP added to configured nftables timed set) -->
-  <rule id="100201" level="6">
-    <decoded_as>serpent-wrt</decoded_as>
-    <field name="type">^enforcement$</field>
-    <description>serpent-wrt added IP to nftables timed set</description>
-    <group>serpent-wrt,active_response,</group>
+  <!-- Detection event — a behavioral detector fired -->
+  <rule id="100201" level="10">
+    <if_sid>100200</if_sid>
+    <field name="type">^detection$</field>
+    <description>serpent-wrt: $(detector) detection — src $(src_ip)</description>
+    <group>serpent-wrt,detection,</group>
   </rule>
 
-  <!-- feed_match: traffic to/from known threat intelligence IP -->
-  <rule id="100202" level="10">
-    <if_sid>100200</if_sid>
+  <!-- Threat feed match: outbound connection to a known-bad IP -->
+  <rule id="100202" level="12">
+    <if_sid>100201</if_sid>
     <field name="detector">^feed_match$</field>
-    <description>serpent-wrt: traffic matches threat feed [$(src_ip) -> $(dst_ip)]</description>
-    <group>serpent-wrt,threat_intel,</group>
+    <description>serpent-wrt: threat feed match — $(src_ip) contacted known-bad $(dst_ip)</description>
+    <group>serpent-wrt,feed_match,threat,</group>
   </rule>
 
-  <!-- fanout: internal host contacting many external destinations -->
-  <rule id="100203" level="8">
-    <if_sid>100200</if_sid>
-    <field name="detector">^fanout$</field>
-    <description>serpent-wrt: outbound fanout from $(src_ip)</description>
-    <group>serpent-wrt,anomaly,</group>
-  </rule>
-
-  <!-- port_scan: internal host scanning ports on an external target -->
-  <rule id="100204" level="8">
-    <if_sid>100200</if_sid>
+  <!-- Port scan: one source probing many ports on one target -->
+  <rule id="100203" level="10">
+    <if_sid>100201</if_sid>
     <field name="detector">^port_scan$</field>
-    <description>serpent-wrt: outbound port scan from $(src_ip) to $(dst_ip)</description>
-    <group>serpent-wrt,recon,</group>
+    <description>serpent-wrt: port scan detected from $(src_ip)</description>
+    <group>serpent-wrt,port_scan,recon,</group>
   </rule>
 
-  <!-- beacon: internal host beaconing to an external destination -->
-  <rule id="100205" level="9">
-    <if_sid>100200</if_sid>
+  <!-- Fanout: one source connecting to many distinct destinations -->
+  <rule id="100204" level="10">
+    <if_sid>100201</if_sid>
+    <field name="detector">^fanout$</field>
+    <description>serpent-wrt: outbound fanout detected from $(src_ip)</description>
+    <group>serpent-wrt,fanout,recon,</group>
+  </rule>
+
+  <!-- Beaconing: periodic connections at a consistent interval (C2 pattern) -->
+  <rule id="100205" level="10">
+    <if_sid>100201</if_sid>
     <field name="detector">^beacon$</field>
-    <description>serpent-wrt: beaconing from $(src_ip) to $(dst_ip)</description>
-    <group>serpent-wrt,c2,</group>
+    <description>serpent-wrt: C2 beaconing pattern detected from $(src_ip) to $(dst_ip)</description>
+    <group>serpent-wrt,beacon,c2,</group>
   </rule>
 
-  <!-- ext_scan: external IP scanning ports on an internal host -->
-  <rule id="100206" level="7">
-    <if_sid>100200</if_sid>
+  <!-- External scan: one source scans services across external targets -->
+  <rule id="100206" level="10">
+    <if_sid>100201</if_sid>
     <field name="detector">^ext_scan$</field>
-    <description>serpent-wrt: inbound port scan from $(src_ip) to $(dst_ip)</description>
-    <group>serpent-wrt,recon,</group>
+    <description>serpent-wrt: external scan detected from $(src_ip)</description>
+    <group>serpent-wrt,ext_scan,recon,</group>
   </rule>
 
-  <!-- brute_force: external IP hitting same port across many internal hosts -->
-  <rule id="100207" level="8">
-    <if_sid>100200</if_sid>
+  <!-- Brute force: repeated authentication attempts against one service -->
+  <rule id="100207" level="10">
+    <if_sid>100201</if_sid>
     <field name="detector">^brute_force$</field>
-    <description>serpent-wrt: inbound brute-force/spray from $(src_ip)</description>
-    <group>serpent-wrt,brute_force,</group>
+    <description>serpent-wrt: brute force detected from $(src_ip) to $(dst_ip)</description>
+    <group>serpent-wrt,brute_force,authentication,</group>
+  </rule>
+
+  <!-- Enforcement: nftables block applied to a source IP -->
+  <rule id="100210" level="10">
+    <if_sid>100200</if_sid>
+    <field name="type">^enforcement$</field>
+    <description>serpent-wrt: $(src_ip) blocked by nftables</description>
+    <group>serpent-wrt,enforcement,blocked,</group>
   </rule>
 
 </group>

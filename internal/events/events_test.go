@@ -125,6 +125,81 @@ func TestDetectionEventMetadataJSON(t *testing.T) {
 	}
 }
 
+func TestEventContextFieldsSerialize(t *testing.T) {
+	event := Event{
+		Level:   LevelWarn,
+		Type:    TypeDetection,
+		RunID:   "e2e-run",
+		CaseID:  "scan-01",
+		Message: "detection",
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["run_id"] != "e2e-run" || got["case_id"] != "scan-01" {
+		t.Fatalf("event context: got %v/%v", got["run_id"], got["case_id"])
+	}
+}
+
+func TestDetectionEventPreservesTranslatedDestination(t *testing.T) {
+	e := Event{
+		Level:             LevelWarn,
+		Type:              TypeDetection,
+		Detector:          "feed_match",
+		SrcIP:             "1.2.3.4",
+		DstIP:             "192.168.100.200",
+		DstPort:           18443,
+		TranslatedDstIP:   "198.18.0.10",
+		TranslatedDstPort: 18180,
+		Message:           "translated source-feed hit",
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["dst_ip"] != "192.168.100.200" || got["dst_port"] != float64(18443) {
+		t.Fatalf("original destination fields: %v", got)
+	}
+	if got["translated_dst_ip"] != "198.18.0.10" || got["translated_dst_port"] != float64(18180) {
+		t.Fatalf("translated destination fields: %v", got)
+	}
+}
+
+func TestDetectionEventPreservesScanPortEvidence(t *testing.T) {
+	e := Event{
+		Level:             LevelWarn,
+		Type:              TypeDetection,
+		Detector:          "port_scan",
+		DistinctPortCount: 3,
+		ObservedDstPorts:  []uint16{22, 80, 443},
+		Message:           "scan episode",
+	}
+	data, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	ports, ok := got["observed_dst_ports"].([]any)
+	if !ok || len(ports) != 3 || ports[0] != float64(22) || ports[2] != float64(443) {
+		t.Fatalf("observed ports: got %#v", got["observed_dst_ports"])
+	}
+	if got["distinct_port_count"] != float64(3) {
+		t.Fatalf("distinct port count: got %#v", got["distinct_port_count"])
+	}
+}
+
 func TestDetectionEventLeaseFieldsJSON(t *testing.T) {
 	e := Event{
 		Level:       LevelWarn,

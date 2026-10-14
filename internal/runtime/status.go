@@ -48,17 +48,19 @@ type EnforcementStatus struct {
 
 // NftStatus describes cheap nft CLI availability and setup state.
 type NftStatus struct {
-	Available    bool   `json:"available"`
-	Checked      bool   `json:"checked"`
-	Table        string `json:"table"`
-	Set          string `json:"set"`
-	TablePresent bool   `json:"table_present"`
-	SetPresent   bool   `json:"set_present"`
-	SetupState   string `json:"setup_state"`
-	CheckState   string `json:"check_state"`
-	Diagnostic   string `json:"diagnostic,omitempty"`
-	CheckError   string `json:"check_error,omitempty"`
-	LastError    string `json:"last_error,omitempty"`
+	Available      bool   `json:"available"`
+	Checked        bool   `json:"checked"`
+	Table          string `json:"table"`
+	Set            string `json:"set"`
+	TablePresent   bool   `json:"table_present"`
+	SetPresent     bool   `json:"set_present"`
+	IPv4SetPresent bool   `json:"ipv4_set_present"`
+	IPv6SetPresent bool   `json:"ipv6_set_present"`
+	SetupState     string `json:"setup_state"`
+	CheckState     string `json:"check_state"`
+	Diagnostic     string `json:"diagnostic,omitempty"`
+	CheckError     string `json:"check_error,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
 }
 
 // RuntimeStatus exposes API/runtime config and build metadata.
@@ -229,6 +231,8 @@ func (e *Engine) nftStatus(setupState, setupErr string) NftStatus {
 	status.Available = check.Available
 	status.Checked = true
 	status.TablePresent = check.TablePresent
+	status.IPv4SetPresent = check.IPv4SetPresent
+	status.IPv6SetPresent = check.IPv6SetPresent
 	status.SetPresent = check.SetPresent
 	status.CheckState, status.Diagnostic = nftCheckState(setupState, check)
 	status.CheckError = check.Error
