@@ -58,6 +58,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || inputs.ref || github.ref }}
 
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          path: workflow-tools
+          sparse-checkout: |
+            scripts/build-openwrt-apk.sh
+            scripts/openwrt-package-check.sh
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -153,6 +161,10 @@ jobs:
             -e "s|^PKG_HASH:=.*|PKG_HASH:=${source_hash}|" \
             openwrt/serpent-wrt/Makefile
           echo "Pinned APK source to ${source_version} (${package_version})"
+      - name: Use build helpers from workflow ref
+        run: |
+          install -m 0755 workflow-tools/scripts/build-openwrt-apk.sh scripts/build-openwrt-apk.sh
+          install -m 0755 workflow-tools/scripts/openwrt-package-check.sh scripts/openwrt-package-check.sh
 
       - name: Build serpent-wrt OpenWrt package
         env:
