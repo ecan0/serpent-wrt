@@ -142,7 +142,7 @@ jobs:
           source_archive="$RUNNER_TEMP/${source_subdir}.tar.gz"
           git archive --format=tar --prefix="${source_subdir}/" "$source_version" | gzip -n > "$source_archive"
           source_hash=$(sha256sum "$source_archive" | cut -d' ' -f1)
-          source_url="file://${source_archive}"
+          source_url="file://${RUNNER_TEMP}"
 
           sed -i -E \
             -e "s|^PKG_VERSION:=.*|PKG_VERSION:=${package_version}|" \
