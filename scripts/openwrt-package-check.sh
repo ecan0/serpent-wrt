@@ -76,21 +76,26 @@ if [ "${OPENWRT_FEEDS_UPDATE:-0}" = "1" ]; then
 			exit 2
 		fi
 
-		feed_conf="$SDK/feeds.conf"
-		if [ ! -f "$feed_conf" ]; then
-			feed_conf="$SDK/feeds.conf.default"
+		source_feed_conf="$SDK/feeds.conf"
+		if [ ! -f "$source_feed_conf" ]; then
+			source_feed_conf="$SDK/feeds.conf.default"
 		fi
-		if [ ! -f "$feed_conf" ]; then
+		if [ ! -f "$source_feed_conf" ]; then
 			echo "OpenWrt SDK has no feeds.conf or feeds.conf.default" >&2
 			exit 2
 		fi
+		feed_conf_tmp="$SDK/feeds.conf.tmp"
+		cp "$source_feed_conf" "$feed_conf_tmp"
 		sed -i -E \
 			"s|^(src-git packages [^ ]+)\\^.*$|\\1^$packages_ref|" \
-			"$feed_conf"
-		if ! grep -E -q "^src-git packages [^ ]+\\^${packages_ref}$" "$feed_conf"; then
+			"$feed_conf_tmp"
+		if ! grep -E -q "^src-git packages [^ ]+\\^${packages_ref}$" "$feed_conf_tmp"; then
+			rm -f "$feed_conf_tmp"
 			echo "Could not pin the OpenWrt packages feed to $packages_ref" >&2
 			exit 2
 		fi
+		mv "$feed_conf_tmp" "$SDK/feeds.conf"
+		echo "Pinned OpenWrt packages feed to $packages_ref"
 	fi
 	(
 		cd "$SDK"

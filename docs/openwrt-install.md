@@ -6,8 +6,8 @@ release artifacts for selected OpenWrt 25.12 targets.
 ## Release APKs
 
 The `OpenWrt APK Packages` workflow builds target-specific APKs from official
-OpenWrt SDKs and attaches them to GitHub Releases with matching `SHA256SUMS`
-files.
+OpenWrt SDKs. It attaches each APK to a GitHub Release and provides a
+`SHA256SUMS` file for each target.
 
 Current v0.4.0 r4 assets:
 
@@ -22,6 +22,7 @@ Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.4.0>
 
 For a branch build, set `ref` and `package_version` in the workflow.
 The workflow pins the source archive to that commit. It does not attach the APK to a release.
+The workflow pins the OpenWrt packages feed to a commit with Go 1.26.9 because the SDK feed has Go 1.26.4.
 
 ## Package Scaffold
 
@@ -56,12 +57,12 @@ For an OpenWrt x86/generic test target:
 make deploy-x86 DEPLOY_HOST=root@openwrt-target
 ```
 
-OpenWrt x86/generic images often report `i686`; use the 32-bit x86 build for
-that target.
+OpenWrt x86/generic images can report `i686`. Use the 32-bit x86 build for
+these images.
 
-Polling is the default collector. To try connection-create events without
-making them a package dependency, install the optional CLI and set
-`collector: netlink`:
+The default collector reads the connection table at intervals. To use
+connection-create events without a new package dependency, install the optional
+CLI and set `collector: netlink`:
 
 ```sh
 apk add conntrack
