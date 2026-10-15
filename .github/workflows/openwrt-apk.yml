@@ -163,6 +163,8 @@ jobs:
           OPENWRT_APK_OUT_DIR: artifacts/openwrt-apk/${{ matrix.slug }}
           OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
           OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}
+          OPENWRT_FEEDS_UPDATE: "1"
+          OPENWRT_PACKAGES_REF: 84f4958aff37296fc77a03b4592ee65ba8b9e7c2
         run: sh scripts/build-openwrt-apk.sh
       - name: Generate CycloneDX SBOM
         env:
