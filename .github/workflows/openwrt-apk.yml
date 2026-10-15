@@ -144,7 +144,14 @@ jobs:
           source_hash=$(sha256sum "$source_archive" | cut -d' ' -f1)
           source_url="file://${source_archive}"
 
-          echo "OPENWRT_MAKE_FLAGS=PKG_VERSION=${package_version} PKG_SOURCE_VERSION=${source_version} PKG_SOURCE_DATE=${source_date} PKG_SOURCE_SUBDIR=${source_subdir} PKG_SOURCE_URL=${source_url} PKG_HASH=${source_hash}" >> "$GITHUB_ENV"
+          sed -i -E \
+            -e "s|^PKG_VERSION:=.*|PKG_VERSION:=${package_version}|" \
+            -e "s|^PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${source_date}|" \
+            -e "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${source_version}|" \
+            -e "s|^PKG_SOURCE_SUBDIR:=.*|PKG_SOURCE_SUBDIR:=${source_subdir}|" \
+            -e "s|^PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=${source_url}|" \
+            -e "s|^PKG_HASH:=.*|PKG_HASH:=${source_hash}|" \
+            openwrt/serpent-wrt/Makefile
           echo "Pinned APK source to ${source_version} (${package_version})"
 
       - name: Build serpent-wrt OpenWrt package
