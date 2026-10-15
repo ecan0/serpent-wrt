@@ -20,6 +20,9 @@ Current v0.4.0 r4 assets:
 
 Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.4.0>
 
+For a branch build, set `ref` and `package_version` in the workflow.
+The workflow pins the source archive to that commit. It does not attach the APK to a release.
+
 ## Package Scaffold
 
 The package scaffold lives in [openwrt/serpent-wrt](../openwrt/serpent-wrt).
