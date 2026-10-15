@@ -146,21 +146,33 @@ jobs:
 
           source_version=$(git rev-parse HEAD)
           source_date=$(git show -s --format=%cs HEAD)
-          source_subdir="serpent-wrt-${package_version}"
+          apk_version=${package_version%%-*}
+          if [ "$apk_version" != "$package_version" ]; then
+            suffix=${package_version#*-}
+            sequence=${suffix##*.}
+            case "$sequence" in
+              ''|*[!0-9]*) sequence=1 ;;
+            esac
+            apk_version="${apk_version}_pre${sequence}"
+          fi
+          source_subdir="serpent-wrt-${apk_version}"
           source_archive="$RUNNER_TEMP/${source_subdir}.tar.gz"
           git archive --format=tar --prefix="${source_subdir}/" "$source_version" | gzip -n > "$source_archive"
           source_hash=$(sha256sum "$source_archive" | cut -d' ' -f1)
           source_url="file://${RUNNER_TEMP}"
 
           sed -i -E \
-            -e "s|^PKG_VERSION:=.*|PKG_VERSION:=${package_version}|" \
+            -e "s|^PKG_VERSION:=.*|PKG_VERSION:=${apk_version}|" \
             -e "s|^PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${source_date}|" \
             -e "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${source_version}|" \
             -e "s|^PKG_SOURCE_SUBDIR:=.*|PKG_SOURCE_SUBDIR:=${source_subdir}|" \
             -e "s|^PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=${source_url}|" \
             -e "s|^PKG_HASH:=.*|PKG_HASH:=${source_hash}|" \
             openwrt/serpent-wrt/Makefile
-          echo "Pinned APK source to ${source_version} (${package_version})"
+          sed -i -E \
+            "s|main\\.version=\\$\\(PKG_VERSION\\)|main.version=${package_version}|" \
+            openwrt/serpent-wrt/Makefile
+          echo "Pinned APK source to ${source_version} (${package_version}; APK ${apk_version})"
       - name: Use build helpers from workflow ref
         run: |
           install -m 0755 workflow-tools/scripts/build-openwrt-apk.sh scripts/build-openwrt-apk.sh

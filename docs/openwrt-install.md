@@ -21,6 +21,7 @@ Current v0.4.0 r4 assets:
 Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.4.0>
 
 For a branch build, set `ref` and `package_version` in the workflow.
+The APK metadata uses `_preN` for prerelease builds. The binary keeps the requested `package_version`.
 The workflow pins the source archive to that commit. It does not attach the APK to a release.
 The workflow pins the OpenWrt packages feed to a commit with Go 1.26.9 because the SDK feed has Go 1.26.4.
 
