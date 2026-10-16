@@ -3,6 +3,7 @@ package collector
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,9 +133,8 @@ func TestParseLineMissingIPs(t *testing.T) {
 	}
 }
 
-// Forward-direction tuple must be the first occurrence of src/dst/sport/dport.
-// The reply direction repeats them in reverse; bitmask should capture only the first.
-func TestParseLineForwardTupleOnly(t *testing.T) {
+// The original direction remains primary while the reply direction is retained.
+func TestParseLineKeepsOriginalTuplePrimary(t *testing.T) {
 	line := "ipv4 2 tcp 6 3599 ESTABLISHED src=192.168.1.5 dst=8.8.4.4 sport=11111 dport=80 src=8.8.4.4 dst=192.168.1.5 sport=80 dport=11111 [ASSURED]"
 	r, ok := parseLine(line, time.Now())
 	if !ok {
@@ -154,6 +154,41 @@ func TestParseLineForwardTupleOnly(t *testing.T) {
 	}
 }
 
+func TestParseLinePreservesDNATReplyTuple(t *testing.T) {
+	line := "ipv4 2 tcp 6 7438 ESTABLISHED src=192.168.100.50 dst=192.168.100.200 sport=41600 dport=18443 src=198.18.0.10 dst=192.168.100.50 sport=18180 dport=41600 [ASSURED]"
+	r, ok := parseLine(line, time.Now())
+	if !ok {
+		t.Fatal("expected translated TCP conntrack line to parse")
+	}
+	if r.DstIP.String() != "192.168.100.200" || r.DstPort != 18443 {
+		t.Fatalf("original tuple dst: got %s:%d, want 192.168.100.200:18443", r.DstIP, r.DstPort)
+	}
+	if r.ReplySrcIP.String() != "198.18.0.10" || r.ReplySrcPort != 18180 {
+		t.Fatalf("reply source tuple: got %s:%d, want 198.18.0.10:18180", r.ReplySrcIP, r.ReplySrcPort)
+	}
+	translatedIP, translatedPort, translated := r.TranslatedDst()
+	if !translated || translatedIP.String() != "198.18.0.10" || translatedPort != 18180 {
+		t.Fatalf("translated destination: got %s:%d, translated=%t", translatedIP, translatedPort, translated)
+	}
+	if r.EffectiveDstIP().String() != "198.18.0.10" || r.EffectiveDstPort() != 18180 {
+		t.Fatalf("effective destination: got %s:%d", r.EffectiveDstIP(), r.EffectiveDstPort())
+	}
+}
+
+func TestParseLineDoesNotReportUntranslatedReplyTuple(t *testing.T) {
+	line := "ipv4 2 tcp 6 3599 ESTABLISHED src=192.168.1.5 dst=8.8.4.4 sport=11111 dport=80 src=8.8.4.4 dst=192.168.1.5 sport=80 dport=11111 [ASSURED]"
+	r, ok := parseLine(line, time.Now())
+	if !ok {
+		t.Fatal("expected conntrack line to parse")
+	}
+	if _, _, translated := r.TranslatedDst(); translated {
+		t.Fatal("normal reply tuple was reported as a translated destination")
+	}
+	if !r.EffectiveDstIP().Equal(r.DstIP) || r.EffectiveDstPort() != r.DstPort {
+		t.Fatalf("effective destination changed without translation: %s:%d", r.EffectiveDstIP(), r.EffectiveDstPort())
+	}
+}
+
 func TestParseMultipleLines(t *testing.T) {
 	input := strings.Join([]string{
 		"ipv4 2 tcp 6 3599 ESTABLISHED src=192.168.1.1 dst=8.8.8.8 sport=1001 dport=443 src=8.8.8.8 dst=192.168.1.1 sport=443 dport=1001",
@@ -167,6 +202,41 @@ func TestParseMultipleLines(t *testing.T) {
 	}
 	if len(records) != 3 {
 		t.Errorf("got %d records, want 3 (including IPv6)", len(records))
+	}
+}
+
+func TestParseStopsAfterSnapshotLimitPlusSentinel(t *testing.T) {
+	const snapshotLimit = MaxSnapshotFlows
+	line := "ipv4 2 udp 17 30 src=192.0.2.1 dst=198.51.100.1 sport=1234 dport=53"
+	input := strings.Repeat(line+"\n", snapshotLimit+2)
+	scanner := bufio.NewScanner(strings.NewReader(input))
+
+	records, err := parse(scanner)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(records) != snapshotLimit+1 {
+		t.Fatalf("parsed %d records, want overflow sentinel at %d", len(records), snapshotLimit+1)
+	}
+	if !scanner.Scan() {
+		t.Fatal("parser consumed the snapshot after reaching its limit")
+	}
+}
+
+func TestCollectCommandStopsProducerAtSnapshotLimit(t *testing.T) {
+	command := filepath.Join(t.TempDir(), "fake-conntrack")
+	line := "ipv4 2 udp 17 30 src=192.0.2.1 dst=198.51.100.1 sport=1234 dport=53"
+	script := fmt.Sprintf("#!/bin/sh\ni=0\nwhile [ \"$i\" -lt %d ]; do\n  printf '%%s\\n' '%s'\n  i=$((i + 1))\ndone\n", MaxSnapshotFlows+2, line)
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := collectCommand(command)
+	if err != nil {
+		t.Fatalf("collect command: %v", err)
+	}
+	if len(records) != MaxSnapshotFlows+1 {
+		t.Fatalf("got %d records, want %d including overflow sentinel", len(records), MaxSnapshotFlows+1)
 	}
 }
 

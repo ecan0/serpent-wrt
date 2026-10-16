@@ -3,6 +3,7 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -27,27 +28,33 @@ const (
 
 // Event is a structured JSON log entry written to stdout.
 type Event struct {
-	Time        time.Time `json:"time"`
-	Level       Level     `json:"level"`
-	Type        EventType `json:"type"`
-	Component   string    `json:"component,omitempty"`
-	Action      string    `json:"action,omitempty"`
-	Status      string    `json:"status,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	FeedCount   *int      `json:"feed_count,omitempty"`
-	Addr        string    `json:"addr,omitempty"`
-	Detector    string    `json:"detector,omitempty"`
-	Severity    string    `json:"severity,omitempty"`
-	Confidence  uint8     `json:"confidence,omitempty"`
-	Reason      string    `json:"reason,omitempty"`
-	SrcIP       string    `json:"src_ip,omitempty"`
-	SrcHostname string    `json:"src_hostname,omitempty"`
-	SrcMAC      string    `json:"src_mac,omitempty"`
-	DstIP       string    `json:"dst_ip,omitempty"`
-	DstHostname string    `json:"dst_hostname,omitempty"`
-	DstMAC      string    `json:"dst_mac,omitempty"`
-	DstPort     uint16    `json:"dst_port,omitempty"`
-	Message     string    `json:"message"`
+	Time              time.Time `json:"time"`
+	Level             Level     `json:"level"`
+	Type              EventType `json:"type"`
+	RunID             string    `json:"run_id,omitempty"`
+	CaseID            string    `json:"case_id,omitempty"`
+	Component         string    `json:"component,omitempty"`
+	Action            string    `json:"action,omitempty"`
+	Status            string    `json:"status,omitempty"`
+	Error             string    `json:"error,omitempty"`
+	FeedCount         *int      `json:"feed_count,omitempty"`
+	Addr              string    `json:"addr,omitempty"`
+	Detector          string    `json:"detector,omitempty"`
+	Severity          string    `json:"severity,omitempty"`
+	Confidence        uint8     `json:"confidence,omitempty"`
+	Reason            string    `json:"reason,omitempty"`
+	SrcIP             string    `json:"src_ip,omitempty"`
+	SrcHostname       string    `json:"src_hostname,omitempty"`
+	SrcMAC            string    `json:"src_mac,omitempty"`
+	DstIP             string    `json:"dst_ip,omitempty"`
+	DstHostname       string    `json:"dst_hostname,omitempty"`
+	DstMAC            string    `json:"dst_mac,omitempty"`
+	DstPort           uint16    `json:"dst_port,omitempty"`
+	TranslatedDstIP   string    `json:"translated_dst_ip,omitempty"`
+	TranslatedDstPort uint16    `json:"translated_dst_port,omitempty"`
+	DistinctPortCount int       `json:"distinct_port_count,omitempty"`
+	ObservedDstPorts  []uint16  `json:"observed_dst_ports,omitempty"`
+	Message           string    `json:"message"`
 }
 
 // SystemFields carries structured context for operational system events.
@@ -114,23 +121,43 @@ func (u *UDPSyslog) send(pri int, msg string) {
 	}
 }
 
-// Logger writes newline-delimited JSON events to stdout and optionally
-// forwards them to a remote syslog target (UDP or TCP).
+// Logger writes newline-delimited JSON events at or above minLevel to stdout
+// and optionally forwards them to a remote syslog target.
 type Logger struct {
-	mu     sync.Mutex
-	enc    *json.Encoder
-	remote *UDPSyslog // nil if not configured
+	mu       sync.Mutex
+	enc      *json.Encoder
+	remote   *UDPSyslog
+	minLevel Level
 }
 
-// NewLogger creates a Logger. Pass a non-nil UDPSyslog to enable
-// remote forwarding; pass nil to log to stdout only.
-func NewLogger(remote *UDPSyslog) *Logger {
-	enc := json.NewEncoder(os.Stdout)
+// NewLogger creates a Logger with the configured minimum event level.
+func NewLogger(remote *UDPSyslog, minLevel Level) *Logger {
+	return newLogger(os.Stdout, remote, minLevel)
+}
+
+func newLogger(output io.Writer, remote *UDPSyslog, minLevel Level) *Logger {
+	enc := json.NewEncoder(output)
 	enc.SetEscapeHTML(false)
-	return &Logger{enc: enc, remote: remote}
+	return &Logger{enc: enc, remote: remote, minLevel: minLevel}
+}
+
+func levelRank(level Level) int {
+	switch level {
+	case LevelInfo:
+		return 0
+	case LevelWarn:
+		return 1
+	case LevelError:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func (l *Logger) Log(e Event) {
+	if levelRank(e.Level) < levelRank(l.minLevel) {
+		return
+	}
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}

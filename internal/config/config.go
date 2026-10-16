@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/ecan0/serpent-wrt/internal/state"
 	"net"
 	"os"
 	"strings"
@@ -36,9 +37,16 @@ type Config struct {
 	APIBind            string            `yaml:"api_bind"`
 	SyslogTarget       string            `yaml:"syslog_target"` // host:port, e.g. 10.0.0.10:514
 	SyslogProto        string            `yaml:"syslog_proto"`  // "udp" (default) or "tcp"
-	DedupWindow        time.Duration     `yaml:"dedup_window"`  // suppress duplicate detector/src/dst/port alerts within this window
+	EventContext       *EventContext     `yaml:"event_context,omitempty"`
+	DedupWindow        time.Duration     `yaml:"dedup_window"` // suppress repeated signals without detector-owned episode state
 	Detectors          DetectorsConfig   `yaml:"detectors"`
 	SuppressionRules   []SuppressionRule `yaml:"suppression_rules"`
+}
+
+// EventContext adds optional run and case markers to detection events.
+type EventContext struct {
+	RunID  string `yaml:"run_id"`
+	CaseID string `yaml:"case_id"`
 }
 
 // DetectorsConfig groups per-detector tuning parameters.
@@ -193,8 +201,15 @@ func (c *Config) applyDefaults() error {
 	if err := validateNftIdentifier("nft_set", c.NftSet); err != nil {
 		return err
 	}
+	if len(c.NftSet) > 252 {
+		return fmt.Errorf("nft_set must be 252 bytes or fewer to allow the family suffix")
+	}
+	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
+	}
+	if c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
+		return fmt.Errorf("log_level must be info, warn, or error, got %q", c.LogLevel)
 	}
 	if c.APIEnabled && c.APIBind == "" {
 		c.APIBind = "127.0.0.1:8080"
@@ -228,7 +243,17 @@ func (c *Config) applyDefaults() error {
 			return fmt.Errorf("self_ips[%d] must be a valid IPv4 or IPv6 address, got %q", i, selfIP)
 		}
 	}
+	if c.EventContext != nil {
+		c.EventContext.RunID = strings.TrimSpace(c.EventContext.RunID)
+		c.EventContext.CaseID = strings.TrimSpace(c.EventContext.CaseID)
+		if c.EventContext.RunID == "" || c.EventContext.CaseID == "" {
+			return fmt.Errorf("event_context must set both run_id and case_id")
+		}
+	}
 	c.applyDetectorProfile(profile)
+	if err := c.validateStateLimits(); err != nil {
+		return err
+	}
 	if err := c.validateSuppressionRules(); err != nil {
 		return err
 	}
@@ -272,6 +297,25 @@ func (c *Config) applyDetectorProfile(profile detectorProfile) {
 	if c.Detectors.BruteForce.Window <= 0 {
 		c.Detectors.BruteForce.Window = profile.BruteForce.Window
 	}
+}
+
+func (c *Config) validateStateLimits() error {
+	if c.Detectors.Fanout.DistinctDstThreshold > state.MaxDistinctValuesPerKey {
+		return fmt.Errorf("fanout threshold must not exceed retained-value limit %d", state.MaxDistinctValuesPerKey)
+	}
+	if c.Detectors.Scan.DistinctPortThreshold > state.MaxDistinctValuesPerKey {
+		return fmt.Errorf("scan threshold must not exceed retained-value limit %d", state.MaxDistinctValuesPerKey)
+	}
+	if c.Detectors.ExtScan.DistinctPortThreshold > state.MaxDistinctValuesPerKey {
+		return fmt.Errorf("ext_scan threshold must not exceed retained-value limit %d", state.MaxDistinctValuesPerKey)
+	}
+	if c.Detectors.BruteForce.Threshold > state.MaxDistinctValuesPerKey {
+		return fmt.Errorf("brute_force threshold must not exceed retained-value limit %d", state.MaxDistinctValuesPerKey)
+	}
+	if c.Detectors.Beacon.MinHits > state.MaxSamplesPerKey {
+		return fmt.Errorf("beacon min_hits must not exceed retained-sample limit %d", state.MaxSamplesPerKey)
+	}
+	return nil
 }
 
 func (c *Config) validateSuppressionRules() error {

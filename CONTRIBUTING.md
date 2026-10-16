@@ -2,21 +2,23 @@
 
 ## Branch workflow
 
-`dev` is the active integration branch. `main` is protected and should only move
-through release PRs from `dev`; release tags are cut from `main`.
+`dev` is the active integration branch.
+`main` is protected. Only release PRs from `dev` can update it.
+Cut release tags from the merged `main` commit.
 
-Use `feature/<slice-name>` branches for product and IDS work. Use
-`ci/<slice-name>` branches for CI, release-process, and repository automation
-work. Open PRs into `dev` first, including release prep changes such as
-changelog, README release status, version defaults, and OpenWrt package
-metadata. Small CI/package fixes that unblock release asset publishing still go
-to `dev` first, even when the affected workflow executes from `main`, unless the
-user explicitly declares an emergency release hotfix.
+Use `feature/<slice-name>` branches for product and IDS work.
+Use `ci/<slice-name>` branches for CI, release-process, and repository automation.
+Open PRs into `dev` first. This includes release prep changes such as changelog, README release status, version defaults, and package metadata.
 
-After release prep lands in `dev`, open the release PR from `dev` to `main` and
-tag the release from the merged `main` commit. If a release-only fix ever lands
-on `main`, immediately back-sync `main` into `dev` with a normal merge PR rather
-than a squash PR, so `dev` remains the true integration line.
+Send small CI or package fixes that unblock release assets to `dev` first.
+This rule also applies when the affected workflow runs from `main`.
+Only a user-approved emergency release hotfix can bypass this path.
+
+After release prep lands in `dev`, open a release PR from `dev` to `main`.
+Tag the release from the merged `main` commit.
+If a release-only fix lands on `main`, open a normal merge PR from `main` to `dev`.
+Do not use a squash PR for this back-sync.
+Keep `dev` as the integration branch.
 
 ## Running tests
 
@@ -32,15 +34,25 @@ For release prep or package metadata changes, run the local release check:
 make release-check
 ```
 
-This runs tests, vet, whitespace checks, the OpenWrt package metadata check, and
+This runs tests, vet, whitespace checks, package helper safety checks, and
 representative OpenWrt target builds.
 
-Trusted branches intentionally run build, test, lint, and vulnerability jobs on
-project-controlled self-hosted runners. Fork pull requests are automatically
-routed to GitHub-hosted runners so untrusted code never executes on project
-infrastructure. Private runner provisioning and isolation remain outside this
-repository; do not copy hostnames, credentials, tokens, or private network
-details into public files.
+All pull requests use GitHub-hosted Ubuntu 24.04 runners, including same-repository PRs.
+Only trusted pushes to `dev` use the repository's self-hosted runner.
+Private runner configuration remains outside this repository.
+
+`CI Gate` requires successful change detection and workflow/shell checks on every run.
+Runtime changes also require native and cross-builds, CLI smoke checks, race tests,
+32-bit x86 tests, vet, lint, and vulnerability checks.
+Documentation-only changes skip the runtime jobs, not workflow validation.
+Failed, canceled, or missing required jobs fail the gate.
+Workflow shell steps use Bash with fail-fast pipeline handling.
+
+Go jobs cache modules and compiled packages through `setup-go`.
+Actions use full commit SHA pins with release comments.
+Dependabot targets `dev` for weekly action updates after its configuration reaches the default branch.
+The APK workflow remains separate from the PR gate because SDK builds take longer.
+Do not copy hostnames, credentials, tokens, or private network details into public files.
 
 ## Cross-compiling for OpenWrt
 
@@ -71,11 +83,9 @@ GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-l
 
 ## Adding a detector
 
-1. Create `internal/detector/<name>.go` with a struct that holds a `*state.Tracker`.
-2. Implement two methods:
-   - `Check(flow.FlowRecord) *Detection` — inspect the flow, update state, return a `*Detection` when the threshold is crossed or `nil` otherwise.
-   - `Prune()` — call `Tracker.Prune()` to evict expired state.
-3. Add a constructor `New<Name>(...)` that initialises the Tracker with the detector's window and max-entries cap.
+1. Use `state.Tracker` for rolling distinct-value windows. Bound all other retained values and samples explicitly.
+2. Implement `Check(flow.FlowRecord) *Detection` and `Prune()`. Return one detection at the contract's threshold or episode transition.
+3. Set a window and entry cap in the constructor. The tracker also enforces its per-key and total value caps.
 4. Register the detector in `internal/runtime/runtime.go`:
    - Add the field to `Engine`.
    - Construct it in `NewEngine`.
@@ -86,16 +96,20 @@ GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o bin/serpent-wrt-l
 
 ## Sliding window and bounded state
 
-Every detector's state lives in a `state.Tracker`, which is a key→set map bounded by:
+Each `state.Tracker` has these limits:
 
-- **Time**: values older than the window are evicted on every `Add()` call.
-- **Entries**: when `maxEntries` is reached, the stalest key is evicted.
+- 1,024 keys.
+- 256 values per key.
+- 4,096 values total.
 
-This guarantees memory stays bounded on devices with as little as 64MB RAM. When writing new detectors or modifying state logic:
+When a value limit is full, the tracker rejects new distinct values and keeps current values.
+Each beacon detector retains at most 512 pairs, 64 samples per pair, and 8,192 samples total.
+Each polling snapshot can contain at most 16,384 tuples for new-flow detection.
+When a snapshot exceeds that limit, the runtime pauses new-flow detection until it can build a complete baseline.
+These limits bound tracker and beacon state, not total process memory.
 
-- Never use unbounded maps or slices.
-- Always set a `maxEntries` cap.
-- Call `Prune()` periodically (the runtime does this every N poll cycles).
+Call `Prune()` periodically.
+Do not claim a router memory budget from these caps alone.
 
 ## What not to add
 

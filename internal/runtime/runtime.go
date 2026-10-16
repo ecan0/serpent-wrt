@@ -46,19 +46,25 @@ func isUnroutable(ip net.IP) bool {
 
 // DetectionRecord is a summarized detection for the API response.
 type DetectionRecord struct {
-	Time        time.Time `json:"time"`
-	Detector    string    `json:"detector"`
-	Severity    string    `json:"severity"`
-	Confidence  uint8     `json:"confidence"`
-	Reason      string    `json:"reason"`
-	SrcIP       string    `json:"src_ip"`
-	SrcHostname string    `json:"src_hostname,omitempty"`
-	SrcMAC      string    `json:"src_mac,omitempty"`
-	DstIP       string    `json:"dst_ip,omitempty"`
-	DstHostname string    `json:"dst_hostname,omitempty"`
-	DstMAC      string    `json:"dst_mac,omitempty"`
-	DstPort     uint16    `json:"dst_port,omitempty"`
-	Message     string    `json:"message"`
+	Time              time.Time `json:"time"`
+	RunID             string    `json:"run_id,omitempty"`
+	CaseID            string    `json:"case_id,omitempty"`
+	Detector          string    `json:"detector"`
+	Severity          string    `json:"severity"`
+	Confidence        uint8     `json:"confidence"`
+	Reason            string    `json:"reason"`
+	SrcIP             string    `json:"src_ip"`
+	SrcHostname       string    `json:"src_hostname,omitempty"`
+	SrcMAC            string    `json:"src_mac,omitempty"`
+	DstIP             string    `json:"dst_ip,omitempty"`
+	DstHostname       string    `json:"dst_hostname,omitempty"`
+	DstMAC            string    `json:"dst_mac,omitempty"`
+	DstPort           uint16    `json:"dst_port,omitempty"`
+	TranslatedDstIP   string    `json:"translated_dst_ip,omitempty"`
+	TranslatedDstPort uint16    `json:"translated_dst_port,omitempty"`
+	DistinctPortCount int       `json:"distinct_port_count,omitempty"`
+	ObservedDstPorts  []uint16  `json:"observed_dst_ports,omitempty"`
+	Message           string    `json:"message"`
 }
 
 // Stats holds runtime counters exposed via the API.
@@ -74,14 +80,15 @@ type Stats struct {
 	StartedAt                    time.Time         `json:"started_at"`
 }
 
-// dedupKey identifies a detector signal for suppression. Detectors that set a
-// destination port dedup per service; detectors that leave it zero, such as
-// fanout, continue to collapse at detector/src/dst precision.
+// dedupKey suppresses repeated signals without detector-owned episode state.
+// Port scans use their rolling distinct-port window instead.
 type dedupKey struct {
-	detType string
-	srcIP   string
-	dstIP   string
-	dstPort uint16
+	detType           string
+	srcIP             string
+	dstIP             string
+	dstPort           uint16
+	translatedDstIP   string
+	translatedDstPort uint16
 }
 
 // Engine is the core detection and enforcement pipeline.
@@ -101,12 +108,17 @@ type Engine struct {
 
 	collectSnapshot func() ([]flow.FlowRecord, error)
 	startEvents     func(context.Context) (*collector.EventStream, error)
+	snapshotTracker *snapshotTracker
 
-	collectorMu         sync.Mutex
-	collectorConfigured string
-	collectorActive     string
-	collectorError      string
-	feedFileMu          sync.Mutex
+	collectorMu           sync.Mutex
+	collectorConfigured   string
+	collectorActive       string
+	collectorError        string
+	lastSuccessfulPoll    time.Time
+	lastPollError         string
+	snapshotOverflow      bool
+	newFlowDetectionReady bool
+	feedFileMu            sync.Mutex
 
 	// outbound detectors
 	feedMatch *detector.FeedMatch
@@ -178,6 +190,7 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 		detByConfidenceBucket: make(map[string]uint64),
 		dedup:                 make(map[dedupKey]time.Time),
 		dedupWindow:           cfg.DedupWindow,
+		snapshotTracker:       newSnapshotTracker(),
 		suppressionRules:      buildSuppressionRules(cfg.SuppressionRules),
 		buildInfo:             defaultBuildInfo(),
 		startedAt:             time.Now(),
@@ -208,6 +221,11 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 
 // Run starts the polling loop and blocks until ctx is cancelled.
 func (e *Engine) Run(ctx context.Context) error {
+	defer func() {
+		e.collectorMu.Lock()
+		e.newFlowDetectionReady = false
+		e.collectorMu.Unlock()
+	}()
 	if err := e.loadFeed(); err != nil {
 		return fmt.Errorf("initial feed load: %w", err)
 	}
@@ -311,6 +329,7 @@ func (e *Engine) runNetlink(ctx context.Context) error {
 func (e *Engine) setCollectorState(active string, err error) {
 	e.collectorMu.Lock()
 	e.collectorActive = active
+	e.newFlowDetectionReady = active == config.CollectorNetlink && err == nil
 	if err == nil {
 		e.collectorError = ""
 	} else {
@@ -319,9 +338,26 @@ func (e *Engine) setCollectorState(active string, err error) {
 	e.collectorMu.Unlock()
 }
 
+func (e *Engine) recordPollResult(err error, overflow bool) bool {
+	e.collectorMu.Lock()
+	defer e.collectorMu.Unlock()
+	previousOverflow := e.snapshotOverflow
+	if err != nil {
+		e.lastPollError = err.Error()
+		e.newFlowDetectionReady = false
+		return previousOverflow
+	}
+	e.lastSuccessfulPoll = time.Now()
+	e.lastPollError = ""
+	e.snapshotOverflow = overflow
+	e.newFlowDetectionReady = !overflow
+	return previousOverflow
+}
+
 func (e *Engine) poll() {
 	flows, err := e.collectSnapshot()
 	if err != nil {
+		e.recordPollResult(err, false)
 		e.log.System(events.LevelError, events.SystemFields{
 			Component: "collector",
 			Action:    "collect",
@@ -330,17 +366,32 @@ func (e *Engine) poll() {
 		}, fmt.Sprintf("collector failed: %v", err))
 		return
 	}
-	atomic.AddUint64(&e.flowsSeen, uint64(len(flows)))
-
-	for _, r := range flows {
+	newFlows, overflow := e.snapshotTracker.observe(flows)
+	previousOverflow := e.recordPollResult(nil, overflow)
+	if overflow && !previousOverflow {
+		e.log.System(events.LevelWarn, events.SystemFields{
+			Component: "collector",
+			Action:    "snapshot_capacity",
+			Status:    "degraded",
+		}, fmt.Sprintf("snapshot contains more than %d flows; new-flow detection paused until a complete baseline is available", collector.MaxSnapshotFlows))
+	}
+	if !overflow && previousOverflow {
+		e.log.System(events.LevelInfo, events.SystemFields{
+			Component: "collector",
+			Action:    "snapshot_capacity",
+			Status:    "recovered",
+		}, "snapshot is within capacity; a complete baseline is ready for new-flow detection")
+	}
+	for _, r := range newFlows {
 		e.processFlow(r)
 	}
 }
 
 // processFlow classifies a single flow by direction and runs the appropriate detectors.
 func (e *Engine) processFlow(r flow.FlowRecord) {
+	effectiveDst := r.EffectiveDstIP()
 	// Skip unroutable addresses: broadcast, multicast, link-local, loopback.
-	if isUnroutable(r.SrcIP) || isUnroutable(r.DstIP) {
+	if isUnroutable(r.SrcIP) || isUnroutable(effectiveDst) {
 		return
 	}
 	// Skip flows originating from the router itself (e.g. NTP, DHCP).
@@ -349,7 +400,7 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 	}
 
 	srcLAN := e.isLAN(r.SrcIP)
-	dstLAN := e.isLAN(r.DstIP)
+	dstLAN := e.isLAN(effectiveDst)
 
 	var dets []*detector.Detection
 	switch {
@@ -370,8 +421,13 @@ func (e *Engine) processFlow(r flow.FlowRecord) {
 		}
 	}
 
+	translatedIP, translatedPort, translated := r.TranslatedDst()
 	for _, det := range dets {
 		if det != nil {
+			if translated {
+				det.TranslatedDstIP = translatedIP
+				det.TranslatedDstPort = translatedPort
+			}
 			e.handleDetection(det)
 		}
 	}
@@ -383,43 +439,58 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 		atomic.AddUint64(&e.suppressedDetections, 1)
 		return
 	}
-	key := dedupKey{
-		detType: det.Type,
-		srcIP:   ipStr(det.SrcIP),
-		dstIP:   ipStr(det.DstIP),
-		dstPort: det.DstPort,
+	// Port-scan detectors suppress repeats within their own rolling episode.
+	if det.Type != "port_scan" && det.Type != "ext_scan" {
+		key := dedupKey{
+			detType:           det.Type,
+			srcIP:             ipStr(det.SrcIP),
+			dstIP:             ipStr(det.DstIP),
+			dstPort:           det.DstPort,
+			translatedDstIP:   ipStr(det.TranslatedDstIP),
+			translatedDstPort: det.TranslatedDstPort,
+		}
+		now := time.Now()
+		e.dedupMu.Lock()
+		last, ok := e.dedup[key]
+		if ok && now.Sub(last) < e.dedupWindow {
+			e.dedupMu.Unlock()
+			atomic.AddUint64(&e.dedupSuppressedDetections, 1)
+			return
+		}
+		if len(e.dedup) < maxDedup {
+			e.dedup[key] = now
+		}
+		e.dedupMu.Unlock()
 	}
 	now := time.Now()
-
-	e.dedupMu.Lock()
-	last, ok := e.dedup[key]
-	if ok && now.Sub(last) < e.dedupWindow {
-		e.dedupMu.Unlock()
-		atomic.AddUint64(&e.dedupSuppressedDetections, 1)
-		return
+	runID, caseID := "", ""
+	if context := e.cfg.EventContext; context != nil {
+		runID, caseID = context.RunID, context.CaseID
 	}
-	if len(e.dedup) < maxDedup {
-		e.dedup[key] = now
-	}
-	e.dedupMu.Unlock()
 
 	enrichment := e.enrichment(det)
 	ev := events.Event{
-		Time:        now,
-		Level:       events.LevelWarn,
-		Type:        events.TypeDetection,
-		Detector:    det.Type,
-		Severity:    string(det.Severity),
-		Confidence:  det.Confidence,
-		Reason:      string(det.Reason),
-		SrcIP:       ipStr(det.SrcIP),
-		SrcHostname: enrichment.srcHostname,
-		SrcMAC:      enrichment.srcMAC,
-		DstIP:       ipStr(det.DstIP),
-		DstHostname: enrichment.dstHostname,
-		DstMAC:      enrichment.dstMAC,
-		DstPort:     det.DstPort,
-		Message:     det.Message,
+		Time:              now,
+		Level:             events.LevelWarn,
+		Type:              events.TypeDetection,
+		RunID:             runID,
+		CaseID:            caseID,
+		Detector:          det.Type,
+		Severity:          string(det.Severity),
+		Confidence:        det.Confidence,
+		Reason:            string(det.Reason),
+		SrcIP:             ipStr(det.SrcIP),
+		SrcHostname:       enrichment.srcHostname,
+		SrcMAC:            enrichment.srcMAC,
+		DstIP:             ipStr(det.DstIP),
+		DstHostname:       enrichment.dstHostname,
+		DstMAC:            enrichment.dstMAC,
+		DstPort:           det.DstPort,
+		TranslatedDstIP:   ipStr(det.TranslatedDstIP),
+		TranslatedDstPort: det.TranslatedDstPort,
+		DistinctPortCount: det.DistinctPortCount,
+		ObservedDstPorts:  det.ObservedDstPorts,
+		Message:           det.Message,
 	}
 	e.log.Log(ev)
 
@@ -430,19 +501,25 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.detByTypeMu.Unlock()
 
 	rec := DetectionRecord{
-		Time:        now,
-		Detector:    det.Type,
-		Severity:    string(det.Severity),
-		Confidence:  det.Confidence,
-		Reason:      string(det.Reason),
-		SrcIP:       ipStr(det.SrcIP),
-		SrcHostname: enrichment.srcHostname,
-		SrcMAC:      enrichment.srcMAC,
-		DstIP:       ipStr(det.DstIP),
-		DstHostname: enrichment.dstHostname,
-		DstMAC:      enrichment.dstMAC,
-		DstPort:     det.DstPort,
-		Message:     det.Message,
+		Time:              now,
+		RunID:             runID,
+		CaseID:            caseID,
+		Detector:          det.Type,
+		Severity:          string(det.Severity),
+		Confidence:        det.Confidence,
+		Reason:            string(det.Reason),
+		SrcIP:             ipStr(det.SrcIP),
+		SrcHostname:       enrichment.srcHostname,
+		SrcMAC:            enrichment.srcMAC,
+		DstIP:             ipStr(det.DstIP),
+		DstHostname:       enrichment.dstHostname,
+		DstMAC:            enrichment.dstMAC,
+		DstPort:           det.DstPort,
+		TranslatedDstIP:   ipStr(det.TranslatedDstIP),
+		TranslatedDstPort: det.TranslatedDstPort,
+		DistinctPortCount: det.DistinctPortCount,
+		ObservedDstPorts:  det.ObservedDstPorts,
+		Message:           det.Message,
 	}
 	e.recentMu.Lock()
 	e.recent[e.rHead] = rec

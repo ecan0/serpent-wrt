@@ -62,18 +62,50 @@ if [ ! -f "$SDK/rules.mk" ] || [ ! -d "$SDK/scripts" ] || [ ! -d "$SDK/package" 
 	exit 2
 fi
 
-if [ ! -f "$SDK/feeds/packages/lang/golang/golang-package.mk" ]; then
-	if [ "${OPENWRT_FEEDS_UPDATE:-0}" = "1" ]; then
-		(
-			cd "$SDK"
-			./scripts/feeds update packages
-			./scripts/feeds install golang
-		)
-	else
-		echo "missing feeds/packages/lang/golang/golang-package.mk" >&2
-		echo "run with OPENWRT_FEEDS_UPDATE=1 or install the packages feed first" >&2
-		exit 2
+if [ "${OPENWRT_FEEDS_UPDATE:-0}" = "1" ]; then
+	packages_ref=${OPENWRT_PACKAGES_REF:-}
+	if [ -n "$packages_ref" ]; then
+		case "$packages_ref" in
+			*[!0-9a-f]*)
+				echo "OPENWRT_PACKAGES_REF must be a lowercase Git commit SHA" >&2
+				exit 2
+				;;
+		esac
+		if [ "${#packages_ref}" -ne 40 ]; then
+			echo "OPENWRT_PACKAGES_REF must be a 40-character Git commit SHA" >&2
+			exit 2
+		fi
+
+		source_feed_conf="$SDK/feeds.conf"
+		if [ ! -f "$source_feed_conf" ]; then
+			source_feed_conf="$SDK/feeds.conf.default"
+		fi
+		if [ ! -f "$source_feed_conf" ]; then
+			echo "OpenWrt SDK has no feeds.conf or feeds.conf.default" >&2
+			exit 2
+		fi
+		feed_conf_tmp="$SDK/feeds.conf.tmp"
+		cp "$source_feed_conf" "$feed_conf_tmp"
+		sed -i -E \
+			"s|^(src-git packages [^ ]+)\\^.*$|\\1^$packages_ref|" \
+			"$feed_conf_tmp"
+		if ! grep -E -q "^src-git packages [^ ]+\\^${packages_ref}$" "$feed_conf_tmp"; then
+			rm -f "$feed_conf_tmp"
+			echo "Could not pin the OpenWrt packages feed to $packages_ref" >&2
+			exit 2
+		fi
+		mv "$feed_conf_tmp" "$SDK/feeds.conf"
+		echo "Pinned OpenWrt packages feed to $packages_ref"
 	fi
+	(
+		cd "$SDK"
+		./scripts/feeds update packages
+		./scripts/feeds install golang
+	)
+elif [ ! -f "$SDK/feeds/packages/lang/golang/golang-package.mk" ]; then
+	echo "missing feeds/packages/lang/golang/golang-package.mk" >&2
+	echo "run with OPENWRT_FEEDS_UPDATE=1 or install the packages feed first" >&2
+	exit 2
 fi
 
 if [ -e "$PACKAGE_DST" ]; then

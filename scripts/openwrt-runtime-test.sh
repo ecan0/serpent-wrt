@@ -32,21 +32,22 @@ done
 SSH=${SSH:-ssh}
 SCP=${SCP:-scp}
 SCP_OPTS=${SCP_OPTS:--O}
-SSH_OPTS=${OPENWRT_SSH_OPTS:--o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null}
+SSH_OPTS=${OPENWRT_SSH_OPTS:-}
+STRICT_HOST_KEY_OPT="-o StrictHostKeyChecking=yes"
 KEY_OPT=
 
 if [ -n "${SSH_KEY_PATH:-}" ]; then
 	KEY_OPT="-i $SSH_KEY_PATH"
 fi
 
-$SSH $KEY_OPT $SSH_OPTS "$TARGET" "mkdir -p '$REMOTE_TMP' /etc/serpent-wrt"
-$SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$BINARY" "$TARGET:$REMOTE_TMP/serpent-wrt"
-$SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$INIT" "$TARGET:$REMOTE_TMP/serpent-wrt.init"
-$SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$CONFIG" "$TARGET:$REMOTE_TMP/serpent-wrt.yaml"
-$SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$FEED" "$TARGET:$REMOTE_TMP/threat-feed.txt"
-$SCP $SCP_OPTS $KEY_OPT $SSH_OPTS "$TEST" "$TARGET:$REMOTE_TMP/test.sh"
+$SSH $STRICT_HOST_KEY_OPT $KEY_OPT $SSH_OPTS "$TARGET" "mkdir -p '$REMOTE_TMP' /etc/serpent-wrt"
+$SCP $STRICT_HOST_KEY_OPT $SCP_OPTS $KEY_OPT $SSH_OPTS "$BINARY" "$TARGET:$REMOTE_TMP/serpent-wrt"
+$SCP $STRICT_HOST_KEY_OPT $SCP_OPTS $KEY_OPT $SSH_OPTS "$INIT" "$TARGET:$REMOTE_TMP/serpent-wrt.init"
+$SCP $STRICT_HOST_KEY_OPT $SCP_OPTS $KEY_OPT $SSH_OPTS "$CONFIG" "$TARGET:$REMOTE_TMP/serpent-wrt.yaml"
+$SCP $STRICT_HOST_KEY_OPT $SCP_OPTS $KEY_OPT $SSH_OPTS "$FEED" "$TARGET:$REMOTE_TMP/threat-feed.txt"
+$SCP $STRICT_HOST_KEY_OPT $SCP_OPTS $KEY_OPT $SSH_OPTS "$TEST" "$TARGET:$REMOTE_TMP/test.sh"
 
-$SSH $KEY_OPT $SSH_OPTS "$TARGET" "
+$SSH $STRICT_HOST_KEY_OPT $KEY_OPT $SSH_OPTS "$TARGET" "
 	set -eux
 	mv '$REMOTE_TMP/serpent-wrt' /usr/sbin/serpent-wrt
 	mv '$REMOTE_TMP/serpent-wrt.init' /etc/init.d/serpent-wrt

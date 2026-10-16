@@ -34,9 +34,13 @@ type FeedStatus struct {
 
 // CollectorStatus reports the requested collector and any polling fallback.
 type CollectorStatus struct {
-	Configured    string `json:"configured"`
-	Active        string `json:"active"`
-	FallbackError string `json:"fallback_error,omitempty"`
+	Configured            string     `json:"configured"`
+	Active                string     `json:"active"`
+	FallbackError         string     `json:"fallback_error,omitempty"`
+	LastSuccessfulPoll    *time.Time `json:"last_successful_poll,omitempty"`
+	LastPollError         string     `json:"last_poll_error,omitempty"`
+	SnapshotOverflow      bool       `json:"snapshot_overflow"`
+	NewFlowDetectionReady bool       `json:"new_flow_detection_ready"`
 }
 
 // EnforcementStatus summarizes enforcement and nft setup state.
@@ -48,17 +52,19 @@ type EnforcementStatus struct {
 
 // NftStatus describes cheap nft CLI availability and setup state.
 type NftStatus struct {
-	Available    bool   `json:"available"`
-	Checked      bool   `json:"checked"`
-	Table        string `json:"table"`
-	Set          string `json:"set"`
-	TablePresent bool   `json:"table_present"`
-	SetPresent   bool   `json:"set_present"`
-	SetupState   string `json:"setup_state"`
-	CheckState   string `json:"check_state"`
-	Diagnostic   string `json:"diagnostic,omitempty"`
-	CheckError   string `json:"check_error,omitempty"`
-	LastError    string `json:"last_error,omitempty"`
+	Available      bool   `json:"available"`
+	Checked        bool   `json:"checked"`
+	Table          string `json:"table"`
+	Set            string `json:"set"`
+	TablePresent   bool   `json:"table_present"`
+	SetPresent     bool   `json:"set_present"`
+	IPv4SetPresent bool   `json:"ipv4_set_present"`
+	IPv6SetPresent bool   `json:"ipv6_set_present"`
+	SetupState     string `json:"setup_state"`
+	CheckState     string `json:"check_state"`
+	Diagnostic     string `json:"diagnostic,omitempty"`
+	CheckError     string `json:"check_error,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
 }
 
 // RuntimeStatus exposes API/runtime config and build metadata.
@@ -151,7 +157,16 @@ func (e *Engine) GetStatus() Status {
 	collectorConfigured := e.collectorConfigured
 	collectorActive := e.collectorActive
 	collectorErr := e.collectorError
+	lastSuccessfulPoll := e.lastSuccessfulPoll
+	lastPollError := e.lastPollError
+	snapshotOverflow := e.snapshotOverflow
+	newFlowDetectionReady := e.newFlowDetectionReady
 	e.collectorMu.Unlock()
+	var lastSuccessfulPollAt *time.Time
+	if !lastSuccessfulPoll.IsZero() {
+		last := lastSuccessfulPoll
+		lastSuccessfulPollAt = &last
+	}
 
 	e.buildMu.Lock()
 	build := e.buildInfo
@@ -166,9 +181,13 @@ func (e *Engine) GetStatus() Status {
 			Count: e.feed.Len(),
 		},
 		Collector: CollectorStatus{
-			Configured:    collectorConfigured,
-			Active:        collectorActive,
-			FallbackError: collectorErr,
+			Configured:            collectorConfigured,
+			Active:                collectorActive,
+			FallbackError:         collectorErr,
+			LastSuccessfulPoll:    lastSuccessfulPollAt,
+			LastPollError:         lastPollError,
+			SnapshotOverflow:      snapshotOverflow,
+			NewFlowDetectionReady: newFlowDetectionReady,
 		},
 		Enforcement: EnforcementStatus{
 			Enabled:       e.cfg.EnforcementEnabled,
@@ -229,6 +248,8 @@ func (e *Engine) nftStatus(setupState, setupErr string) NftStatus {
 	status.Available = check.Available
 	status.Checked = true
 	status.TablePresent = check.TablePresent
+	status.IPv4SetPresent = check.IPv4SetPresent
+	status.IPv6SetPresent = check.IPv6SetPresent
 	status.SetPresent = check.SetPresent
 	status.CheckState, status.Diagnostic = nftCheckState(setupState, check)
 	status.CheckError = check.Error

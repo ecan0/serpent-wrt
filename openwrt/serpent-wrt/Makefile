@@ -9,6 +9,7 @@ PKG_SOURCE_VERSION:=ba9ff5cd6cfdc3c9af214c5bd8a922c511668859
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?
 PKG_HASH:=aa86d216c5b37dd8b2cd183e510134c151c64776dfa94148f7afcf63b6ed4f43
 
@@ -35,14 +36,15 @@ define Package/serpent-wrt
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Firewall
-  TITLE:=Conntrack threat detection and nftables enforcement daemon
+  TITLE:=Conntrack threat detection and timed nftables sets
   URL:=https://github.com/ecan0/serpent-wrt
   DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack
 endef
 
 define Package/serpent-wrt/description
-  serpent-wrt monitors conntrack flow metadata, detects suspicious behavior,
-  emits structured events, and optionally blocks offenders with nftables.
+  serpent-wrt monitors conntrack metadata and emits detection events.
+  It can add offender addresses to timed nftables sets.
+  External firewall policy determines packet drops.
 endef
 
 define Package/serpent-wrt/conffiles

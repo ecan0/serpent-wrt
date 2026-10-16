@@ -1,5 +1,5 @@
 module github.com/ecan0/serpent-wrt
 
-go 1.26.5
+go 1.26.9
 
 require gopkg.in/yaml.v3 v3.0.1

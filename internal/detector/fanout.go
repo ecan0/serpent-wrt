@@ -18,7 +18,7 @@ type Fanout struct {
 
 func NewFanout(threshold int, window time.Duration) *Fanout {
 	return &Fanout{
-		tracker:   state.NewTracker(window, 1024),
+		tracker:   state.NewTracker(window, state.MaxTrackerKeys),
 		threshold: threshold,
 	}
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,7 +90,7 @@ func testServer(t *testing.T) *Server {
 			BruteForce: config.BruteForceConfig{Threshold: 5, Window: 60 * time.Second},
 		},
 	}
-	eng := runtime.NewEngine(cfg, events.NewLogger(nil))
+	eng := runtime.NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	return New(cfg.APIBind, eng)
 }
 
@@ -232,6 +233,27 @@ func TestHandleReloadPost(t *testing.T) {
 	}
 }
 
+func TestHandleReloadReturnsJSONError(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{reloadErr: errors.New("feed rejected")})
+	req := httptest.NewRequest(http.MethodPost, "/reload", strings.NewReader(""))
+	w := httptest.NewRecorder()
+	s.handleReload(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status: got %d, want 500", w.Code)
+	}
+	if w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("Content-Type: got %q, want application/json", w.Header().Get("Content-Type"))
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["status"] != "error" || body["error"] != "feed rejected" {
+		t.Fatalf("reload error body: got %#v", body)
+	}
+}
+
 func TestHandleRecentDetections(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/detections/recent", nil)
@@ -306,6 +328,113 @@ func TestHandleRecentDetectionsSchema(t *testing.T) {
 	}
 	if got["src_ip"] != "192.168.1.10" || got["dst_ip"] != "1.2.3.4" || got["dst_port"] != float64(443) {
 		t.Fatalf("flow fields changed: %v", got)
+	}
+}
+
+func TestHandleRecentDetectionsFiltersEventContext(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		recent: []runtime.DetectionRecord{
+			{Detector: "feed_match", RunID: "e2e-run", CaseID: "feed-case", Message: "feed"},
+			{Detector: "port_scan", RunID: "e2e-run", CaseID: "scan-case", Message: "scan"},
+			{Detector: "feed_match", RunID: "other-run", CaseID: "feed-case", Message: "other"},
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/detections/recent?run_id=e2e-run&case_id=scan-case", nil)
+	w := httptest.NewRecorder()
+	s.handleRecentDetections(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	var body []runtime.DetectionRecord
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 1 || body[0].Message != "scan" {
+		t.Fatalf("filtered detections: got %#v, want only scan case", body)
+	}
+}
+
+func TestHandleRecentDetectionsRejectsPartialEventContextFilter(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{})
+	req := httptest.NewRequest(http.MethodGet, "/detections/recent?run_id=e2e-run", nil)
+	w := httptest.NewRecorder()
+	s.handleRecentDetections(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+}
+
+func TestHandleRecentDetectionsPreservesTranslatedDestination(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		recent: []runtime.DetectionRecord{{
+			Time:              time.Unix(1, 0).UTC(),
+			Detector:          "feed_match",
+			Severity:          "high",
+			Confidence:        95,
+			Reason:            "threat_feed_source",
+			SrcIP:             "1.2.3.4",
+			DstIP:             "192.168.100.200",
+			DstPort:           18443,
+			TranslatedDstIP:   "198.18.0.10",
+			TranslatedDstPort: 18180,
+			Message:           "translated source-feed hit",
+		}},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/detections/recent", nil)
+	w := httptest.NewRecorder()
+	s.handleRecentDetections(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	var body []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(body))
+	}
+	got := body[0]
+	if got["dst_ip"] != "192.168.100.200" || got["dst_port"] != float64(18443) {
+		t.Fatalf("original destination fields: %v", got)
+	}
+	if got["translated_dst_ip"] != "198.18.0.10" || got["translated_dst_port"] != float64(18180) {
+		t.Fatalf("translated destination fields: %v", got)
+	}
+}
+
+func TestHandleRecentDetectionsPreservesScanPortEvidence(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		recent: []runtime.DetectionRecord{{
+			Time:              time.Unix(1, 0).UTC(),
+			Detector:          "port_scan",
+			Severity:          "medium",
+			Confidence:        70,
+			Reason:            "outbound_distinct_ports",
+			SrcIP:             "192.168.1.10",
+			DstIP:             "198.51.100.20",
+			DstPort:           443,
+			DistinctPortCount: 3,
+			ObservedDstPorts:  []uint16{22, 80, 443},
+			Message:           "scan episode",
+		}},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/detections/recent", nil)
+	w := httptest.NewRecorder()
+	s.handleRecentDetections(w, req)
+	var body []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("recent detections: got %d, want 1", len(body))
+	}
+	if body[0]["distinct_port_count"] != float64(3) {
+		t.Fatalf("distinct port count: got %#v", body[0]["distinct_port_count"])
+	}
+	ports, ok := body[0]["observed_dst_ports"].([]any)
+	if !ok || len(ports) != 3 || ports[0] != float64(22) || ports[2] != float64(443) {
+		t.Fatalf("observed port evidence: got %#v", body[0]["observed_dst_ports"])
 	}
 }
 

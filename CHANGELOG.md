@@ -1,8 +1,38 @@
 # Changelog
 
-All notable changes to serpent-wrt will be documented in this file.
+This changelog lists notable serpent-wrt changes.
 
-This project follows semantic versioning for tagged releases.
+The project uses semantic versions for tagged releases.
+
+## Unreleased
+
+### Added
+
+- `/status` reports the latest successful snapshot poll and the latest poll error.
+- `/status` separates snapshot overflow and new-flow detection readiness from API liveness and successful collection.
+
+### Fixed
+
+- OpenWrt service restart rejects invalid configuration before it stops the active process.
+- Device helpers place strict host-key verification before custom SSH and SCP options.
+
+### Changed
+
+- CI Gate now rejects failed change detection and incomplete required jobs.
+- CI validates workflows and shell syntax, runs race and 32-bit tests, and exercises the native CLI.
+- Pull requests use hosted runners. Only trusted `dev` pushes use the repository runner.
+- GitHub Actions use current release SHAs. Go caches and exact-key SDK caches reduce repeated build work.
+- `log_level` now filters stdout and syslog events at the configured minimum level.
+- `log_level` accepts only `info`, `warn`, or `error`. Replace unsupported values with one of these levels before upgrade. The default remains `info`. At `error`, warn-level detections no longer reach stdout or syslog.
+- MVP release criteria now separate runtime validation, package builds, feed trust, provenance, and reproducibility.
+- Snapshot mode uses the first conntrack snapshot as a baseline and processes each new tuple once. Netlink fallback sets a fresh baseline.
+- DNAT snapshots retain the original and translated destination tuples. Direction classification uses the translated endpoint, and events expose both.
+- Port-scan detectors now emit one alert per threshold episode with the count and sorted distinct ports. Expiry below threshold rearms the next episode.
+- Tracker and beacon state now use per-key and total limits. Config rejects detector thresholds above the per-key limit.
+- Optional `event_context` adds `run_id` and `case_id` to detection events on stdout, API, and syslog. The recent-detections API can filter on both fields.
+- Wazuh rule IDs now match the documented detector mappings.
+- Conntrack collection stops after the flow limit plus one overflow marker. It no longer retains a full oversized snapshot or fallback command output.
+- Enforcement now validates nft batch syntax before apply and uses separate IPv4 and IPv6 sets.
 
 ## v0.4.0 - 2026-08-01
 
@@ -10,34 +40,42 @@ This project follows semantic versioning for tagged releases.
 
 - OpenWrt package scaffold now uses a tagged release archive with a fixed
   SHA-256 source hash instead of `PKG_MIRROR_HASH:=skip`.
-- Added a GitHub Actions workflow for building OpenWrt APK artifacts from
-  SHA-verified official 25.12 SDK downloads and attaching them to published
-  releases.
+
+- Added a GitHub Actions workflow that builds OpenWrt APK artifacts from
+  SHA-verified official 25.12 SDK downloads and attaches them to releases.
+
 - OpenWrt package validation now prepares SDK `.config` noninteractively and
-  depends on `nftables-json`, matching the stable package name.
-- OpenWrt package CI now targets OpenWrt 25.12.4 SDKs, keeps verbose SDK make
-  output opt-in with `OPENWRT_MAKE_FLAGS`, and preserves the package build patch
-  for the Go 1.26.2 toolchain provided by the 25.12 packages feed.
-- CI now runs the pinned `govulncheck` release with the Go version from
-  `go.mod`. The active module and CI toolchain are Go 1.26.5 for current
-  standard-library security fixes; OpenWrt package builds retain the
-  release-tarball patch for the 25.12 package toolchain.
+  depends on `nftables-json`, the stable package name.
+
+- OpenWrt package CI now targets pinned 25.12.5 SDKs. The package feed supplies
+  Go 1.26.9, so package builds no longer need a language-version downgrade patch.
+
+- CI and the module now use Go 1.26.9. This resolves standard-library advisories
+  that affected Go 1.26.5.
+
 - CI maintenance refreshed GitHub Actions checkout/cache majors and the pinned
   `golangci-lint` and `govulncheck` tool releases.
-- Fork pull requests now execute build, test, lint, and vulnerability checks on
-  GitHub-hosted runners; trusted branches retain the project-controlled runner
-  path without exposing it to untrusted code.
-- OpenWrt release artifacts now include target-specific CycloneDX SBOMs, and
-  APKs receive GitHub build-provenance and SBOM attestations.
-- Threat feed loads and reloads now reject malformed or unsupported entries
+
+- Fork pull requests run build, test, lint, and vulnerability checks on
+  GitHub-hosted runners. Trusted branches retain the project-controlled runner
+  path and do not expose it to untrusted code.
+
+- OpenWrt release artifacts include target-specific CycloneDX SBOMs. APKs
+  receive GitHub build-provenance and SBOM attestations.
+
+- Threat-feed loads and reloads reject malformed or unsupported entries
   atomically instead of silently dropping bad lines.
-- HTTP routes now enforce documented methods, and feed mutation requests reject
+
+- HTTP routes enforce documented methods. Feed mutation requests reject
   trailing JSON values.
-- Daemon startup now emits configuration warnings, including the distinction
-  between nftables timed-set updates and an external packet-drop rule.
-- Documentation now records polling/beacon limitations and the current
-  nftables set-only enforcement boundary.
-- IPv4 and IPv6 addresses/CIDRs are now supported in feeds, conntrack parsing,
+
+- Daemon startup emits configuration warnings. These warnings distinguish
+  nftables timed-set updates from an external packet-drop rule.
+
+- Documentation records polling/beacon limits and the nftables set-only
+  enforcement boundary.
+
+- IPv4 and IPv6 addresses/CIDRs are supported in feeds, conntrack parsing,
   suppression rules, LAN/self-IP configuration, status events, and nftables
   timed-set enforcement.
 
@@ -53,7 +91,7 @@ This project follows semantic versioning for tagged releases.
 - Engineering highlights for constrained Linux design, detection engineering,
   OpenWrt packaging, structured security events, and operational validation.
 - `serpent-wrt configtest --effective` for printing the resolved configuration
-  after defaults and detection profiles have been applied.
+  after the daemon applies defaults and detection profiles.
 - JSON output for `serpent-wrt configtest --effective --format json`.
 - `/stats` counters for dedup-suppressed detections and failed block attempts.
 - Feed CLI commands for listing, validating, adding, and removing flat-file

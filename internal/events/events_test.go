@@ -1,9 +1,12 @@
 package events
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestIPStrNil(t *testing.T) {
@@ -19,57 +22,86 @@ func TestIPStrValid(t *testing.T) {
 	}
 }
 
-func TestLevelConstants(t *testing.T) {
-	if LevelInfo != "info" {
-		t.Errorf("LevelInfo: got %q, want info", LevelInfo)
+func TestLoggerHonorsMinimumLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		level Level
+		want  []string
+	}{
+		{name: "info", level: LevelInfo, want: []string{"info", "warn", "error"}},
+		{name: "warn", level: LevelWarn, want: []string{"warn", "error"}},
+		{name: "error", level: LevelError, want: []string{"error"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			listener, err := net.ListenPacket("udp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := listener.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			remote, err := NewUDPSyslog("udp", listener.LocalAddr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := remote.conn.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			logger := newLogger(&output, remote, tc.level)
+			for _, event := range []Event{
+				{Level: LevelInfo, Type: TypeSystem, Message: "info"},
+				{Level: LevelWarn, Type: TypeDetection, Message: "warn"},
+				{Level: LevelError, Type: TypeSystem, Message: "error"},
+			} {
+				logger.Log(event)
+			}
+			var got []string
+			decoder := json.NewDecoder(&output)
+			for {
+				var event Event
+				if err := decoder.Decode(&event); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatalf("decode event: %v", err)
+				}
+				got = append(got, event.Message)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("messages: got %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("message[%d]: got %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+			if err := listener.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			packet := make([]byte, 4096)
+			for _, want := range tc.want {
+				n, _, err := listener.ReadFrom(packet)
+				if err != nil {
+					t.Fatal(err)
+				}
+				start := bytes.IndexByte(packet[:n], '{')
+				if start < 0 {
+					t.Fatalf("syslog packet has no JSON event: %q", packet[:n])
+				}
+				var event Event
+				if err := json.Unmarshal(packet[start:n], &event); err != nil {
+					t.Fatal(err)
+				}
+				if event.Message != want {
+					t.Fatalf("syslog message: got %q, want %q", event.Message, want)
+				}
+			}
+		})
 	}
-	if LevelWarn != "warn" {
-		t.Errorf("LevelWarn: got %q, want warn", LevelWarn)
-	}
-	if LevelError != "error" {
-		t.Errorf("LevelError: got %q, want error", LevelError)
-	}
-}
-
-func TestEventTypeConstants(t *testing.T) {
-	if TypeDetection != "detection" {
-		t.Errorf("TypeDetection: got %q", TypeDetection)
-	}
-	if TypeEnforcement != "enforcement" {
-		t.Errorf("TypeEnforcement: got %q", TypeEnforcement)
-	}
-	if TypeSystem != "system" {
-		t.Errorf("TypeSystem: got %q", TypeSystem)
-	}
-}
-
-func TestLoggerNilRemote(t *testing.T) {
-	log := NewLogger(nil)
-	// None of these should panic.
-	log.Info("startup message")
-	log.Error("something went wrong")
-	log.Detection("feed_match", "hit", net.ParseIP("192.168.1.1"), net.ParseIP("1.2.3.4"), 443)
-	log.Enforcement("blocked 1.2.3.4", net.ParseIP("1.2.3.4"))
-}
-
-func TestLoggerNilIPs(t *testing.T) {
-	log := NewLogger(nil)
-	// nil IPs in Detection and Enforcement must not panic.
-	log.Detection("fanout", "msg", nil, nil, 0)
-	log.Enforcement("msg", nil)
-}
-
-func TestLogSetTimestamp(t *testing.T) {
-	log := NewLogger(nil)
-	// Event with zero time must not panic; logger fills it in.
-	log.Log(Event{Level: LevelInfo, Type: TypeSystem, Message: "test"})
-}
-
-func TestLogAllLevels(t *testing.T) {
-	log := NewLogger(nil)
-	log.Log(Event{Level: LevelInfo, Type: TypeSystem, Message: "info"})
-	log.Log(Event{Level: LevelWarn, Type: TypeDetection, Message: "warn"})
-	log.Log(Event{Level: LevelError, Type: TypeSystem, Message: "error"})
 }
 
 func TestDetectionEventMetadataJSON(t *testing.T) {
@@ -122,6 +154,81 @@ func TestDetectionEventMetadataJSON(t *testing.T) {
 	}
 	if got["reason"] != "threat_feed_destination" {
 		t.Fatalf("reason: got %v, want threat_feed_destination", got["reason"])
+	}
+}
+
+func TestEventContextFieldsSerialize(t *testing.T) {
+	event := Event{
+		Level:   LevelWarn,
+		Type:    TypeDetection,
+		RunID:   "e2e-run",
+		CaseID:  "scan-01",
+		Message: "detection",
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["run_id"] != "e2e-run" || got["case_id"] != "scan-01" {
+		t.Fatalf("event context: got %v/%v", got["run_id"], got["case_id"])
+	}
+}
+
+func TestDetectionEventPreservesTranslatedDestination(t *testing.T) {
+	e := Event{
+		Level:             LevelWarn,
+		Type:              TypeDetection,
+		Detector:          "feed_match",
+		SrcIP:             "1.2.3.4",
+		DstIP:             "192.168.100.200",
+		DstPort:           18443,
+		TranslatedDstIP:   "198.18.0.10",
+		TranslatedDstPort: 18180,
+		Message:           "translated source-feed hit",
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if got["dst_ip"] != "192.168.100.200" || got["dst_port"] != float64(18443) {
+		t.Fatalf("original destination fields: %v", got)
+	}
+	if got["translated_dst_ip"] != "198.18.0.10" || got["translated_dst_port"] != float64(18180) {
+		t.Fatalf("translated destination fields: %v", got)
+	}
+}
+
+func TestDetectionEventPreservesScanPortEvidence(t *testing.T) {
+	e := Event{
+		Level:             LevelWarn,
+		Type:              TypeDetection,
+		Detector:          "port_scan",
+		DistinctPortCount: 3,
+		ObservedDstPorts:  []uint16{22, 80, 443},
+		Message:           "scan episode",
+	}
+	data, err := json.Marshal(e)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	ports, ok := got["observed_dst_ports"].([]any)
+	if !ok || len(ports) != 3 || ports[0] != float64(22) || ports[2] != float64(443) {
+		t.Fatalf("observed ports: got %#v", got["observed_dst_ports"])
+	}
+	if got["distinct_port_count"] != float64(3) {
+		t.Fatalf("distinct port count: got %#v", got["distinct_port_count"])
 	}
 }
 

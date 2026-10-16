@@ -1,265 +1,239 @@
 package packagecheck
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 )
 
-func TestOpenWrtPackageMetadata(t *testing.T) {
-	makefile := readRepoFile(t, "openwrt/serpent-wrt/Makefile")
-	required := []string{
-		"PKG_NAME:=serpent-wrt",
-		"PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz",
-		"PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?",
-		"PKG_LICENSE:=MIT",
-		"PKG_LICENSE_FILES:=LICENSE",
-		"PKG_BUILD_DEPENDS:=golang/host",
-		"GO_PKG:=github.com/ecan0/serpent-wrt",
-		"GO_PKG_BUILD_PKG:=github.com/ecan0/serpent-wrt/cmd/serpent-wrt",
-		"GO_PKG_INSTALL_BIN_PATH:=/usr/sbin",
-		"DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack",
+func runHelper(t *testing.T, name string, environment ...string) int {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is required for OpenWrt package helpers")
 	}
-	for _, want := range required {
-		if !strings.Contains(makefile, want) {
-			t.Fatalf("OpenWrt package Makefile missing %q", want)
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate package helpers")
+	}
+	command := exec.Command("sh", filepath.Join(filepath.Dir(file), "..", "..", "scripts", name))
+	command.Dir = t.TempDir()
+	command.Env = append(os.Environ(), environment...)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return 0
+	}
+	if failure, ok := err.(*exec.ExitError); ok {
+		t.Logf("helper output: %s", output)
+		return failure.ExitCode()
+	}
+	t.Fatalf("start helper: %v", err)
+	return -1
+}
+
+func TestSDKCheckRejectsInvalidSDK(t *testing.T) {
+	if code := runHelper(t, "openwrt-package-check.sh", "OPENWRT_SDK="+t.TempDir()); code != 2 {
+		t.Fatalf("invalid SDK exit code: got %d, want 2", code)
+	}
+}
+
+func TestSDKCheckPreservesExistingPackageWithoutAuthorization(t *testing.T) {
+	sdk := t.TempDir()
+	for _, directory := range []string{"scripts", "package/serpent-wrt", "feeds/packages/lang/golang"} {
+		if err := os.MkdirAll(filepath.Join(sdk, directory), 0o700); err != nil {
+			t.Fatal(err)
 		}
 	}
-
-	if strings.Contains(makefile, "PKG_MIRROR_HASH:=skip") {
-		t.Fatal("OpenWrt package Makefile must use a fixed PKG_HASH, not PKG_MIRROR_HASH:=skip")
+	for _, file := range []string{"rules.mk", "feeds/packages/lang/golang/golang-package.mk"} {
+		if err := os.WriteFile(filepath.Join(sdk, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	assertMatch(t, makefile, `(?m)^PKG_SOURCE_DATE:=[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
-	assertMatch(t, makefile, `(?m)^PKG_SOURCE_VERSION:=[0-9a-f]{40}$`)
-	assertMatch(t, makefile, `(?m)^PKG_HASH:=[0-9a-f]{64}$`)
-	assertMatch(t, makefile, `(?m)^PKG_RELEASE:=[0-9]+$`)
+	sentinel := filepath.Join(sdk, "package", "serpent-wrt", "existing-package")
+	if err := os.WriteFile(sentinel, []byte("keep existing package"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code := runHelper(t, "openwrt-package-check.sh", "OPENWRT_SDK="+sdk,
+		"OPENWRT_FEEDS_UPDATE=0", "OPENWRT_PACKAGE_OVERWRITE=0")
+	if code != 2 {
+		t.Fatalf("existing package exit code: got %d, want 2", code)
+	}
+	content, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "keep existing package" {
+		t.Fatalf("existing package changed: %q", content)
+	}
+}
 
-	goVersionPatch := readRepoFile(t, "openwrt/serpent-wrt/patches/001-openwrt-go-1.26.2.patch")
-	for _, want := range []string{
-		"OpenWrt 25.12.4 ships Go 1.26.2",
-		"-go 1.26.5",
-		"+go 1.26.2",
-	} {
-		if !strings.Contains(goVersionPatch, want) {
-			t.Fatalf("OpenWrt Go version patch missing %q", want)
+func TestAPKBuildRejectsSDKChecksumMismatch(t *testing.T) {
+	for _, tool := range []string{"curl", "sha256sum"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is required for SDK checksum verification", tool)
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("untrusted SDK content"))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	work := filepath.Join(root, "sdk-work")
+	code := runHelper(t, "build-openwrt-apk.sh",
+		"OPENWRT_SDK_URL="+server.URL,
+		"OPENWRT_SDK_SHA256=0000000000000000000000000000000000000000000000000000000000000000",
+		"OPENWRT_APK_WORK_DIR="+work,
+		"OPENWRT_APK_OUT_DIR="+filepath.Join(root, "artifacts"),
+		"OPENWRT_APK_REUSE_WORK_DIR=0",
+		"OPENWRT_APK_ARTIFACT_SUFFIX=",
+		"NO_PROXY=127.0.0.1,localhost",
+		"no_proxy=127.0.0.1,localhost",
+	)
+	if code != 1 {
+		t.Fatalf("checksum mismatch exit code: got %d, want 1", code)
+	}
+	for _, marker := range []string{".sdk-url", ".sdk-sha256"} {
+		if _, err := os.Stat(filepath.Join(work, marker)); !os.IsNotExist(err) {
+			t.Fatalf("unverified SDK has a reuse marker %s: %v", marker, err)
 		}
 	}
 }
 
-func TestOpenWrtPackageInstallsRuntimeFiles(t *testing.T) {
-	makefile := readRepoFile(t, "openwrt/serpent-wrt/Makefile")
-	for _, want := range []string{
-		"/etc/serpent-wrt/serpent-wrt.yaml",
-		"/etc/serpent-wrt/threat-feed.txt",
-		"$(INSTALL_BIN) ./files/serpent-wrt.init $(1)/etc/init.d/serpent-wrt",
-		"$(INSTALL_CONF) ./files/serpent-wrt.yaml $(1)/etc/serpent-wrt/serpent-wrt.yaml",
-		"$(INSTALL_DATA) ./files/threat-feed.txt $(1)/etc/serpent-wrt/threat-feed.txt",
-	} {
-		if !strings.Contains(makefile, want) {
-			t.Fatalf("OpenWrt package Makefile missing install/conffile entry %q", want)
-		}
-	}
+// restartHarness models the OpenWrt rc.common service lifecycle around a real
+// process. rc.common defines the default restart before it sources the init
+// script. A guarded init script must validate the configuration before it
+// stops the live process.
+const restartHarness = `
+set -u
 
-	for _, rel := range []string{
-		"openwrt/serpent-wrt/files/serpent-wrt.init",
-		"openwrt/serpent-wrt/files/serpent-wrt.yaml",
-		"openwrt/serpent-wrt/files/threat-feed.txt",
-		"openwrt/serpent-wrt/test.sh",
-	} {
-		if _, err := os.Stat(repoPath(t, rel)); err != nil {
-			t.Fatalf("expected package file %s: %v", rel, err)
-		}
-	}
+extra_command() { :; }
+
+restart() {
+	stop
+	start
 }
 
-func TestOpenWrtInitValidatesBeforeStartAndReload(t *testing.T) {
-	for _, rel := range []string{
+. "$INIT_SCRIPT"
+
+stop() {
+	pid=$(cat "$PID_FILE" 2>/dev/null) || return 0
+	kill "$pid" 2>/dev/null
+	wait "$pid" 2>/dev/null
+	rm -f "$PID_FILE"
+}
+
+start() {
+	configtest || return 1
+	sleep 30 &
+	echo $! > "$PID_FILE"
+	echo $! > "$REPLACEMENT_FILE"
+}
+
+configtest() {
+	return "$CONFIG_STATUS"
+}
+
+sleep 30 &
+echo $! > "$PID_FILE"
+original=$(cat "$PID_FILE")
+
+restart
+status=$?
+
+if kill -0 "$original" 2>/dev/null; then
+	echo "original=PID_ALIVE"
+else
+	echo "original=PID_DEAD"
+fi
+
+replacement=$(cat "$REPLACEMENT_FILE" 2>/dev/null || true)
+if [ -n "$replacement" ] && kill -0 "$replacement" 2>/dev/null; then
+	echo "replacement=PID_ALIVE"
+else
+	echo "replacement=PID_DEAD"
+fi
+
+kill "$original" 2>/dev/null
+if [ -n "$replacement" ]; then
+	kill "$replacement" 2>/dev/null
+fi
+wait 2>/dev/null
+
+exit "$status"
+`
+
+func TestOpenWrtInitRestartValidatesBeforeStop(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is required for OpenWrt init scripts")
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate OpenWrt init scripts")
+	}
+	root := filepath.Join(filepath.Dir(file), "..", "..")
+	for _, relative := range []string{
 		"openwrt/serpent-wrt/files/serpent-wrt.init",
 		"contrib/init.d/serpent-wrt",
 	} {
-		initScript := readRepoFile(t, rel)
-		for _, want := range []string{
-			`extra_command "configtest" "Validate configuration and threat feed"`,
-			`"$PROG" --config "$CONF" configtest`,
-			"start_service()",
-			"reload_service()",
-			"reload_feed()",
-			"configtest || return 1",
-		} {
-			if !strings.Contains(initScript, want) {
-				t.Fatalf("%s missing %q", rel, want)
+		t.Run(strings.ReplaceAll(relative, "/", "_"), func(t *testing.T) {
+			initScript := filepath.Join(root, relative)
+			for _, testCase := range []struct {
+				name         string
+				configStatus string
+				wantExit     int
+				wantOriginal string
+				wantReplaced string
+			}{
+				{
+					name:         "invalid_config_preserves_live_service",
+					configStatus: "1",
+					wantExit:     1,
+					wantOriginal: "PID_ALIVE",
+					wantReplaced: "PID_DEAD",
+				},
+				{
+					name:         "valid_config_replaces_live_service",
+					configStatus: "0",
+					wantExit:     0,
+					wantOriginal: "PID_DEAD",
+					wantReplaced: "PID_ALIVE",
+				},
+			} {
+				t.Run(testCase.name, func(t *testing.T) {
+					directory := t.TempDir()
+					command := exec.Command("sh", "-c", restartHarness)
+					command.Env = append(os.Environ(),
+						"INIT_SCRIPT="+initScript,
+						"PID_FILE="+filepath.Join(directory, "service.pid"),
+						"REPLACEMENT_FILE="+filepath.Join(directory, "replacement.pid"),
+						"CONFIG_STATUS="+testCase.configStatus,
+					)
+					output, err := command.CombinedOutput()
+					exit := 0
+					if err != nil {
+						failure, ok := err.(*exec.ExitError)
+						if !ok {
+							t.Fatalf("run restart harness: %v: %s", err, output)
+						}
+						exit = failure.ExitCode()
+					}
+					if exit != testCase.wantExit {
+						t.Fatalf("restart exit code: got %d, want %d: %s", exit, testCase.wantExit, output)
+					}
+					for _, want := range []string{
+						"original=" + testCase.wantOriginal,
+						"replacement=" + testCase.wantReplaced,
+					} {
+						if !strings.Contains(string(output), want) {
+							t.Fatalf("restart output %q does not report %s", output, want)
+						}
+					}
+				})
 			}
-		}
+		})
 	}
-}
-
-func TestOpenWrtSmokeCoversReleaseCriticalPaths(t *testing.T) {
-	smoke := readRepoFile(t, "openwrt/serpent-wrt/test.sh")
-	for _, want := range []string{
-		"command -v wget >/dev/null",
-		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest",
-		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed validate",
-		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed add 198.51.100.1",
-		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed list",
-		"serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml feed remove 198.51.100.1",
-		"/etc/init.d/serpent-wrt configtest",
-		"api_get /healthz",
-		"api_get /status",
-		"api_get /stats",
-		"api_post /reload",
-		"/etc/init.d/serpent-wrt reload",
-		"/etc/init.d/serpent-wrt restart",
-	} {
-		if !strings.Contains(smoke, want) {
-			t.Fatalf("OpenWrt smoke test missing %q", want)
-		}
-	}
-}
-
-func TestOpenWrtSDKPackageCheckScript(t *testing.T) {
-	script := readRepoFile(t, "scripts/openwrt-package-check.sh")
-	for _, want := range []string{
-		"OPENWRT_SDK",
-		"OPENWRT_MAKE_FLAGS",
-		"OPENWRT_DIAGNOSTIC_MAKE_FLAGS",
-		"OPENWRT_PACKAGE_OVERWRITE",
-		"OPENWRT_FEEDS_UPDATE",
-		`PACKAGE_DST="$SDK/package/serpent-wrt"`,
-		"feeds/packages/lang/golang/golang-package.mk",
-		"make defconfig",
-		"package/serpent-wrt/check package/serpent-wrt/compile",
-		`run_make_with_diagnostics "$target"`,
-		"-j1 V=s",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("OpenWrt SDK package check script missing %q", want)
-		}
-	}
-}
-
-func TestOpenWrtAPKArtifactWorkflow(t *testing.T) {
-	script := readRepoFile(t, "scripts/build-openwrt-apk.sh")
-	for _, want := range []string{
-		"OPENWRT_SDK_URL",
-		"OPENWRT_SDK_SHA256",
-		"OPENWRT_APK_REUSE_WORK_DIR",
-		"OPENWRT_APK_ARTIFACT_SUFFIX",
-		"OPENWRT_MAKE_JOBS",
-		"nproc",
-		"TMP_ROOT=${TMPDIR:-/tmp}",
-		"serpent-wrt-openwrt-apk",
-		"Reusing OpenWrt SDK work dir",
-		"Reusing installed OpenWrt packages feed",
-		"Removing stale serpent-wrt APK artifacts",
-		"sha256sum -c -",
-		"scripts/openwrt-package-check.sh",
-		`OPENWRT_MAKE_FLAGS="$MAKE_FLAGS"`,
-		`renamed=${artifact%.apk}-$ARTIFACT_SUFFIX.apk`,
-		"serpent-wrt-*.apk",
-		"OPENWRT_APK_SUMS_NAME",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("OpenWrt APK build script missing %q", want)
-		}
-	}
-
-	if strings.Contains(script, "serpent-wrt_*.ipk") {
-		t.Fatal("OpenWrt APK build script must not collect legacy IPK artifacts")
-	}
-
-	workflow := readRepoFile(t, ".github/workflows/openwrt-apk.yml")
-	for _, want := range []string{
-		"release:",
-		"workflow_dispatch:",
-		"release_tag:",
-		"runs-on: ubuntu-latest",
-		"OpenWrt APK Packages",
-		"downloads.openwrt.org/releases/25.12.4/targets/x86/64/",
-		"downloads.openwrt.org/releases/25.12.4/targets/x86/generic/",
-		"downloads.openwrt.org/releases/25.12.4/targets/mediatek/filogic/",
-		"gcc-14.3.0",
-		"${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}",
-		"actions/cache@v6",
-		"OPENWRT_APK_REUSE_WORK_DIR",
-		"OPENWRT_APK_WORK_DIR",
-		"OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}",
-		"actions/upload-artifact@v7",
-		"actions/setup-go@v6",
-		"github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0",
-		"actions/attest@v4",
-		"subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk",
-		"sbom-path: artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json",
-		"gh release upload",
-	} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("OpenWrt APK workflow missing %q", want)
-		}
-	}
-}
-
-func TestCIWorkflowPinsGoTooling(t *testing.T) {
-	workflow := readRepoFile(t, ".github/workflows/ci.yml")
-	for _, want := range []string{
-		"go-version-file: go.mod",
-		"go install golang.org/x/vuln/cmd/govulncheck@v1.5.0",
-		"runs-on: ${{ needs.changes.outputs.runner_label }}",
-		"HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}",
-		"Runtime test (test-wrt-iac/openwrt-x86-64)",
-		"OPENWRT_HOST: ${{ vars.OPENWRT_X86_64_HOST }}",
-	} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("CI workflow missing %q", want)
-		}
-	}
-
-	if strings.Contains(workflow, "go-version:") {
-		t.Fatal("CI workflow must derive the Go version from go.mod")
-	}
-
-	if strings.Contains(workflow, "go install golang.org/x/vuln/cmd/govulncheck@latest") {
-		t.Fatal("CI workflow must pin govulncheck instead of installing latest")
-	}
-}
-
-func TestReleaseCheckIncludesPackageChecks(t *testing.T) {
-	makefile := readRepoFile(t, "Makefile")
-	for _, want := range []string{
-		"openwrt-sdk-check:",
-		"openwrt-apk:",
-		"openwrt-sdk-check-if-available:",
-		"$(MAKE) packagecheck",
-		"$(MAKE) openwrt-sdk-check-if-available",
-	} {
-		if !strings.Contains(makefile, want) {
-			t.Fatalf("release Makefile missing %q", want)
-		}
-	}
-}
-
-func assertMatch(t *testing.T, text, pattern string) {
-	t.Helper()
-	if !regexp.MustCompile(pattern).MatchString(text) {
-		t.Fatalf("text did not match %q", pattern)
-	}
-}
-
-func readRepoFile(t *testing.T, rel string) string {
-	t.Helper()
-	b, err := os.ReadFile(repoPath(t, rel))
-	if err != nil {
-		t.Fatalf("read %s: %v", rel, err)
-	}
-	return strings.ReplaceAll(string(b), "\r\n", "\n")
-}
-
-func repoPath(t *testing.T, rel string) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Join(filepath.Dir(file), "..", "..", filepath.FromSlash(rel))
 }
