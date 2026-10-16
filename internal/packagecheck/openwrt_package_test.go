@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +100,140 @@ func TestAPKBuildRejectsSDKChecksumMismatch(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(work, marker)); !os.IsNotExist(err) {
 			t.Fatalf("unverified SDK has a reuse marker %s: %v", marker, err)
 		}
+	}
+}
+
+// restartHarness models the OpenWrt rc.common service lifecycle around a real
+// process. rc.common defines the default restart before it sources the init
+// script. A guarded init script must validate the configuration before it
+// stops the live process.
+const restartHarness = `
+set -u
+
+extra_command() { :; }
+
+restart() {
+	stop
+	start
+}
+
+. "$INIT_SCRIPT"
+
+stop() {
+	pid=$(cat "$PID_FILE" 2>/dev/null) || return 0
+	kill "$pid" 2>/dev/null
+	wait "$pid" 2>/dev/null
+	rm -f "$PID_FILE"
+}
+
+start() {
+	configtest || return 1
+	sleep 30 &
+	echo $! > "$PID_FILE"
+	echo $! > "$REPLACEMENT_FILE"
+}
+
+configtest() {
+	return "$CONFIG_STATUS"
+}
+
+sleep 30 &
+echo $! > "$PID_FILE"
+original=$(cat "$PID_FILE")
+
+restart
+status=$?
+
+if kill -0 "$original" 2>/dev/null; then
+	echo "original=PID_ALIVE"
+else
+	echo "original=PID_DEAD"
+fi
+
+replacement=$(cat "$REPLACEMENT_FILE" 2>/dev/null || true)
+if [ -n "$replacement" ] && kill -0 "$replacement" 2>/dev/null; then
+	echo "replacement=PID_ALIVE"
+else
+	echo "replacement=PID_DEAD"
+fi
+
+kill "$original" 2>/dev/null
+if [ -n "$replacement" ]; then
+	kill "$replacement" 2>/dev/null
+fi
+wait 2>/dev/null
+
+exit "$status"
+`
+
+func TestOpenWrtInitRestartValidatesBeforeStop(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("POSIX shell is required for OpenWrt init scripts")
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate OpenWrt init scripts")
+	}
+	root := filepath.Join(filepath.Dir(file), "..", "..")
+	for _, relative := range []string{
+		"openwrt/serpent-wrt/files/serpent-wrt.init",
+		"contrib/init.d/serpent-wrt",
+	} {
+		t.Run(strings.ReplaceAll(relative, "/", "_"), func(t *testing.T) {
+			initScript := filepath.Join(root, relative)
+			for _, testCase := range []struct {
+				name         string
+				configStatus string
+				wantExit     int
+				wantOriginal string
+				wantReplaced string
+			}{
+				{
+					name:         "invalid_config_preserves_live_service",
+					configStatus: "1",
+					wantExit:     1,
+					wantOriginal: "PID_ALIVE",
+					wantReplaced: "PID_DEAD",
+				},
+				{
+					name:         "valid_config_replaces_live_service",
+					configStatus: "0",
+					wantExit:     0,
+					wantOriginal: "PID_DEAD",
+					wantReplaced: "PID_ALIVE",
+				},
+			} {
+				t.Run(testCase.name, func(t *testing.T) {
+					directory := t.TempDir()
+					command := exec.Command("sh", "-c", restartHarness)
+					command.Env = append(os.Environ(),
+						"INIT_SCRIPT="+initScript,
+						"PID_FILE="+filepath.Join(directory, "service.pid"),
+						"REPLACEMENT_FILE="+filepath.Join(directory, "replacement.pid"),
+						"CONFIG_STATUS="+testCase.configStatus,
+					)
+					output, err := command.CombinedOutput()
+					exit := 0
+					if err != nil {
+						failure, ok := err.(*exec.ExitError)
+						if !ok {
+							t.Fatalf("run restart harness: %v: %s", err, output)
+						}
+						exit = failure.ExitCode()
+					}
+					if exit != testCase.wantExit {
+						t.Fatalf("restart exit code: got %d, want %d: %s", exit, testCase.wantExit, output)
+					}
+					for _, want := range []string{
+						"original=" + testCase.wantOriginal,
+						"replacement=" + testCase.wantReplaced,
+					} {
+						if !strings.Contains(string(output), want) {
+							t.Fatalf("restart output %q does not report %s", output, want)
+						}
+					}
+				})
+			}
+		})
 	}
 }

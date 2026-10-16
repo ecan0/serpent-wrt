@@ -32,6 +32,15 @@ start_service() {
 	procd_close_instance
 }
 
+restart() {
+	configtest || return 1
+
+	trap '' TERM
+	stop "$@"
+	trap - TERM
+	start "$@"
+}
+
 reload_service() {
 	reload_feed
 }

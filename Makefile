@@ -7,8 +7,8 @@ LDFLAGS := -trimpath -ldflags="-s -w -X main.version=$(VERSION) -X main.commit=$
 DEPLOY_HOST ?= root@openwrt-host
 DEPLOY_BIN  := /usr/sbin/serpent-wrt
 DEPLOY_CONF := /etc/serpent-wrt
-SSH         := ssh
-SCP         := scp -O
+SSH         := ssh -o StrictHostKeyChecking=yes
+SCP         := scp -O -o StrictHostKeyChecking=yes
 
 .PHONY: build cross build-openwrt-targets build-openwrt-mips build-openwrt-mipsle
 .PHONY: build-openwrt-armv5 build-openwrt-armv7 build-openwrt-arm64
