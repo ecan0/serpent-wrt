@@ -36,14 +36,15 @@ define Package/serpent-wrt
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Firewall
-  TITLE:=Conntrack threat detection and nftables enforcement daemon
+  TITLE:=Conntrack threat detection and timed nftables sets
   URL:=https://github.com/ecan0/serpent-wrt
   DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack
 endef
 
 define Package/serpent-wrt/description
-  serpent-wrt monitors conntrack flow metadata, detects suspicious behavior,
-  emits structured events, and optionally blocks offenders with nftables.
+  serpent-wrt monitors conntrack metadata and emits detection events.
+  It can add offender addresses to timed nftables sets.
+  External firewall policy determines packet drops.
 endef
 
 define Package/serpent-wrt/conffiles

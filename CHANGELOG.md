@@ -11,6 +11,11 @@ The project uses semantic versions for tagged releases.
 - `/status` reports the latest successful snapshot poll and the latest poll error.
 - `/status` separates snapshot overflow and new-flow detection readiness from API liveness and successful collection.
 
+### Fixed
+
+- OpenWrt service restart rejects invalid configuration before it stops the active process.
+- Device helpers place strict host-key verification before custom SSH and SCP options.
+
 ### Changed
 
 - CI Gate now rejects failed change detection and incomplete required jobs.
@@ -19,6 +24,7 @@ The project uses semantic versions for tagged releases.
 - GitHub Actions use current release SHAs. Go caches and exact-key SDK caches reduce repeated build work.
 - `log_level` now filters stdout and syslog events at the configured minimum level.
 - `log_level` accepts only `info`, `warn`, or `error`. Replace unsupported values with one of these levels before upgrade. The default remains `info`. At `error`, warn-level detections no longer reach stdout or syslog.
+- MVP release criteria now separate runtime validation, package builds, feed trust, provenance, and reproducibility.
 - Snapshot mode uses the first conntrack snapshot as a baseline and processes each new tuple once. Netlink fallback sets a fresh baseline.
 - DNAT snapshots retain the original and translated destination tuples. Direction classification uses the translated endpoint, and events expose both.
 - Port-scan detectors now emit one alert per threshold episode with the count and sorted distinct ports. Expiry below threshold rearms the next episode.
