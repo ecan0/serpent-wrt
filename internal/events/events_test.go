@@ -38,12 +38,20 @@ func TestLoggerHonorsMinimumLevel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer listener.Close()
+			t.Cleanup(func() {
+				if err := listener.Close(); err != nil {
+					t.Error(err)
+				}
+			})
 			remote, err := NewUDPSyslog("udp", listener.LocalAddr().String())
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer remote.conn.Close()
+			t.Cleanup(func() {
+				if err := remote.conn.Close(); err != nil {
+					t.Error(err)
+				}
+			})
 			logger := newLogger(&output, remote, tc.level)
 			for _, event := range []Event{
 				{Level: LevelInfo, Type: TypeSystem, Message: "info"},
