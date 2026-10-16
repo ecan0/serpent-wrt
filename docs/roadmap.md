@@ -5,11 +5,13 @@ capture, no DPI, no database, and no heavy runtime dependencies.
 
 ## Status
 
-The MVP feature set is implemented: conntrack polling, local threat-intel
-matching, flow heuristics, structured logs, optional syslog, bounded in-memory
-state, a loopback API, OpenWrt packaging, timed nftables set management, and
-runtime smoke coverage. Production enforcement and beacon accuracy still need
-the validation work below.
+The released MVP uses conntrack and local threat-intel checks.
+It also has flow heuristics, structured events, optional syslog, a loopback API,
+OpenWrt packages, and timed nftables set updates.
+The unreleased correctness update changes snapshot semantics, DNAT
+classification, nft parser validation, scan alerts, and state limits.
+The update is not release validated until the isolated pre-release E2E gate
+passes on a candidate build.
 
 ## Released
 
@@ -50,52 +52,35 @@ project without adding more runtime features.
 
 ## Recommended Next Iterations
 
-Prioritize correctness evidence over additional detectors:
+Prioritize the pre-release E2E gate before additional detectors:
 
-1. **Complete the firewall contract.** Ship and test an OpenWrt fw4 include (or
-   another explicit policy integration) that references the timed set. Extend
-   `nftcheck` and router tests to verify the referencing rule and an actual
-   blocked flow, not only table/set existence.
-2. **Fix connection-observation semantics.** Distinguish new conntrack entries
-   from repeated polling snapshots before calling observations a beacon cadence.
-   Add packet/flow fixtures and false-positive tests for long-lived UDP,
-   retransmitted TCP handshakes, DNS, NTP, and QUIC.
-3. **Build a labeled detection corpus.** Keep sanitized conntrack fixtures for
-   normal home, homelab, scan, and feed-hit traffic. Report precision-oriented
-   regression results and memory/CPU measurements on 64 MB and 128 MB targets.
-4. **Harden the intentional self-hosted CI path.** Keep the project-controlled
-   runners, but isolate the serpent-wrt instance, minimize host credentials and
-   network reachability, gate untrusted contributors, and prefer disposable
-   workspaces or ephemeral runner instances where practical.
-5. **Finish operator semantics.** Implement or remove currently ineffective
+1. **Validate the correctness update.** Build an immutable candidate and run
+   the bounded pre-release E2E in a separate test environment. Require route,
+   receiver, and conntrack proof before detector results. Verify stdout, API,
+   Wazuh manager, and indexed IDs.
+
+2. **Check the installed Wazuh contract.** Confirm rule IDs, original and
+   translated destination fields, scan port arrays, and index field types.
+
+3. **Preserve behavior evidence.** Keep negative and boundary cases for
+   snapshot collection, netlink events, DNAT, scan episodes, and state overflow.
+   Record resource limits by device, build, config, workload, and duration.
+
+4. **Finish operator semantics.** Implement or remove currently ineffective
    configuration such as `log_level`, expose last successful poll/error status,
    and document stable event/API compatibility expectations before 1.0.
 
+5. **Keep packet-drop enforcement separate.** Parser acceptance and set updates
+   do not prove packet drops. Plan fw4 integration only as a separate response
+   policy with its own rollback and packet-path gate.
+
+Do not require a router-model matrix or multi-router performance benchmark.
+Keep broader package-install work conditional on a community release.
+
 Threat-feed provenance, signature/checksum policy, a software bill of materials,
-and reproducible release attestations should accompany these tracks.
+and reproducible release attestations remain release work.
 
 ## Post-MVP Tracks
-
-### Package hardening
-
-- Release package metadata uses a tagged archive and fixed source hash.
-- Release builds publish target-specific CycloneDX SBOMs and GitHub build/SBOM
-  attestations.
-- Fork pull requests execute on GitHub-hosted runners; routine trusted CI keeps
-  the isolated project-controlled runner path.
-
-### Optional netlink collector
-
-- `collector: netlink` consumes conntrack NEW events through the optional
-  `conntrack` CLI.
-- Polling remains the default and automatic fallback.
-- `/status` exposes the configured collector, active collector, and fallback
-  error.
-
-### IPv6 support
-
-- IPv4 and IPv6 parsing, detection, status, config, feed, suppression, and
-  enforcement support are implemented and covered by tests.
 
 ### DNS context
 

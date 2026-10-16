@@ -4,6 +4,7 @@ package enforcer
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -11,12 +12,14 @@ import (
 )
 
 var (
-	lookPath      = exec.LookPath
-	runNftCommand = runNftCheck
-	runNftScript  = runNftScriptCommand
+	lookPath          = exec.LookPath
+	runNftCommand     = runNftCheck
+	runNftScript      = runNftScriptCommand
+	runNftScriptCheck = runNftScriptCheckCommand
+	runNftListSet     = listNftSetCommand
 )
 
-// Enforcer manages a named nftables inet set for dynamically blocked IPs.
+// Enforcer manages IPv4 and IPv6 nftables sets with kernel timeouts.
 // It is idempotent: blocking an already-blocked IP is a no-op.
 type Enforcer struct {
 	table    string
@@ -27,12 +30,14 @@ type Enforcer struct {
 	blocked map[string]time.Time // ip string → unblock time
 }
 
-// NftCheck reports whether the configured nftables resources are visible.
+// NftCheck reports whether both family-specific sets are visible.
 type NftCheck struct {
-	Available    bool
-	TablePresent bool
-	SetPresent   bool
-	Error        string
+	Available      bool
+	TablePresent   bool
+	SetPresent     bool
+	IPv4SetPresent bool
+	IPv6SetPresent bool
+	Error          string
 }
 
 // New creates an Enforcer targeting the given nftables table and set.
@@ -59,35 +64,76 @@ func (e *Enforcer) Check() NftCheck {
 			Error:     "nft not found in PATH",
 		}
 	}
-
 	if err := runNftCommand("list", "table", "inet", e.table); err != nil {
 		return NftCheck{
 			Available: true,
 			Error:     err.Error(),
 		}
 	}
-	if err := runNftCommand("list", "set", "inet", e.table, e.set); err != nil {
-		return NftCheck{
-			Available:    true,
-			TablePresent: true,
-			Error:        err.Error(),
+
+	check := NftCheck{Available: true, TablePresent: true}
+	v4Err := runNftCommand("list", "set", "inet", e.table, familySetName(e.set, true))
+	v6Err := runNftCommand("list", "set", "inet", e.table, familySetName(e.set, false))
+	check.IPv4SetPresent = v4Err == nil
+	check.IPv6SetPresent = v6Err == nil
+	check.SetPresent = check.IPv4SetPresent && check.IPv6SetPresent
+	switch {
+	case v4Err != nil && v6Err != nil:
+		check.Error = fmt.Sprintf("IPv4 set: %v; IPv6 set: %v", v4Err, v6Err)
+	case v4Err != nil:
+		check.Error = fmt.Sprintf("IPv4 set: %v", v4Err)
+	case v6Err != nil:
+		check.Error = fmt.Sprintf("IPv6 set: %v", v6Err)
+	}
+	return check
+}
+
+// EnsureSet validates and creates the IPv4 and IPv6 sets when they are missing.
+func (e *Enforcer) EnsureSet() error {
+	if err := e.ValidateSetDefinitions(); err != nil {
+		return fmt.Errorf("nftables set validation failed: %w", err)
+	}
+	check := e.Check()
+	if !check.Available {
+		return fmt.Errorf("cannot validate nftables sets: %s", check.Error)
+	}
+	if check.TablePresent && check.SetPresent {
+		return nil
+	}
+	script := ensureSetScript(
+		e.table,
+		e.set,
+		!check.TablePresent,
+		!check.IPv4SetPresent,
+		!check.IPv6SetPresent,
+	)
+	if err := runNftScriptCheck(script); err != nil {
+		return fmt.Errorf("nftables set validation failed: %w", err)
+	}
+	return e.runScript(script)
+}
+
+// ValidateSetDefinitions parses the dual-stack set batch without applying it.
+func (e *Enforcer) ValidateSetDefinitions() error {
+	var table string
+	for attempt := range 4 {
+		candidate := fmt.Sprintf("serpent_wrt_validate_%d_%d", os.Getpid(), time.Now().UnixNano()+int64(attempt))
+		if runNftCommand("list", "table", "inet", candidate) != nil {
+			table = candidate
+			break
 		}
 	}
-	return NftCheck{
-		Available:    true,
-		TablePresent: true,
-		SetPresent:   true,
+	if table == "" {
+		return fmt.Errorf("cannot find an unused nft validation table name")
 	}
+	script := ensureSetScript(table, e.set, true, true, true)
+	if err := runNftScriptCheck(script); err != nil {
+		return fmt.Errorf("validate nftables set definitions: %w", err)
+	}
+	return nil
 }
 
-// EnsureSet creates the nftables table and set if they do not already exist.
-// Uses nft -f - so the entire script is parsed atomically.
-func (e *Enforcer) EnsureSet() error {
-	return e.runScript(ensureSetScript(e.table, e.set))
-}
-
-// Block adds ip to the nftables blocked set with a timeout. Both address
-// families are supported by the inet_addr set.
+// Block adds ip to the nftables set for its address family with a timeout.
 func (e *Enforcer) Block(ip net.IP) error {
 	if ip == nil {
 		return nil
@@ -101,7 +147,7 @@ func (e *Enforcer) Block(ip net.IP) error {
 	}
 	e.mu.Unlock()
 
-	if err := e.runScript(blockScript(e.table, e.set, key, e.duration)); err != nil {
+	if err := e.runScript(blockScript(e.table, familySetName(e.set, ip.To4() != nil), key, e.duration)); err != nil {
 		return err
 	}
 
@@ -135,16 +181,21 @@ func (e *Enforcer) Prune() {
 	}
 }
 
-// ListBlocked shells out to nft to list the current contents of the blocked set.
-// Returns nil (not an error) if the set does not exist.
+// ListBlocked returns entries from both address-family sets.
+// It preserves the historical empty result when neither set exists.
 func (e *Enforcer) ListBlocked() ([]string, error) {
-	cmd := exec.Command("nft", "list", "set", "inet", e.table, e.set)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// If the set doesn't exist, nft returns an error — treat as empty.
+	v4, err4 := runNftListSet(e.table, familySetName(e.set, true))
+	v6, err6 := runNftListSet(e.table, familySetName(e.set, false))
+	if err4 != nil && err6 != nil {
 		return nil, nil
 	}
-	return parseSetElements(string(out)), nil
+	if err4 != nil {
+		return nil, fmt.Errorf("list IPv4 blocked set: %w", err4)
+	}
+	if err6 != nil {
+		return nil, fmt.Errorf("list IPv6 blocked set: %w", err6)
+	}
+	return append(v4, v6...), nil
 }
 
 // parseSetElements extracts IPs from nft list set output.
@@ -176,6 +227,15 @@ func parseSetElements(output string) []string {
 	return ips
 }
 
+func listNftSetCommand(table, set string) ([]string, error) {
+	cmd := exec.Command("nft", "list", "set", "inet", table, set)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("nft list set inet %s %s: %w (output: %s)", table, set, err, strings.TrimSpace(string(out)))
+	}
+	return parseSetElements(string(out)), nil
+}
+
 func (e *Enforcer) runScript(script string) error {
 	return runNftScript(script)
 }
@@ -190,6 +250,16 @@ func runNftScriptCommand(script string) error {
 	return nil
 }
 
+func runNftScriptCheckCommand(script string) error {
+	cmd := exec.Command("nft", "--check", "-f", "-")
+	cmd.Stdin = strings.NewReader(script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft --check: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func runNftCheck(args ...string) error {
 	cmd := exec.Command("nft", args...)
 	out, err := cmd.CombinedOutput()
@@ -199,11 +269,25 @@ func runNftCheck(args ...string) error {
 	return nil
 }
 
-func ensureSetScript(table, set string) string {
-	return fmt.Sprintf(
-		"add table inet %s\nadd set inet %s %s { type inet_addr; flags timeout; }\n",
-		table, table, set,
-	)
+func ensureSetScript(table, set string, createTable, createIPv4, createIPv6 bool) string {
+	var script strings.Builder
+	if createTable {
+		fmt.Fprintf(&script, "add table inet %s\n", table)
+	}
+	if createIPv4 {
+		fmt.Fprintf(&script, "add set inet %s %s { type ipv4_addr; flags timeout; }\n", table, familySetName(set, true))
+	}
+	if createIPv6 {
+		fmt.Fprintf(&script, "add set inet %s %s { type ipv6_addr; flags timeout; }\n", table, familySetName(set, false))
+	}
+	return script.String()
+}
+
+func familySetName(set string, ipv4 bool) string {
+	if ipv4 {
+		return set + "_v4"
+	}
+	return set + "_v6"
 }
 
 func blockScript(table, set, ip string, duration time.Duration) string {

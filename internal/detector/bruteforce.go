@@ -19,16 +19,18 @@ type BruteForce struct {
 
 func NewBruteForce(threshold int, window time.Duration) *BruteForce {
 	return &BruteForce{
-		tracker:   state.NewTracker(window, 1024),
+		tracker:   state.NewTracker(window, state.MaxTrackerKeys),
 		threshold: threshold,
 	}
 }
 
 func (d *BruteForce) Check(r flow.FlowRecord) *Detection {
-	portStr := strconv.Itoa(int(r.DstPort))
-	// Key is (external_src, dst_port): count distinct internal hosts targeted.
-	key := r.SrcIP.String() + ":" + portStr
-	count := d.tracker.Add(key, r.DstIP.String())
+	dstIP := r.EffectiveDstIP()
+	dstPort := r.EffectiveDstPort()
+	portString := strconv.Itoa(int(dstPort))
+	// Key is (external_src, effective dst_port): count distinct internal hosts.
+	key := r.SrcIP.String() + ":" + portString
+	count := d.tracker.Add(key, dstIP.String())
 	if count < d.threshold {
 		return nil
 	}
@@ -41,8 +43,8 @@ func (d *BruteForce) Check(r flow.FlowRecord) *Detection {
 		Reason:     ReasonInboundServiceSpray,
 		SrcIP:      r.SrcIP,
 		DstPort:    r.DstPort,
-		Message:    fmt.Sprintf("%s attempted port %d on %d distinct internal hosts", r.SrcIP, r.DstPort, count),
-		At:         time.Now(),
+		Message:    fmt.Sprintf("%s attempted port %d on %d distinct internal hosts", r.SrcIP, dstPort, count),
+		At:         r.SeenAt,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ecan0/serpent-wrt/internal/flow"
+	"github.com/ecan0/serpent-wrt/internal/state"
 )
 
 // Beacon detects hosts that initiate periodic connections to the same
@@ -24,6 +25,7 @@ type Beacon struct {
 	minInterval  time.Duration
 	excludePorts map[uint16]bool
 	maxEntries   int
+	samples      int
 }
 
 type beaconEntry struct {
@@ -48,38 +50,52 @@ func NewBeacon(minHits int, tolerance, window, minInterval time.Duration, exclud
 }
 
 func (d *Beacon) Check(r flow.FlowRecord) *Detection {
-	// Skip persistent connections — beaconing is about repeated initiation.
 	if r.Proto == "tcp" && r.State == "ESTABLISHED" {
 		return nil
 	}
-	// Skip excluded ports (e.g. DNS/53, NTP/123).
 	if d.excludePorts[r.DstPort] {
 		return nil
 	}
 
+	now := r.SeenAt
+	if now.IsZero() {
+		now = time.Now()
+	}
 	key := r.SrcIP.String() + ":" + r.DstIP.String()
-	now := time.Now()
 	cutoff := now.Add(-d.window)
 
 	d.mu.Lock()
-	e, ok := d.entries[key]
+	entry, ok := d.entries[key]
 	if !ok {
-		if len(d.entries) >= d.maxEntries {
-			d.evictOldestLocked(now)
+		if d.samples >= state.MaxSamplesTotal {
+			d.mu.Unlock()
+			return nil
 		}
-		e = &beaconEntry{expires: now.Add(d.window)}
-		d.entries[key] = e
+		if len(d.entries) >= d.maxEntries {
+			d.evictOldestLocked()
+		}
+		entry = &beaconEntry{}
+		d.entries[key] = entry
+	} else {
+		kept := trimBefore(entry.times, cutoff)
+		d.samples -= len(entry.times) - len(kept)
+		entry.times = kept
 	}
-	e.times = append(e.times, now)
-	e.expires = now.Add(d.window)
-	e.times = trimBefore(e.times, cutoff)
-	times := make([]time.Time, len(e.times))
-	copy(times, e.times)
-	d.mu.Unlock()
 
-	if len(times) < d.minHits {
+	if len(entry.times) >= state.MaxSamplesPerKey || d.samples >= state.MaxSamplesTotal {
+		d.mu.Unlock()
 		return nil
 	}
+	entry.times = append(entry.times, now)
+	entry.expires = now.Add(d.window)
+	d.samples++
+	if len(entry.times) < d.minHits {
+		d.mu.Unlock()
+		return nil
+	}
+	times := append([]time.Time(nil), entry.times...)
+	d.mu.Unlock()
+
 	ok, confidence := beaconScore(times, d.tolerance, d.minInterval)
 	if !ok {
 		return nil
@@ -107,23 +123,25 @@ func (d *Beacon) Prune() {
 	now := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for k, e := range d.entries {
-		if now.After(e.expires) {
-			delete(d.entries, k)
+	for key, entry := range d.entries {
+		if now.After(entry.expires) {
+			d.samples -= len(entry.times)
+			delete(d.entries, key)
 		}
 	}
 }
 
-func (d *Beacon) evictOldestLocked(now time.Time) {
+func (d *Beacon) evictOldestLocked() {
 	var oldest string
 	var oldestExp time.Time
-	for k, e := range d.entries {
-		if oldest == "" || e.expires.Before(oldestExp) {
-			oldest = k
-			oldestExp = e.expires
+	for key, entry := range d.entries {
+		if oldest == "" || entry.expires.Before(oldestExp) {
+			oldest = key
+			oldestExp = entry.expires
 		}
 	}
 	if oldest != "" {
+		d.samples -= len(d.entries[oldest].times)
 		delete(d.entries, oldest)
 	}
 }

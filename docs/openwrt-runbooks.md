@@ -56,6 +56,9 @@ logread -e serpent-wrt
    serpent-wrt --config /etc/serpent-wrt/serpent-wrt.yaml configtest --effective
    ```
 
+With enforcement disabled, `serpent-wrt nftcheck` validates set syntax and makes no rule changes.
+Parser acceptance does not prove packet drops.
+
 6. Start or restart the daemon:
 
    ```sh
@@ -82,14 +85,14 @@ logread -e serpent-wrt
 
 ## Timed Set And Firewall Policy Rollout
 
-`enforcement_enabled` controls timed nftables set updates. The current daemon
-creates the configured table and set and inserts detected source IPs, but it
-does **not** install a base chain or drop rule. An entry has no traffic effect
-until a separately managed firewall policy references the set.
+`enforcement_enabled` controls timed nftables set updates.
+The daemon validates both address-family set definitions before it applies them.
+It does not install a base chain or drop rule. Entries have no traffic effect
+until a separately managed firewall policy uses the correct family set.
 
-Do not interpret `blocks_applied`, `/blocked`, or a successful `nftcheck` as
-proof that packets were dropped. Keep console or out-of-band access available
-while testing any firewall policy.
+Do not read `blocks_applied`, `/blocked`, or a successful `nftcheck` as proof
+that packets were dropped. Keep console or out-of-band access available when
+you test a firewall policy.
 
 1. Complete a clean detect-only tuning window first.
 
@@ -109,8 +112,7 @@ while testing any firewall policy.
    nft -a list ruleset
    ```
 
-   The ruleset must contain a rule that references `@blocked_ips` (or the
-   configured set name) in the intended forwarding path.
+The ruleset must use `@blocked_ips_v4` and `@blocked_ips_v6` in the correct address-family paths.
 
 4. Enable short-lived timed-set updates:
 
@@ -131,13 +133,13 @@ while testing any firewall policy.
    ```
 
 6. In a disposable lab, add a known test address to the set or trigger a
-   controlled detection, then test a real forwarded flow from that address.
-   Verify both the set entry and packet counters on the referencing rule:
+   controlled detection. Test a forwarded flow from that address.
+   Verify the set entry and packet counters on the firewall rule:
 
    ```sh
    curl -s http://127.0.0.1:8080/blocked
-   nft list set inet serpent_wrt blocked_ips
-   nft -a list ruleset
+   nft list set inet serpent_wrt blocked_ips_v4
+   nft list set inet serpent_wrt blocked_ips_v6
    ```
 
 7. Reload the firewall and repeat the rule-reference and packet-flow checks.
@@ -169,13 +171,14 @@ router behavior.
 3. Clear timed-set entries if immediate removal is required:
 
    ```sh
-   nft flush set inet serpent_wrt blocked_ips
+   nft flush set inet serpent_wrt blocked_ips_v4
+   nft flush set inet serpent_wrt blocked_ips_v6
    ```
 
-   If the table or set names differ from the defaults, use the configured
-   `nft_table` and `nft_set` names.
+   If the table or set prefix differs from the defaults, use the configured
+   `nft_table` and `nft_set` values. Append `_v4` or `_v6` to the set prefix.
 
-4. Confirm the daemon is detect-only and traffic has recovered:
+4. Confirm that the daemon uses detect-only mode and traffic works.
 
    ```sh
    /etc/init.d/serpent-wrt status
@@ -184,8 +187,7 @@ router behavior.
    logread -e serpent-wrt
    ```
 
-5. Tune thresholds, profiles, feeds, and suppression rules before re-enabling
-   enforcement.
+5. Tune thresholds, profiles, feeds, and suppression rules before you enable enforcement again.
 
 ## Firewall Reload Recovery
 
@@ -213,7 +215,8 @@ reports this through `/status` and `nftcheck`.
 
    ```sh
    nft list table inet serpent_wrt
-   nft list set inet serpent_wrt blocked_ips
+   nft list set inet serpent_wrt blocked_ips_v4
+   nft list set inet serpent_wrt blocked_ips_v6
    ```
 
 4. If resources disappear again after every firewall reload, review local fw4

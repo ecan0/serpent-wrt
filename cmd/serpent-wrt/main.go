@@ -27,6 +27,10 @@ var (
 	buildDate = "unknown"
 )
 
+var validateNftDefinitions = func(table, set string) error {
+	return enforcer.New(table, set, 0).ValidateSetDefinitions()
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -120,33 +124,49 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 		writef(stderr, "serpent-wrt: nftcheck failed: config: %v\n", err)
 		return 1
 	}
-	if !cfg.EnforcementEnabled {
+
+	enf := enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration)
+	result := nftcheckResult{
+		Status:             "ok",
+		EnforcementEnabled: cfg.EnforcementEnabled,
+		Table:              cfg.NftTable,
+		Set:                cfg.NftSet,
+		Available:          enf.Available(),
+		ParserChecked:      true,
+	}
+	if err := validateNftDefinitions(cfg.NftTable, cfg.NftSet); err != nil {
+		result.Status = "failed"
+		result.ParserError = err.Error()
+		result.Error = err.Error()
+		result.Diagnostic = "invalid nft set definitions"
 		if *format == "json" {
-			writeNftcheckJSON(stdout, nftcheckResult{
-				Status:             "skipped",
-				EnforcementEnabled: false,
-				Table:              cfg.NftTable,
-				Set:                cfg.NftSet,
-				Diagnostic:         "enforcement disabled",
-			})
+			writeNftcheckJSON(stdout, result)
+			return 1
+		}
+		writef(stderr, "serpent-wrt: nft parser check failed: %v\n", err)
+		return 1
+	}
+	result.ParserValid = true
+
+	if !cfg.EnforcementEnabled {
+		result.Status = "skipped"
+		result.Diagnostic = "nft parser accepted set definitions; enforcement is disabled"
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
 			return 0
 		}
-		writef(stdout, "serpent-wrt: nft check skipped: enforcement disabled (table=%s set=%s)\n", cfg.NftTable, cfg.NftSet)
+		writef(stdout, "serpent-wrt: nft check skipped: enforcement disabled; parser valid (table=%s set=%s)\n",
+			cfg.NftTable, cfg.NftSet)
 		return 0
 	}
 
-	enf := enforcer.New(cfg.NftTable, cfg.NftSet, cfg.BlockDuration)
 	check := enf.Check()
-	result := nftcheckResult{
-		Status:             "ok",
-		EnforcementEnabled: true,
-		Table:              cfg.NftTable,
-		Set:                cfg.NftSet,
-		Available:          check.Available,
-		TablePresent:       check.TablePresent,
-		SetPresent:         check.SetPresent,
-		Error:              check.Error,
-	}
+	result.Available = check.Available
+	result.TablePresent = check.TablePresent
+	result.SetPresent = check.SetPresent
+	result.IPv4SetPresent = check.IPv4SetPresent
+	result.IPv6SetPresent = check.IPv6SetPresent
+	result.Error = check.Error
 	if !check.Available {
 		result.Status = "failed"
 		result.Diagnostic = "nft unavailable"
@@ -169,12 +189,13 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 	}
 	if !check.SetPresent {
 		result.Status = "failed"
-		result.Diagnostic = "missing set"
+		result.Diagnostic = "missing family set"
 		if *format == "json" {
 			writeNftcheckJSON(stdout, result)
 			return 1
 		}
-		writef(stderr, "serpent-wrt: nft check failed: missing set inet %s %s: %s\n", cfg.NftTable, cfg.NftSet, check.Error)
+		writef(stderr, "serpent-wrt: nft check failed: missing family set inet %s %s_v4=%t %s_v6=%t: %s\n",
+			cfg.NftTable, cfg.NftSet, check.IPv4SetPresent, cfg.NftSet, check.IPv6SetPresent, check.Error)
 		return 1
 	}
 
@@ -182,7 +203,7 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 		writeNftcheckJSON(stdout, result)
 		return 0
 	}
-	writef(stdout, "serpent-wrt: nft OK: table=%s set=%s\n", cfg.NftTable, cfg.NftSet)
+	writef(stdout, "serpent-wrt: nft OK: table=%s sets=%s_v4,%s_v6\n", cfg.NftTable, cfg.NftSet, cfg.NftSet)
 	return 0
 }
 
@@ -192,8 +213,13 @@ type nftcheckResult struct {
 	Table              string `json:"table,omitempty"`
 	Set                string `json:"set,omitempty"`
 	Available          bool   `json:"available"`
+	ParserChecked      bool   `json:"parser_checked"`
+	ParserValid        bool   `json:"parser_valid"`
+	ParserError        string `json:"parser_error,omitempty"`
 	TablePresent       bool   `json:"table_present"`
 	SetPresent         bool   `json:"set_present"`
+	IPv4SetPresent     bool   `json:"ipv4_set_present"`
+	IPv6SetPresent     bool   `json:"ipv6_set_present"`
 	Diagnostic         string `json:"diagnostic,omitempty"`
 	Error              string `json:"error,omitempty"`
 }

@@ -264,6 +264,25 @@ func TestLoadAPIBindDefault(t *testing.T) {
 	}
 }
 
+func TestLoadEventContext(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nevent_context:\n  run_id: e2e-run\n  case_id: scan-01\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load event context: %v", err)
+	}
+	if cfg.EventContext == nil || cfg.EventContext.RunID != "e2e-run" || cfg.EventContext.CaseID != "scan-01" {
+		t.Fatalf("event_context: got %#v", cfg.EventContext)
+	}
+}
+
+func TestLoadEventContextRequiresBothMarkers(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nevent_context:\n  run_id: e2e-run\n")
+	_, err := config.Load(f)
+	if err == nil || !strings.Contains(err.Error(), "both run_id and case_id") {
+		t.Fatalf("event_context error: got %v, want both marker fields required", err)
+	}
+}
+
 func TestLoadInvalidAPIBind(t *testing.T) {
 	f := writeTemp(t, "threat_feed_path: ./feed.txt\napi_enabled: true\napi_bind: bad-bind\n")
 	_, err := config.Load(f)
@@ -316,6 +335,51 @@ func TestLoadInvalidNftSet(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nft_set") {
 		t.Fatalf("error: got %q, want nft_set context", err)
+	}
+}
+
+func TestLoadNftSetLeavesRoomForFamilySuffix(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_set: "+strings.Repeat("a", 253)+"\n")
+	_, err := config.Load(f)
+	if err == nil || !strings.Contains(err.Error(), "family suffix") {
+		t.Fatalf("error: got %v, want family suffix limit", err)
+	}
+}
+
+func TestLoadRejectsDetectorThresholdsAboveRetentionLimits(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "scan",
+			yaml: "detectors:\n  scan:\n    distinct_port_threshold: 257\n",
+		},
+		{
+			name: "beacon",
+			yaml: "detectors:\n  beacon:\n    min_hits: 65\n",
+		},
+		{
+			name: "fanout",
+			yaml: "detectors:\n  fanout:\n    distinct_dst_threshold: 257\n",
+		},
+		{
+			name: "external scan",
+			yaml: "detectors:\n  ext_scan:\n    distinct_port_threshold: 257\n",
+		},
+		{
+			name: "service spray",
+			yaml: "detectors:\n  brute_force:\n    threshold: 257\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, "threat_feed_path: ./feed.txt\n"+tc.yaml)
+			_, err := config.Load(path)
+			if err == nil || !strings.Contains(err.Error(), "retained") {
+				t.Fatalf("config error: got %v, want retained-state limit", err)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,6 +112,9 @@ lan_cidrs:
   - 192.168.1.0/24
 self_ips:
   - 192.168.1.1
+event_context:
+  run_id: e2e-run-01
+  case_id: feed-source
 suppression_rules:
   - name: expected scan
     detectors: [port_scan]
@@ -148,6 +152,14 @@ suppression_rules:
 	}
 	if effective["collector"] != "polling" {
 		t.Fatalf("collector: got %v, want polling", effective["collector"])
+	}
+
+	eventContext, ok := effective["event_context"].(map[string]any)
+	if !ok {
+		t.Fatalf("event_context: got %#v, want marker object", effective["event_context"])
+	}
+	if eventContext["run_id"] != "e2e-run-01" || eventContext["case_id"] != "feed-source" {
+		t.Fatalf("event_context: got %#v, want both marker values", eventContext)
 	}
 	if effective["dnsmasq_leases_path"] != "/tmp/dhcp.leases" {
 		t.Fatalf("dnsmasq_leases_path: got %v", effective["dnsmasq_leases_path"])
@@ -414,6 +426,8 @@ func TestRunFeedAddRejectsInvalidEntry(t *testing.T) {
 
 func TestRunNftcheckSkipsWhenEnforcementDisabled(t *testing.T) {
 	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+	restore := stubNftDefinitions(t, nil)
+	defer restore()
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"nftcheck", "--config", cfg}, &stdout, &stderr)
@@ -430,6 +444,8 @@ func TestRunNftcheckSkipsWhenEnforcementDisabled(t *testing.T) {
 
 func TestRunNftcheckSupportsGlobalConfigFlag(t *testing.T) {
 	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+	restore := stubNftDefinitions(t, nil)
+	defer restore()
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--config", cfg, "nftcheck"}, &stdout, &stderr)
@@ -443,6 +459,8 @@ func TestRunNftcheckSupportsGlobalConfigFlag(t *testing.T) {
 
 func TestRunNftcheckJSONSkipsWhenEnforcementDisabled(t *testing.T) {
 	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+	restore := stubNftDefinitions(t, nil)
+	defer restore()
 
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"nftcheck", "--config", cfg, "--format", "json"}, &stdout, &stderr)
@@ -465,8 +483,33 @@ func TestRunNftcheckJSONSkipsWhenEnforcementDisabled(t *testing.T) {
 	if body["table"] != "serpent_wrt" || body["set"] != "blocked_ips" {
 		t.Fatalf("table/set: %+v", body)
 	}
-	if body["diagnostic"] != "enforcement disabled" {
-		t.Fatalf("diagnostic: got %v", body["diagnostic"])
+	if body["diagnostic"] != "nft parser accepted set definitions; enforcement is disabled" {
+		t.Fatalf("diagnostic: got %v, want parser success and detect-only state", body["diagnostic"])
+	}
+	if body["parser_checked"] != true || body["parser_valid"] != true {
+		t.Fatalf("parser status: checked=%v valid=%v", body["parser_checked"], body["parser_valid"])
+	}
+}
+
+func TestRunNftcheckReportsParserErrorWithEnforcementDisabled(t *testing.T) {
+	cfg := writeConfigWithFeed(t, "1.2.3.4\n")
+	restore := stubNftDefinitions(t, errors.New("unknown datatype"))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"nftcheck", "--config", cfg, "--format", "json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run nftcheck: exit=%d, want 1", code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["enforcement_enabled"] != false || body["parser_checked"] != true || body["parser_valid"] != false {
+		t.Fatalf("parser result: %+v", body)
+	}
+	if !strings.Contains(fmt.Sprint(body["parser_error"]), "unknown datatype") {
+		t.Fatalf("parser_error: got %v", body["parser_error"])
 	}
 }
 
@@ -607,6 +650,13 @@ func TestRunUnknownCommand(t *testing.T) {
 	if !strings.Contains(stderr.String(), "unknown command") {
 		t.Fatalf("stderr=%q, want unknown command", stderr.String())
 	}
+}
+
+func stubNftDefinitions(t *testing.T, validationErr error) func() {
+	t.Helper()
+	old := validateNftDefinitions
+	validateNftDefinitions = func(string, string) error { return validationErr }
+	return func() { validateNftDefinitions = old }
 }
 
 func writeConfigWithFeed(t *testing.T, feedContent string) string {
