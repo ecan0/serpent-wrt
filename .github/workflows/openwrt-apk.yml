@@ -40,7 +40,7 @@ concurrency:
 jobs:
   build-apk:
     name: Build APK (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: write # attach packages to an existing GitHub Release
@@ -93,7 +93,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
           # Reuse only the exact SDK, feed, helper, and package-recipe key.
-          key: openwrt-apk-${{ runner.os }}-${{ runner.arch }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-${{ env.OPENWRT_PACKAGES_REF }}-${{ hashFiles('workflow-tools/scripts/build-openwrt-apk.sh', 'workflow-tools/scripts/openwrt-package-check.sh', 'openwrt/serpent-wrt/Makefile') }}
+          key: openwrt-apk-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-${{ env.OPENWRT_PACKAGES_REF }}-${{ hashFiles('workflow-tools/scripts/build-openwrt-apk.sh', 'workflow-tools/scripts/openwrt-package-check.sh', 'openwrt/serpent-wrt/Makefile') }}
 
       - name: Install SDK build dependencies
         run: |

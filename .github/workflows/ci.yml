@@ -23,7 +23,7 @@ env:
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       code_changed: ${{ steps.filter.outputs.code_changed }}
@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          label=ubuntu-latest
+          label=ubuntu-24.04
           if [ "$EVENT_NAME" = "push" ] && [ "$REF" = "refs/heads/dev" ]; then
             label=self-hosted
           fi
@@ -84,7 +84,7 @@ jobs:
 
   quality:
     name: Workflow and shell checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -224,7 +224,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs: [changes, quality, build, test, lint, scan]
     if: always()

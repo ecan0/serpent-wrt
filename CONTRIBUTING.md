@@ -37,7 +37,7 @@ make release-check
 This runs tests, vet, whitespace checks, package helper safety checks, and
 representative OpenWrt target builds.
 
-All pull requests use GitHub-hosted runners, including same-repository PRs.
+All pull requests use GitHub-hosted Ubuntu 24.04 runners, including same-repository PRs.
 Only trusted pushes to `dev` use the repository's self-hosted runner.
 Private runner configuration remains outside this repository.
 
