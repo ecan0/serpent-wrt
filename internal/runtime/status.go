@@ -34,9 +34,13 @@ type FeedStatus struct {
 
 // CollectorStatus reports the requested collector and any polling fallback.
 type CollectorStatus struct {
-	Configured    string `json:"configured"`
-	Active        string `json:"active"`
-	FallbackError string `json:"fallback_error,omitempty"`
+	Configured            string     `json:"configured"`
+	Active                string     `json:"active"`
+	FallbackError         string     `json:"fallback_error,omitempty"`
+	LastSuccessfulPoll    *time.Time `json:"last_successful_poll,omitempty"`
+	LastPollError         string     `json:"last_poll_error,omitempty"`
+	SnapshotOverflow      bool       `json:"snapshot_overflow"`
+	NewFlowDetectionReady bool       `json:"new_flow_detection_ready"`
 }
 
 // EnforcementStatus summarizes enforcement and nft setup state.
@@ -153,7 +157,16 @@ func (e *Engine) GetStatus() Status {
 	collectorConfigured := e.collectorConfigured
 	collectorActive := e.collectorActive
 	collectorErr := e.collectorError
+	lastSuccessfulPoll := e.lastSuccessfulPoll
+	lastPollError := e.lastPollError
+	snapshotOverflow := e.snapshotOverflow
+	newFlowDetectionReady := e.newFlowDetectionReady
 	e.collectorMu.Unlock()
+	var lastSuccessfulPollAt *time.Time
+	if !lastSuccessfulPoll.IsZero() {
+		last := lastSuccessfulPoll
+		lastSuccessfulPollAt = &last
+	}
 
 	e.buildMu.Lock()
 	build := e.buildInfo
@@ -168,9 +181,13 @@ func (e *Engine) GetStatus() Status {
 			Count: e.feed.Len(),
 		},
 		Collector: CollectorStatus{
-			Configured:    collectorConfigured,
-			Active:        collectorActive,
-			FallbackError: collectorErr,
+			Configured:            collectorConfigured,
+			Active:                collectorActive,
+			FallbackError:         collectorErr,
+			LastSuccessfulPoll:    lastSuccessfulPollAt,
+			LastPollError:         lastPollError,
+			SnapshotOverflow:      snapshotOverflow,
+			NewFlowDetectionReady: newFlowDetectionReady,
 		},
 		Enforcement: EnforcementStatus{
 			Enabled:       e.cfg.EnforcementEnabled,

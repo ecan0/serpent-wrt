@@ -52,8 +52,42 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Profile != "home" {
 		t.Errorf("default profile: got %q, want home", cfg.Profile)
 	}
+	if cfg.LogLevel != "info" {
+		t.Errorf("default log_level: got %q, want info", cfg.LogLevel)
+	}
 	if cfg.LeaseEnrichment {
 		t.Error("lease_enrichment should default to false")
+	}
+}
+
+func TestLoadLogLevels(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{value: "info", want: "info"},
+		{value: "warn", want: "warn"},
+		{value: "error", want: "error"},
+		{value: " WARN ", want: "warn"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			path := writeTemp(t, "threat_feed_path: ./feed.txt\nlog_level: \""+tc.value+"\"\n")
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.LogLevel != tc.want {
+				t.Fatalf("log_level: got %q, want %q", cfg.LogLevel, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnsupportedLogLevel(t *testing.T) {
+	path := writeTemp(t, "threat_feed_path: ./feed.txt\nlog_level: debug\n")
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatal("config accepted an unsupported log level")
 	}
 }
 

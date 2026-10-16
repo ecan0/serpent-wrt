@@ -6,12 +6,19 @@ The project uses semantic versions for tagged releases.
 
 ## Unreleased
 
+### Added
+
+- `/status` reports the latest successful snapshot poll and the latest poll error.
+- `/status` separates snapshot overflow and new-flow detection readiness from API liveness and successful collection.
+
 ### Changed
 
 - CI Gate now rejects failed change detection and incomplete required jobs.
 - CI validates workflows and shell syntax, runs race and 32-bit tests, and exercises the native CLI.
 - Pull requests use hosted runners. Only trusted `dev` pushes use the repository runner.
 - GitHub Actions use current release SHAs. Go caches and exact-key SDK caches reduce repeated build work.
+- `log_level` now filters stdout and syslog events at the configured minimum level.
+- `log_level` accepts only `info`, `warn`, or `error`. Replace unsupported values with one of these levels before upgrade. The default remains `info`. At `error`, warn-level detections no longer reach stdout or syslog.
 - Snapshot mode uses the first conntrack snapshot as a baseline and processes each new tuple once. Netlink fallback sets a fresh baseline.
 - DNAT snapshots retain the original and translated destination tuples. Direction classification uses the translated endpoint, and events expose both.
 - Port-scan detectors now emit one alert per threshold episode with the count and sorted distinct ports. Expiry below threshold rearms the next episode.

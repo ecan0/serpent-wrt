@@ -40,13 +40,13 @@ func testConfig() *config.Config {
 
 func testEngine(t *testing.T) *Engine {
 	t.Helper()
-	return NewEngine(testConfig(), events.NewLogger(nil))
+	return NewEngine(testConfig(), events.NewLogger(nil, events.LevelInfo))
 }
 
 func TestRunNetlinkCollectorProcessesEvents(t *testing.T) {
 	cfg := testConfig()
 	cfg.Collector = config.CollectorNetlink
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	records := make(chan flow.FlowRecord)
 	done := make(chan error, 1)
@@ -62,6 +62,9 @@ func TestRunNetlinkCollectorProcessesEvents(t *testing.T) {
 				SeenAt:  time.Now(),
 			}
 			close(records)
+			if !e.GetStatus().Collector.NewFlowDetectionReady {
+				t.Error("active netlink stream is not ready for new-flow detection")
+			}
 			done <- nil
 			close(done)
 		}()
@@ -82,13 +85,19 @@ func TestRunNetlinkCollectorProcessesEvents(t *testing.T) {
 	if status.Configured != config.CollectorNetlink || status.Active != config.CollectorNetlink {
 		t.Fatalf("collector status: got configured=%q active=%q", status.Configured, status.Active)
 	}
+	if status.LastSuccessfulPoll != nil || status.LastPollError != "" {
+		t.Fatalf("netlink collector reported polling state: %+v", status)
+	}
+	if status.NewFlowDetectionReady {
+		t.Fatal("collector remains ready after Run returns")
+	}
 }
 
 func TestRunNetlinkCollectorFallsBackToPolling(t *testing.T) {
 	cfg := testConfig()
 	cfg.Collector = config.CollectorNetlink
 	cfg.PollInterval = time.Millisecond
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	e.startEvents = func(context.Context) (*collector.EventStream, error) {
 		return nil, errors.New("netlink unavailable")
 	}
@@ -114,13 +123,16 @@ func TestRunNetlinkCollectorFallsBackToPolling(t *testing.T) {
 	if !strings.Contains(status.FallbackError, "netlink unavailable") {
 		t.Fatalf("fallback error: got %q", status.FallbackError)
 	}
+	if status.LastSuccessfulPoll == nil || status.LastPollError != "" {
+		t.Fatalf("poll status after netlink fallback: got successful=%v error=%q", status.LastSuccessfulPoll, status.LastPollError)
+	}
 }
 func TestPollingDoesNotTreatRepeatedSnapshotAsBeaconCadence(t *testing.T) {
 	cfg := testConfig()
 	cfg.PollInterval = time.Millisecond
 	cfg.Detectors.Beacon.MinHits = 5
 	cfg.Detectors.Beacon.MinInterval = 0
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	record := flow.FlowRecord{
 		Proto:   "udp",
 		SrcIP:   net.ParseIP("192.168.1.20"),
@@ -146,7 +158,7 @@ func TestPollingDetectsDistinctConnectionsAtObservedCadence(t *testing.T) {
 	cfg := testConfig()
 	cfg.PollInterval = time.Millisecond
 	cfg.Detectors.Beacon.MinInterval = 5 * time.Second
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	records := make([]flow.FlowRecord, cfg.Detectors.Beacon.MinHits)
 	for i := range records {
@@ -186,7 +198,7 @@ func TestNetlinkFallbackDoesNotTurnExistingFlowsIntoNewActivity(t *testing.T) {
 	cfg.Collector = config.CollectorNetlink
 	cfg.PollInterval = time.Millisecond
 	cfg.Detectors.Beacon.MinInterval = 0
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	e.startEvents = func(context.Context) (*collector.EventStream, error) {
 		return nil, errors.New("netlink unavailable")
 	}
@@ -220,7 +232,7 @@ func TestNetlinkDetectsBeaconFromNewEventTimes(t *testing.T) {
 	cfg := testConfig()
 	cfg.Collector = config.CollectorNetlink
 	cfg.Detectors.Beacon.MinInterval = 5 * time.Second
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	records := make(chan flow.FlowRecord)
 	done := make(chan error, 1)
 	e.startEvents = func(context.Context) (*collector.EventStream, error) {
@@ -396,10 +408,34 @@ func TestRecentDetectionsEmpty(t *testing.T) {
 	}
 }
 
+func TestLogLevelDoesNotHideRecentDetections(t *testing.T) {
+	cfg := testConfig()
+	t.Setenv("PATH", t.TempDir())
+	cfg.LogLevel = "error"
+	cfg.EnforcementEnabled = true
+	e := NewEngine(cfg, events.NewLogger(nil, events.Level(cfg.LogLevel)))
+	e.handleDetection(&detector.Detection{
+		Type:       "feed_match",
+		Severity:   detector.SeverityHigh,
+		Confidence: 95,
+		Reason:     detector.ReasonThreatFeedDestination,
+		SrcIP:      net.ParseIP("192.168.1.20"),
+		DstIP:      net.ParseIP("203.0.113.10"),
+	})
+	recent := e.RecentDetections()
+	if len(recent) != 1 || recent[0].Detector != "feed_match" {
+		t.Fatalf("recent detections at error log level: got %+v", recent)
+	}
+	stats := e.GetStats()
+	if stats.DetectionsByType["feed_match"] != 1 || stats.DetectionsBySeverity["high"] != 1 || stats.BlocksFailed != 1 {
+		t.Fatalf("error log level changed detection counters or response: %+v", stats)
+	}
+}
+
 func TestProcessFlowAddsEventContextToRecentDetections(t *testing.T) {
 	cfg := testConfig()
 	cfg.EventContext = &config.EventContext{RunID: "e2e-run", CaseID: "feed-source"}
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	if err := e.ReloadFeed(); err != nil {
 		t.Fatalf("load feed: %v", err)
 	}
@@ -617,7 +653,7 @@ func TestProcessFlowRecordsFeedMatchDetections(t *testing.T) {
 func TestProcessFlowClassifiesDNATByTranslatedLANEndpoint(t *testing.T) {
 	cfg := testConfig()
 	cfg.LANCIDRs = []string{"198.18.0.0/24"}
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	if err := e.ReloadFeed(); err != nil {
 		t.Fatalf("reload feed: %v", err)
 	}
@@ -683,7 +719,7 @@ func TestScanEpisodesEmitOneAlertAndPreservePorts(t *testing.T) {
 			cfg.Detectors.ExtScan.DistinctPortThreshold = 3
 			cfg.Detectors.ExtScan.Window = 25 * time.Millisecond
 			cfg.Detectors.Beacon.MinHits = 1000
-			e := NewEngine(cfg, events.NewLogger(nil))
+			e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 			send := func(ports []uint16) {
 				for i, port := range ports {
@@ -776,7 +812,7 @@ func TestSelfSrcDropped(t *testing.T) {
 func TestDedupWindowFromConfig(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = 30 * time.Second
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	if e.dedupWindow != 30*time.Second {
 		t.Errorf("dedupWindow: got %v, want 30s", e.dedupWindow)
 	}
@@ -795,7 +831,7 @@ func TestDedupWindowDefault(t *testing.T) {
 func TestDedupWindowSuppression(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = 50 * time.Millisecond
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	det := &detector.Detection{
 		Type:    "feed_match",
@@ -836,7 +872,7 @@ func TestDedupWindowSuppression(t *testing.T) {
 func TestDedupIncludesDstPortForBruteForce(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	base := detector.Detection{
 		Type:       "brute_force",
@@ -871,7 +907,7 @@ func TestDedupIncludesDstPortForBruteForce(t *testing.T) {
 func TestDedupKeepsFanoutCollapsedBySrc(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	det := detector.Detection{
 		Type:       "fanout",
@@ -900,7 +936,7 @@ func TestHandleDetectionCountsBlockFailures(t *testing.T) {
 	cfg := testConfig()
 	cfg.EnforcementEnabled = true
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{
 		Type:       "feed_match",
@@ -936,7 +972,7 @@ func TestSuppressionRuleDropsMatchingDetection(t *testing.T) {
 			DstPorts:  []uint16{443},
 		},
 	}
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{
 		Type:    "port_scan",
@@ -967,7 +1003,7 @@ func TestSuppressionRuleRequiresAllConfiguredMatchers(t *testing.T) {
 			DstPorts:  []uint16{443},
 		},
 	}
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{
 		Type:    "port_scan",
@@ -989,7 +1025,7 @@ func TestSuppressionRuleRequiresAllConfiguredMatchers(t *testing.T) {
 func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{
 		Type:       "feed_match",
@@ -1021,7 +1057,7 @@ func TestHandleDetectionCopiesMetadataToRecent(t *testing.T) {
 func TestHandleDetectionCountsSeverityAndConfidenceBuckets(t *testing.T) {
 	cfg := testConfig()
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	detections := []detector.Detection{
 		{
@@ -1089,7 +1125,7 @@ func TestHandleDetectionEnrichesFromDnsmasqLeases(t *testing.T) {
 	cfg.LeaseEnrichment = true
 	cfg.DnsmasqLeasesPath = leasePath
 	cfg.DedupWindow = time.Minute
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{
 		Type:       "feed_match",
@@ -1199,7 +1235,7 @@ func TestDetectionRecordJSONIncludesLeaseFields(t *testing.T) {
 func TestReloadFeedMissingFile(t *testing.T) {
 	cfg := testConfig()
 	cfg.ThreatFeedPath = "/nonexistent/path/feed.txt"
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	if err := e.ReloadFeed(); err == nil {
 		t.Fatal("expected error reloading nonexistent feed file")
 	}

@@ -352,7 +352,7 @@ func runDaemon(cfgPath string, stderr io.Writer, bannerMode string) int {
 		}
 	}
 
-	log := events.NewLogger(remote)
+	log := events.NewLogger(remote, events.Level(cfg.LogLevel))
 
 	log.System(events.LevelInfo, events.SystemFields{
 		Component: "runtime",

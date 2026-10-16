@@ -106,16 +106,19 @@ type Engine struct {
 	log  *events.Logger
 	enf  *enforcer.Enforcer
 
-	collectSnapshot  func() ([]flow.FlowRecord, error)
-	startEvents      func(context.Context) (*collector.EventStream, error)
-	snapshotTracker  *snapshotTracker
-	snapshotOverflow bool
+	collectSnapshot func() ([]flow.FlowRecord, error)
+	startEvents     func(context.Context) (*collector.EventStream, error)
+	snapshotTracker *snapshotTracker
 
-	collectorMu         sync.Mutex
-	collectorConfigured string
-	collectorActive     string
-	collectorError      string
-	feedFileMu          sync.Mutex
+	collectorMu           sync.Mutex
+	collectorConfigured   string
+	collectorActive       string
+	collectorError        string
+	lastSuccessfulPoll    time.Time
+	lastPollError         string
+	snapshotOverflow      bool
+	newFlowDetectionReady bool
+	feedFileMu            sync.Mutex
 
 	// outbound detectors
 	feedMatch *detector.FeedMatch
@@ -218,6 +221,11 @@ func NewEngine(cfg *config.Config, log *events.Logger) *Engine {
 
 // Run starts the polling loop and blocks until ctx is cancelled.
 func (e *Engine) Run(ctx context.Context) error {
+	defer func() {
+		e.collectorMu.Lock()
+		e.newFlowDetectionReady = false
+		e.collectorMu.Unlock()
+	}()
 	if err := e.loadFeed(); err != nil {
 		return fmt.Errorf("initial feed load: %w", err)
 	}
@@ -321,6 +329,7 @@ func (e *Engine) runNetlink(ctx context.Context) error {
 func (e *Engine) setCollectorState(active string, err error) {
 	e.collectorMu.Lock()
 	e.collectorActive = active
+	e.newFlowDetectionReady = active == config.CollectorNetlink && err == nil
 	if err == nil {
 		e.collectorError = ""
 	} else {
@@ -329,9 +338,26 @@ func (e *Engine) setCollectorState(active string, err error) {
 	e.collectorMu.Unlock()
 }
 
+func (e *Engine) recordPollResult(err error, overflow bool) bool {
+	e.collectorMu.Lock()
+	defer e.collectorMu.Unlock()
+	previousOverflow := e.snapshotOverflow
+	if err != nil {
+		e.lastPollError = err.Error()
+		e.newFlowDetectionReady = false
+		return previousOverflow
+	}
+	e.lastSuccessfulPoll = time.Now()
+	e.lastPollError = ""
+	e.snapshotOverflow = overflow
+	e.newFlowDetectionReady = !overflow
+	return previousOverflow
+}
+
 func (e *Engine) poll() {
 	flows, err := e.collectSnapshot()
 	if err != nil {
+		e.recordPollResult(err, false)
 		e.log.System(events.LevelError, events.SystemFields{
 			Component: "collector",
 			Action:    "collect",
@@ -341,21 +367,21 @@ func (e *Engine) poll() {
 		return
 	}
 	newFlows, overflow := e.snapshotTracker.observe(flows)
-	if overflow && !e.snapshotOverflow {
+	previousOverflow := e.recordPollResult(nil, overflow)
+	if overflow && !previousOverflow {
 		e.log.System(events.LevelWarn, events.SystemFields{
 			Component: "collector",
 			Action:    "snapshot_capacity",
 			Status:    "degraded",
 		}, fmt.Sprintf("snapshot contains more than %d flows; new-flow detection paused until a complete baseline is available", collector.MaxSnapshotFlows))
 	}
-	if !overflow && e.snapshotOverflow {
+	if !overflow && previousOverflow {
 		e.log.System(events.LevelInfo, events.SystemFields{
 			Component: "collector",
 			Action:    "snapshot_capacity",
 			Status:    "recovered",
-		}, "snapshot is within capacity; collector will establish a new baseline before flow detection resumes")
+		}, "snapshot is within capacity; a complete baseline is ready for new-flow detection")
 	}
-	e.snapshotOverflow = overflow
 	for _, r := range newFlows {
 		e.processFlow(r)
 	}

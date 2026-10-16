@@ -90,7 +90,7 @@ func testServer(t *testing.T) *Server {
 			BruteForce: config.BruteForceConfig{Threshold: 5, Window: 60 * time.Second},
 		},
 	}
-	eng := runtime.NewEngine(cfg, events.NewLogger(nil))
+	eng := runtime.NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 	return New(cfg.APIBind, eng)
 }
 

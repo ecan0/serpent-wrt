@@ -20,7 +20,7 @@ JSON mutation requests must contain exactly one object and remain at or below 1 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | Liveness check. |
-| `/status` | GET | Collector mode/fallback, feed path/count, enforcement diagnostics, uptime, detector config, build metadata. |
+| `/status` | GET | Collector mode and poll status, feed, enforcement, uptime, detector config, and build metadata. |
 | `/stats` | GET | Flow, detection, suppression, dedup, and block counters. |
 | `/detections/recent` | GET | Last 100 detections. Optional `run_id` and `case_id` query values filter records. |
 | `/blocked` | GET | Current IPv4 and IPv6 nftables timed-set contents. This does not prove packet drops. |
@@ -31,6 +31,30 @@ JSON mutation requests must contain exactly one object and remain at or below 1 
 | `/feed/add` | POST | Add one IPv4/IPv6 IP-or-CIDR feed entry and reload if changed. |
 | `/feed/remove` | POST | Remove one feed entry and reload if changed. |
 
+`/healthz` and `/status.status: "ok"` report API liveness, not collector readiness.
+`started_at` is the engine start time. `uptime_seconds` is the elapsed time since that start.
+
+The collector fields have these meanings:
+
+| Field | Meaning |
+| --- | --- |
+| `configured` | Collector mode from the effective configuration. |
+| `active` | Selected mode, including snapshot fallback. This does not prove successful collection. |
+| `fallback_error` | Netlink startup or stream failure. Successful snapshot polls do not clear this diagnostic. |
+| `last_successful_poll` | Time when the latest snapshot completed and the tracker accepted its result. Absent before success and during native netlink operation. |
+| `last_poll_error` | Latest snapshot failure. Absent before failure. The next successful snapshot clears it without loss of the prior success time. |
+| `snapshot_overflow` | Latest successful snapshot exceeded the retained-flow limit. A failed poll preserves this value. |
+| `new_flow_detection_ready` | A complete snapshot baseline exists after the latest successful poll, or the netlink event stream is active. False before collection, after a poll failure, during overflow, and after engine exit. |
+
+A successful snapshot can exceed capacity. Its success timestamp does not prove detection readiness.
+The first complete snapshot establishes a baseline without historical detections.
+After overflow, the next complete snapshot establishes a new baseline.
+Readiness does not prove traffic delivery, full detector-window coverage, or packet drops.
+Poll timestamps use RFC 3339 format with fractional seconds and a timezone offset.
+
+`log_level` filters stdout and syslog only.
+At `error`, warn-level detections and timed-set events disappear from both outputs.
+Recent API detections, counters, suppression, and response behavior remain independent of that filter.
 
 ## Detection Records
 
@@ -51,6 +75,14 @@ Use both query values together. A request with only one returns `400 Bad Request
   "observed_dst_ports": [22, 80, 443]
 }
 ```
+
+## Event and API Compatibility
+
+Before 1.0, a minor release can change API and event contracts.
+Patch releases preserve existing endpoint behavior and field meanings.
+Releases can add optional fields and endpoints.
+Clients must ignore unknown JSON fields.
+Document breaking changes in the changelog with a migration note.
 
 ## Examples
 
