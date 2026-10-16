@@ -36,7 +36,7 @@ This checklist is for project releases and OpenWrt package refreshes.
    make release-check
    ```
 
-   This runs Go tests, vet, whitespace checks, OpenWrt package metadata checks,
+   This runs Go tests, vet, whitespace checks, package helper safety checks,
    and representative OpenWrt target builds.
 
 5. When runtime credentials are available, run the OpenWrt smoke test against a
@@ -125,6 +125,11 @@ This checklist is for project releases and OpenWrt package refreshes.
    skips feed setup when the packages feed is already installed, and defaults
    package builds to `-j$(nproc)`. Override with `OPENWRT_MAKE_JOBS` or
    `OPENWRT_MAKE_FLAGS` when a runner needs a lower or fixed concurrency level.
+
+   The workflow cache keys the SDK tree by runner platform, target, SDK checksum,
+   packages-feed commit, build helpers, and package recipe.
+   It restores only an exact key. A changed key requires one cold build per target.
+   Successful package compilation saves the cache before artifact publication.
 
 5. Install the resulting package on an OpenWrt test target.
 6. Run:

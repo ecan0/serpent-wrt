@@ -8,6 +8,10 @@ The project uses semantic versions for tagged releases.
 
 ### Changed
 
+- CI Gate now rejects failed change detection and incomplete required jobs.
+- CI validates workflows and shell syntax, runs race and 32-bit tests, and exercises the native CLI.
+- Pull requests use hosted runners. Only trusted `dev` pushes use the repository runner.
+- GitHub Actions use current release SHAs. Go caches and exact-key SDK caches reduce repeated build work.
 - Snapshot mode uses the first conntrack snapshot as a baseline and processes each new tuple once. Netlink fallback sets a fresh baseline.
 - DNAT snapshots retain the original and translated destination tuples. Direction classification uses the translated endpoint, and events expose both.
 - Port-scan detectors now emit one alert per threshold episode with the count and sorted distinct ports. Expiry below threshold rearms the next episode.

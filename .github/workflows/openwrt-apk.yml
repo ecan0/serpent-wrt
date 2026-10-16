@@ -18,11 +18,16 @@ on:
   release:
     types: [published]
 
+# Baseline access for every run. The job below adds only the write scopes it
+# needs, and every trigger of this workflow is a trusted manual dispatch or a
+# published release.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+  contents: read
+
+env:
+  # Pinned OpenWrt packages feed commit. Single source of truth shared by the
+  # SDK cache key and the build so the two cannot drift apart.
+  OPENWRT_PACKAGES_REF: 84f4958aff37296fc77a03b4592ee65ba8b9e7c2
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,6 +38,11 @@ jobs:
     name: Build APK (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write # attach packages to an existing GitHub Release
+      id-token: write # OIDC signing for actions/attest
+      attestations: write # publish package provenance and SBOM attestations
+      artifact-metadata: write # record artifact metadata for attestations
     strategy:
       fail-fast: false
       matrix:
@@ -54,31 +64,32 @@ jobs:
             sdk_sha256: ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || inputs.ref || github.ref }}
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.ref }}
           path: workflow-tools
           sparse-checkout: |
             scripts/build-openwrt-apk.sh
             scripts/openwrt-package-check.sh
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Restore OpenWrt SDK cache
-        uses: actions/cache@v6
+        id: sdk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
-          key: openwrt-apk-${{ runner.os }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-v2
+          # Reuse only the exact SDK, feed, helper, and package-recipe key.
+          key: openwrt-apk-${{ runner.os }}-${{ runner.arch }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-${{ env.OPENWRT_PACKAGES_REF }}-${{ hashFiles('workflow-tools/scripts/build-openwrt-apk.sh', 'workflow-tools/scripts/openwrt-package-check.sh', 'openwrt/serpent-wrt/Makefile') }}
 
       - name: Install SDK build dependencies
         run: |
@@ -188,8 +199,15 @@ jobs:
           OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
           OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}
           OPENWRT_FEEDS_UPDATE: "1"
-          OPENWRT_PACKAGES_REF: 84f4958aff37296fc77a03b4592ee65ba8b9e7c2
         run: sh scripts/build-openwrt-apk.sh
+
+      - name: Save OpenWrt SDK cache
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+
       - name: Generate CycloneDX SBOM
         env:
           CGO_ENABLED: "0"
@@ -210,18 +228,18 @@ jobs:
           sha256sum serpent-wrt-*.apk serpent-wrt-*.cdx.json > "SHA256SUMS-${{ matrix.slug }}"
 
       - name: Attest package provenance
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
 
       - name: Attest package SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
           sbom-path: artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json
 
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: serpent-wrt-apk-${{ matrix.slug }}
           path: artifacts/openwrt-apk/${{ matrix.slug }}/*
