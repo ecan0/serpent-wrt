@@ -6,7 +6,7 @@ no packet capture, no DPI, no database, and no heavy runtime dependencies.
 ## Current Status
 
 The current MVP release candidate is not released.
-The planned candidate version is `0.5.0-rc.1`.
+The candidate version for this stage is `0.5.0-rc.1`.
 Its APK package version is `0.5.0_pre1-r1`.
 An earlier correctness candidate passed a 19-case IPv4 E2E gate on an
 OpenWrt x86/generic test target.
@@ -14,8 +14,8 @@ Recovery and live-state checks also passed for that candidate.
 
 That result does not cover the later operator changes.
 It also does not cover ARM runtime behavior, IPv6 E2E, or packet drops.
-The operator changes still require the current CI gate, an OpenWrt smoke test,
-and the final candidate gate.
+The operator changes passed `CI Gate` and merged into `dev` through [PR 85](https://github.com/ecan0/serpent-wrt/pull/85).
+Each release candidate still requires the package checks and final gate below.
 
 ## Released
 
@@ -145,12 +145,11 @@ The release candidate must meet all criteria below:
 9. Stop before a tag or GitHub Release. Publication requires separate approval.
 
 Any candidate content change invalidates the package and runtime evidence.
-Start the candidate gate again with new hashes after such a change.
+Get new live-run authority before another candidate gate.
 
-## Remaining MVP Work
+## MVP Verification Sequence
 
-1. Complete the operator semantics for effective log levels and collector poll
-   status.
+1. Require the current CI gate for operator semantics.
 2. Verify the APK install, upgrade, reload, and rollback workflow.
 3. Validate the immutable release candidate and preserve its evidence.
 4. Use the normal release PR from `dev` into `main`.
