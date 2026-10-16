@@ -46,6 +46,7 @@ Runtime changes also require native and cross-builds, CLI smoke checks, race tes
 32-bit x86 tests, vet, lint, and vulnerability checks.
 Documentation-only changes skip the runtime jobs, not workflow validation.
 Failed, canceled, or missing required jobs fail the gate.
+Workflow shell steps use Bash with fail-fast pipeline handling.
 
 Go jobs cache modules and compiled packages through `setup-go`.
 Actions use full commit SHA pins with release comments.

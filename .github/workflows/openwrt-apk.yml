@@ -24,6 +24,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 env:
   # Pinned OpenWrt packages feed commit. Single source of truth shared by the
   # SDK cache key and the build so the two cannot drift apart.
