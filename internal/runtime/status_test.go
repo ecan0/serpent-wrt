@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/ecan0/serpent-wrt/internal/collector"
 	"github.com/ecan0/serpent-wrt/internal/config"
 	"github.com/ecan0/serpent-wrt/internal/enforcer"
 	"github.com/ecan0/serpent-wrt/internal/events"
+	"github.com/ecan0/serpent-wrt/internal/flow"
 )
 
 func TestGetStatusInitial(t *testing.T) {
@@ -34,6 +37,12 @@ func TestGetStatusInitial(t *testing.T) {
 	}
 	if s.Collector.FallbackError != "" {
 		t.Errorf("Collector.FallbackError: got %q, want empty", s.Collector.FallbackError)
+	}
+	if s.Collector.LastSuccessfulPoll != nil {
+		t.Errorf("Collector.LastSuccessfulPoll: got %v, want nil", s.Collector.LastSuccessfulPoll)
+	}
+	if s.Collector.LastPollError != "" {
+		t.Errorf("Collector.LastPollError: got %q, want empty", s.Collector.LastPollError)
 	}
 	if s.Enforcement.Enabled {
 		t.Error("Enforcement.Enabled should be false")
@@ -70,13 +79,75 @@ func TestGetStatusInitial(t *testing.T) {
 	}
 }
 
+func TestPollingStatusTracksSuccessAndFailure(t *testing.T) {
+	e := testEngine(t)
+	e.setCollectorState(config.CollectorPolling, errors.New("netlink unavailable"))
+	if e.GetStatus().Collector.NewFlowDetectionReady {
+		t.Fatal("new-flow detection is ready before a baseline")
+	}
+	var lastSuccess *time.Time
+	for _, tc := range []struct {
+		name     string
+		records  []flow.FlowRecord
+		err      error
+		overflow bool
+		ready    bool
+	}{
+		{name: "initial failure", err: errors.New("initial snapshot failed")},
+		{name: "baseline", ready: true},
+		{name: "failure after success", err: errors.New("snapshot failed")},
+		{name: "overflow", records: make([]flow.FlowRecord, collector.MaxSnapshotFlows+1), overflow: true},
+		{name: "failure after overflow", err: errors.New("snapshot failed"), overflow: true},
+		{name: "complete baseline after overflow", ready: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e.collectSnapshot = func() ([]flow.FlowRecord, error) {
+				return tc.records, tc.err
+			}
+			started := time.Now()
+			e.poll()
+			status := e.GetStatus()
+			got := status.Collector
+			if status.Status != "ok" {
+				t.Fatalf("collection state changed liveness: %q", status.Status)
+			}
+			if got.NewFlowDetectionReady != tc.ready || got.SnapshotOverflow != tc.overflow {
+				t.Fatalf("collector readiness: got %+v, want ready=%t overflow=%t", got, tc.ready, tc.overflow)
+			}
+			if got.FallbackError != "netlink unavailable" {
+				t.Fatalf("poll changed netlink fallback diagnostic: %q", got.FallbackError)
+			}
+			if tc.err != nil {
+				if got.LastPollError != tc.err.Error() {
+					t.Fatalf("poll error: got %q, want %q", got.LastPollError, tc.err)
+				}
+				if lastSuccess == nil {
+					if got.LastSuccessfulPoll != nil {
+						t.Fatal("failed initial poll recorded a success")
+					}
+				} else if got.LastSuccessfulPoll == nil || !got.LastSuccessfulPoll.Equal(*lastSuccess) {
+					t.Fatalf("failed poll changed success time: got %v, want %v", got.LastSuccessfulPoll, lastSuccess)
+				}
+			} else {
+				if got.LastPollError != "" {
+					t.Fatalf("successful poll retained error: %q", got.LastPollError)
+				}
+				if got.LastSuccessfulPoll == nil || got.LastSuccessfulPoll.Before(started) || got.LastSuccessfulPoll.After(time.Now()) {
+					t.Fatalf("successful poll timestamp: %v", got.LastSuccessfulPoll)
+				}
+				lastSuccess = got.LastSuccessfulPoll
+			}
+		})
+	}
+}
+
 func TestGetStatusSuppressionRuleCount(t *testing.T) {
 	cfg := testConfig()
 	cfg.SuppressionRules = []config.SuppressionRule{
 		{Detectors: []string{"beacon"}},
 		{SrcAddrs: []string{"192.168.1.50"}},
 	}
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	s := e.GetStatus()
 	if s.Runtime.SuppressionRules != 2 {
@@ -88,7 +159,7 @@ func TestGetStatusLeaseEnrichment(t *testing.T) {
 	cfg := testConfig()
 	cfg.LeaseEnrichment = true
 	cfg.DnsmasqLeasesPath = "/tmp/dhcp.leases"
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	s := e.GetStatus()
 	if !s.Runtime.LeaseEnrichment {
@@ -119,7 +190,7 @@ func TestGetStatusLeaseCacheAfterLookup(t *testing.T) {
 	cfg := testConfig()
 	cfg.LeaseEnrichment = true
 	cfg.DnsmasqLeasesPath = leasePath
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	if _, ok := e.leases.Lookup(net.ParseIP("192.168.1.10")); !ok {
 		t.Fatal("expected lease lookup hit")
@@ -218,7 +289,7 @@ func TestGetStatusBuildInfo(t *testing.T) {
 func TestGetStatusNftSetupFailure(t *testing.T) {
 	cfg := testConfig()
 	cfg.EnforcementEnabled = true
-	e := NewEngine(cfg, events.NewLogger(nil))
+	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	s := e.GetStatus()
 	if s.Enforcement.Nft.SetupState != nftSetupNotAttempted {

@@ -12,7 +12,7 @@ import (
 
 func TestFeedManagementAddRemoveReplace(t *testing.T) {
 	path := writeRuntimeFeed(t, "1.2.3.4\n")
-	e := NewEngine(feedManagementConfig(path), events.NewLogger(nil))
+	e := NewEngine(feedManagementConfig(path), events.NewLogger(nil, events.LevelInfo))
 	if err := e.ReloadFeed(); err != nil {
 		t.Fatalf("initial reload: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestFeedManagementAddRemoveReplace(t *testing.T) {
 
 func TestFeedManagementListAndValidate(t *testing.T) {
 	path := writeRuntimeFeed(t, "# comment\n1.2.3.4\n")
-	e := NewEngine(feedManagementConfig(path), events.NewLogger(nil))
+	e := NewEngine(feedManagementConfig(path), events.NewLogger(nil, events.LevelInfo))
 
 	snap, err := e.ListFeedEntries()
 	if err != nil {

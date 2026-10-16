@@ -67,6 +67,12 @@ failure in `/status`. It then uses snapshot mode until restart.
 - `profile` applies detector defaults. `home` is baseline.
   `homelab` and `quiet` raise thresholds, and `paranoid` lowers them.
 
+- `log_level` sets the minimum event level on stdout and remote syslog.
+  Values are `info`, `warn`, and `error`. The default is `info`.
+  This setting does not filter recent API detections or change enforcement.
+  At `error`, warn-level detections and timed-set events disappear from both log outputs.
+  Use `/status`, `/stats`, and `/detections/recent` for independent runtime checks.
+
 - `lease_enrichment` reads dnsmasq leases and adds hostname/MAC context when available.
 
 - `enforcement_enabled` defaults to `false`.

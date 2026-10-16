@@ -3,6 +3,7 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -120,23 +121,43 @@ func (u *UDPSyslog) send(pri int, msg string) {
 	}
 }
 
-// Logger writes newline-delimited JSON events to stdout and optionally
-// forwards them to a remote syslog target (UDP or TCP).
+// Logger writes newline-delimited JSON events at or above minLevel to stdout
+// and optionally forwards them to a remote syslog target.
 type Logger struct {
-	mu     sync.Mutex
-	enc    *json.Encoder
-	remote *UDPSyslog // nil if not configured
+	mu       sync.Mutex
+	enc      *json.Encoder
+	remote   *UDPSyslog
+	minLevel Level
 }
 
-// NewLogger creates a Logger. Pass a non-nil UDPSyslog to enable
-// remote forwarding; pass nil to log to stdout only.
-func NewLogger(remote *UDPSyslog) *Logger {
-	enc := json.NewEncoder(os.Stdout)
+// NewLogger creates a Logger with the configured minimum event level.
+func NewLogger(remote *UDPSyslog, minLevel Level) *Logger {
+	return newLogger(os.Stdout, remote, minLevel)
+}
+
+func newLogger(output io.Writer, remote *UDPSyslog, minLevel Level) *Logger {
+	enc := json.NewEncoder(output)
 	enc.SetEscapeHTML(false)
-	return &Logger{enc: enc, remote: remote}
+	return &Logger{enc: enc, remote: remote, minLevel: minLevel}
+}
+
+func levelRank(level Level) int {
+	switch level {
+	case LevelInfo:
+		return 0
+	case LevelWarn:
+		return 1
+	case LevelError:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func (l *Logger) Log(e Event) {
+	if levelRank(e.Level) < levelRank(l.minLevel) {
+		return
+	}
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}

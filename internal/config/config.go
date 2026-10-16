@@ -204,8 +204,12 @@ func (c *Config) applyDefaults() error {
 	if len(c.NftSet) > 252 {
 		return fmt.Errorf("nft_set must be 252 bytes or fewer to allow the family suffix")
 	}
+	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
+	}
+	if c.LogLevel != "info" && c.LogLevel != "warn" && c.LogLevel != "error" {
+		return fmt.Errorf("log_level must be info, warn, or error, got %q", c.LogLevel)
 	}
 	if c.APIEnabled && c.APIBind == "" {
 		c.APIBind = "127.0.0.1:8080"
