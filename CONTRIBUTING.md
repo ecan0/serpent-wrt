@@ -34,14 +34,24 @@ For release prep or package metadata changes, run the local release check:
 make release-check
 ```
 
-This runs tests, vet, whitespace checks, the OpenWrt package metadata check, and
+This runs tests, vet, whitespace checks, package helper safety checks, and
 representative OpenWrt target builds.
 
-Trusted branches intentionally run build, test, lint, and vulnerability jobs on
-project-controlled self-hosted runners. Fork pull requests are automatically
-routed to GitHub-hosted runners so untrusted code never executes on project
-infrastructure. Private runner provisioning and isolation remain outside this
-repository.
+All pull requests use GitHub-hosted Ubuntu 24.04 runners, including same-repository PRs.
+Only trusted pushes to `dev` use the repository's self-hosted runner.
+Private runner configuration remains outside this repository.
+
+`CI Gate` requires successful change detection and workflow/shell checks on every run.
+Runtime changes also require native and cross-builds, CLI smoke checks, race tests,
+32-bit x86 tests, vet, lint, and vulnerability checks.
+Documentation-only changes skip the runtime jobs, not workflow validation.
+Failed, canceled, or missing required jobs fail the gate.
+Workflow shell steps use Bash with fail-fast pipeline handling.
+
+Go jobs cache modules and compiled packages through `setup-go`.
+Actions use full commit SHA pins with release comments.
+Dependabot targets `dev` for weekly action updates after its configuration reaches the default branch.
+The APK workflow remains separate from the PR gate because SDK builds take longer.
 Do not copy hostnames, credentials, tokens, or private network details into public files.
 
 ## Cross-compiling for OpenWrt

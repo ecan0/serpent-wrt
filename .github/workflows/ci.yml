@@ -9,14 +9,21 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  GOFLAGS: -mod=readonly
+
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       code_changed: ${{ steps.filter.outputs.code_changed }}
@@ -26,55 +33,80 @@ jobs:
         name: Select code execution runner
         env:
           EVENT_NAME: ${{ github.event_name }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
-            label=ubuntu-latest
-          else
-            label=self-hosted
-          fi
-
-          echo "Fork PR code runner: $label"
-          echo "label=$label" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - id: filter
-        name: Check changed paths
+          REF: ${{ github.ref }}
         shell: bash
         run: |
           set -euo pipefail
+          label=ubuntu-24.04
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF" = "refs/heads/dev" ]; then
+            label=self-hosted
+          fi
+          echo "Code runner: $label"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: filter
+        name: Check changed paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base=$(git merge-base "$PR_BASE" "$PR_HEAD")
+            head=$PR_HEAD
           else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
+            base=$PUSH_BASE
+            head=$PUSH_HEAD
             if [ "$base" = "0000000000000000000000000000000000000000" ]; then
-              base="$(git rev-parse "$head^" 2>/dev/null || true)"
+              base=$(git rev-parse "$head^" 2>/dev/null || true)
             fi
           fi
-
-          if [ -n "${base:-}" ]; then
-            changed="$(git diff --name-only "$base" "$head")"
+          if [ -n "$base" ]; then
+            changed=$(git diff --name-only "$base" "$head")
           else
-            changed="$(git ls-tree -r --name-only "$head")"
+            changed=$(git ls-tree -r --name-only "$head")
           fi
-
-          echo "$changed"
-
+          printf '%s\n' "$changed"
           code_changed=false
-          if printf '%s\n' "$changed" | grep -Eq '^(\.github/workflows/|cmd/|internal/|configs/|contrib/|openwrt/|scripts/|testdata/|go\.mod$|go\.sum$|Makefile$)'; then
+          if printf '%s\n' "$changed" | grep -Eq '^(\.github/(workflows/|actions/)|\.golangci\.ya?ml$|cmd/|internal/|configs/|contrib/|openwrt/|scripts/|testdata/|go\.mod$|go\.sum$|Makefile$)'; then
             code_changed=true
           fi
-
           echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
-          echo "code_changed=$code_changed"
+
+  quality:
+    name: Workflow and shell checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate workflow syntax and embedded shell
+        run: |
+          shellcheck --version
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          actionlint -color
+
+      - name: Check shell syntax
+        run: |
+          for script in scripts/*.sh contrib/init.d/serpent-wrt openwrt/serpent-wrt/files/serpent-wrt.init; do
+            sh -n "$script"
+          done
 
   build:
     name: Build
@@ -82,19 +114,30 @@ jobs:
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
+    env:
+      CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
-      - name: Build (native)
+      - name: Build native CLI
         run: make build
 
-      - name: Check version output
-        run: bin/serpent-wrt -version
+      - name: Exercise CLI without a router
+        run: |
+          bin/serpent-wrt -version
+          config=$(mktemp)
+          trap 'rm -f "$config"' EXIT
+          printf 'threat_feed_path: testdata/threat-feed.txt\nenforcement_enabled: false\n' > "$config"
+          bin/serpent-wrt --config "$config" configtest --effective --format json |
+            jq -e '.status == "ok" and .effective_config.enforcement_enabled == false'
+          bin/serpent-wrt --config "$config" feed validate
 
       - name: Build OpenWrt router targets
         run: make build-openwrt-targets
@@ -102,19 +145,34 @@ jobs:
   test:
     name: Test
     runs-on: ${{ needs.changes.outputs.runner_label }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
-      - name: Test
-        run: go test ./...
+      - name: Verify module checksums and dependency declarations
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Test with race detection
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./...
+
+      - name: Test 32-bit x86 behavior
+        env:
+          GOARCH: "386"
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./...
 
       - name: Vet
         run: go vet ./...
@@ -126,19 +184,21 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
       - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+        run: test -z "$(gofmt -l cmd internal)"
 
-      - uses: golangci/golangci-lint-action@v9
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.12.2
+          version: v2.14.0
 
   scan:
     name: Scan
@@ -147,12 +207,14 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code_changed == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
@@ -162,40 +224,26 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [changes, build, test, lint, scan]
+    needs: [changes, quality, build, test, lint, scan]
     if: always()
     steps:
-      - name: Summarize CI requirement
+      - name: Require complete CI results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if [ "${{ needs.changes.outputs.code_changed }}" != "true" ]; then
-            echo "No code/runtime paths changed; full CI is not required."
+          printf '| Job | Result |\n| --- | --- |\n' >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$NEEDS_JSON" >> "$GITHUB_STEP_SUMMARY"
+          jq -e '
+            .changes.result == "success" and .quality.result == "success" and
+            (.changes.outputs.code_changed == "true" or .changes.outputs.code_changed == "false")
+          ' <<< "$NEEDS_JSON" > /dev/null
+          if [ "$(jq -r '.changes.outputs.code_changed' <<< "$NEEDS_JSON")" = "false" ]; then
+            echo "Only non-runtime paths changed. Workflow and shell checks passed."
             exit 0
           fi
-
-          failed=false
-          for result in \
-            "${{ needs.build.result }}" \
-            "${{ needs.test.result }}" \
-            "${{ needs.lint.result }}" \
-            "${{ needs.scan.result }}"
-          do
-            if [ "$result" != "success" ]; then
-              failed=true
-            fi
-          done
-
-          if [ "$failed" = "true" ]; then
-            echo "One or more required CI jobs failed or did not complete successfully."
-            echo "Build: ${{ needs.build.result }}"
-            echo "Test:  ${{ needs.test.result }}"
-            echo "Lint:  ${{ needs.lint.result }}"
-            echo "Scan:  ${{ needs.scan.result }}"
-            exit 1
-          fi
-
-          echo "Required CI jobs passed."
+          jq -e '[.build.result, .test.result, .lint.result, .scan.result] | all(. == "success")' <<< "$NEEDS_JSON" > /dev/null
+          echo "All required CI jobs passed."
