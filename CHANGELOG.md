@@ -4,7 +4,7 @@ This changelog lists notable serpent-wrt changes.
 
 The project uses semantic versions for tagged releases.
 
-## Unreleased
+## v0.5.0 - 2026-10-17
 
 ### Added
 
@@ -15,6 +15,7 @@ The project uses semantic versions for tagged releases.
 
 - OpenWrt service restart rejects invalid configuration before it stops the active process.
 - Device helpers place strict host-key verification before custom SSH and SCP options.
+- Release download references now match the published v0.4.0 assets.
 
 ### Changed
 

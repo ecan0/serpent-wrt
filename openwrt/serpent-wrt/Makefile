@@ -1,17 +1,17 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=serpent-wrt
-PKG_VERSION:=0.4.0
+PKG_VERSION:=0.5.0
 # Tagged release archive source. The release workflow pins the commit and
 # archive hash at build time after checking out the immutable release tag.
-PKG_SOURCE_DATE:=2026-08-01
-PKG_SOURCE_VERSION:=ba9ff5cd6cfdc3c9af214c5bd8a922c511668859
+PKG_SOURCE_DATE:=2026-10-15
+PKG_SOURCE_VERSION:=9d4f49d93fcc4f28ee9aa1da23e904772d6f0d33
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 PKG_SOURCE_URL:=https://codeload.github.com/ecan0/serpent-wrt/tar.gz/v$(PKG_VERSION)?
-PKG_HASH:=aa86d216c5b37dd8b2cd183e510134c151c64776dfa94148f7afcf63b6ed4f43
+PKG_HASH:=b45ea49af295605c358109e89efa9a2a5dfaed2d67ef8c601cc8ea4707eb5611
 
 PKG_MAINTAINER:=ecan0
 PKG_LICENSE:=MIT
