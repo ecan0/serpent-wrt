@@ -15,6 +15,7 @@ The project uses semantic versions for tagged releases.
 
 - OpenWrt service restart rejects invalid configuration before it stops the active process.
 - Device helpers place strict host-key verification before custom SSH and SCP options.
+- The installation guide now uses the published v0.4.0 APK filenames.
 
 ### Changed
 
