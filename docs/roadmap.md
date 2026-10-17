@@ -5,19 +5,25 @@ no packet capture, no DPI, no database, and no heavy runtime dependencies.
 
 ## Current Status
 
-The current MVP release candidate is not released.
-The candidate version for this stage is `0.5.0-rc.1`.
-Its APK package version is `0.5.0_pre1-r1`.
-An earlier correctness candidate passed a 19-case IPv4 E2E gate on an
-OpenWrt x86/generic test target.
-Recovery and live-state checks also passed for that candidate.
+`v0.5.0` is the released stable MVP.
+It adds effective operator log levels and collector poll status.
 
-That result does not cover the later operator changes.
-It also does not cover ARM runtime behavior, IPv6 E2E, or packet drops.
-The operator changes passed `CI Gate` and merged into `dev` through [PR 85](https://github.com/ecan0/serpent-wrt/pull/85).
-Each release candidate still requires the package checks and final gate below.
+A 19-case IPv4 E2E gate passed on an OpenWrt x86/generic test target for the
+`0.5.0-rc.1` build from the same source tree.
+Recovery and live-state checks also passed.
+Package installation, upgrade, feed reload, and rollback passed on the same
+runtime class.
+
+ARM runtime behavior, live IPv6 E2E, and packet drops remain unverified.
 
 ## Released
+
+### v0.5.0
+
+- Operator log levels `info`, `warn`, and `error` filter stdout and remote syslog.
+- `/status` reports collector poll success, error, overflow, and detection readiness.
+- A service restart rejects invalid configuration before it stops the active process.
+- Device helpers keep strict SSH host verification before custom options.
 
 ### v0.1.0
 
