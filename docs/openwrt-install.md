@@ -9,11 +9,11 @@ Do not use the legacy IPK helper for this workflow.
 The `OpenWrt APK Packages` workflow uses official OpenWrt SDKs.
 It attaches target-specific APKs and `SHA256SUMS` files to each GitHub Release.
 
-Current v0.4.0 r4 assets:
+The v0.4.0 release provides these assets:
 
-- `serpent-wrt-0.4.0-r4-x86-64.apk`
-- `serpent-wrt-0.4.0-r4-x86-generic.apk`
-- `serpent-wrt-0.4.0-r4-mediatek-filogic.apk`
+- `serpent-wrt-0.4.0-r1-x86-64.apk`
+- `serpent-wrt-0.4.0-r1-x86-generic.apk`
+- `serpent-wrt-0.4.0-r1-mediatek-filogic.apk`
 - `SHA256SUMS-x86-64`
 - `SHA256SUMS-x86-generic`
 - `SHA256SUMS-mediatek-filogic`
@@ -40,7 +40,7 @@ Download the APK and its target-specific `SHA256SUMS` file.
 Verify the checksum before you transfer the APK.
 
 ```sh
-APK=serpent-wrt-0.4.0-r4-x86-generic.apk
+APK=serpent-wrt-0.4.0-r1-x86-generic.apk
 SUMS=SHA256SUMS-x86-generic
 sha256sum --ignore-missing -c "$SUMS"
 ```

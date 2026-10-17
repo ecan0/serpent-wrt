@@ -127,11 +127,7 @@ The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
 Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file to GitHub Releases.
 GitHub artifact attestations bind each APK to its build and SBOM.
 
-Current release assets:
-
-- `serpent-wrt-0.4.0-r4-x86-64.apk`
-- `serpent-wrt-0.4.0-r4-x86-generic.apk`
-- `serpent-wrt-0.4.0-r4-mediatek-filogic.apk`
+Download target-specific APKs from [GitHub Releases](https://github.com/ecan0/serpent-wrt/releases).
 
 Verify a downloaded APK with
 `gh attestation verify <apk> --repo ecan0/serpent-wrt`.
