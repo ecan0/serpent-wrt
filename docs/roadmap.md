@@ -16,6 +16,11 @@ runtime class.
 
 ARM runtime behavior, live IPv6 E2E, and packet drops remain unverified.
 
+The next phase verifies ARM runtime, adds IPv6 E2E, defines the packet-drop
+policy, expands community packaging, and updates documentation.
+Releases increment through `v0.6.0` to `v1.0.0`.
+`v1.0.0` adds full LuCI app support and is the third-party release.
+
 ## Released
 
 ### v0.5.0
@@ -162,15 +167,26 @@ Get new live-run authority before another candidate gate.
 
 Do not add detectors to complete these items.
 
-## Later Work Outside This Release
+## Next Phase (v0.6.0 to v1.0.0)
 
-- A packet-drop policy with explicit fw4 integration, rollback, and packet-path
-  evidence.
-- Live IPv6 E2E and runtime checks for ARM or other device classes.
-- Broader community package work.
-- DNS query or dnsmasq log correlation beyond read-only lease enrichment.
+These items define the next phase, in priority order:
+
+1. ARM runtime verification on `mediatek/filogic` ARM64 hardware, on real
+   hardware rather than emulation.
+2. Live IPv6 E2E, keeping the IPv4 gate intact.
+3. A packet-drop policy with explicit fw4 integration, rollback, and packet-path
+   evidence. Keep it separate from timed nftables set updates.
+4. Broader community package work for `openwrt/packages`.
+5. Updated architecture and lab diagrams and clearer data-flow documentation.
+
+The `v1.0.0` milestone adds full LuCI app support and is the third-party release.
+Keep LuCI out of earlier `v0.x` releases unless the user moves it earlier.
+
+DNS query or dnsmasq log correlation remains optional later work.
 
 Do not require a router-model matrix or a multi-router performance benchmark.
+Do not interpret this phase as permission to add detectors, a database, packet
+capture, or an automatic remote-feed engine.
 
 ## Not Planned For Near-Term Releases
 
@@ -181,4 +197,3 @@ Do not require a router-model matrix or a multi-router performance benchmark.
 - ML or anomaly scores.
 - A plugin framework.
 - Mandatory eBPF, XDP, or netlink.
-- LuCI expansion.
