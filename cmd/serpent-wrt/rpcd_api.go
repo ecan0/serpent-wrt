@@ -103,7 +103,7 @@ func rpcdAPIRequest(cfg *config.Config, method, route string, request any) (json
 	if err != nil {
 		return nil, fmt.Errorf("loopback API unavailable: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(response.Body, rpcdResponseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read loopback API response: %w", err)

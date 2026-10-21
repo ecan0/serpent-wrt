@@ -81,5 +81,18 @@ fi
 exit "$$status"
 endef
 
+define Package/serpent-wrt/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+# An upgrade can leave the replacement package's include installed.
+[ -e /usr/share/serpent-wrt/fw4-reload ] && exit 0
+if [ "$$(uci -q get firewall.serpent_wrt)" = include ] && \
+   [ "$$(uci -q get firewall.serpent_wrt.path)" = /usr/share/serpent-wrt/fw4-reload ]; then
+	uci -q delete firewall.serpent_wrt || exit 1
+	uci commit firewall || exit 1
+fi
+exit 0
+endef
+
 $(eval $(call GoBinPackage,serpent-wrt))
 $(eval $(call BuildPackage,serpent-wrt))

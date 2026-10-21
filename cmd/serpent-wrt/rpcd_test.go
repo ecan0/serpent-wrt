@@ -99,16 +99,6 @@ func withRPCDTestState(t *testing.T, directory string, enabled, running bool) {
 	})
 }
 
-func rpcdInput(method string, params any, configPath string) (int, string, string) {
-	var input []byte
-	if params != nil {
-		input, _ = json.Marshal(params)
-	}
-	var stdout, stderr bytes.Buffer
-	code := runRPCD([]string{"call", method}, bytes.NewReader(input), &stdout, &stderr, configPath)
-	return code, stdout.String(), stderr.String()
-}
-
 func TestRPCDConfigGetIgnoresSessionMetadataAndRejectsOtherFields(t *testing.T) {
 	dir := t.TempDir()
 	path := rpcdTestConfig(t, dir, filepath.Join(dir, "feed.txt"), "", false)

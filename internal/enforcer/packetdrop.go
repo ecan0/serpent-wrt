@@ -362,7 +362,7 @@ func acquireFirewallLock() (func(), error) {
 		return nil, fmt.Errorf("open firewall lock %s: %w", path, err)
 	}
 	closeOnError := func(err error) (func(), error) {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 	info, err := f.Stat()
@@ -396,7 +396,7 @@ func readPacketDropIdentity() (packetDropIdentity, bool, error) {
 	if err != nil {
 		return packetDropIdentity{}, false, fmt.Errorf("open packet drop state %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil {
 		return packetDropIdentity{}, false, fmt.Errorf("inspect packet drop state %s: %w", path, err)
@@ -448,17 +448,17 @@ func writePacketDropIdentity(identity packetDropIdentity) error {
 		return fmt.Errorf("create packet drop state: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	if err := tmp.Chmod(0600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("secure packet drop state: %w", err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write packet drop state: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("sync packet drop state: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

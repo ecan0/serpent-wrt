@@ -60,7 +60,7 @@ defaults:
     shell: bash
 
 env:
-  OPENWRT_PACKAGES_REF: 84f4958aff37296fc77a03b4592ee65ba8b9e7c2
+  OPENWRT_PACKAGES_REF: 65493e273e4b9cd7014236b69fd6fdc617b88436
   # Signing only uses the host apk from a freshly verified archive.  It never
   # restores a build-job SDK cache.  This is the x86/generic pin that has
   # actual release evidence; all three pins stay in the build matrix.
@@ -455,10 +455,10 @@ jobs:
         run: |
           set -euo pipefail
           sdk=$(find "$SDK_WORK" -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)
-          [ -n "$sdk" ] && [ -x "$sdk/staging_dir/host/bin/apk" ] || {
+          if [ -z "$sdk" ] || [ ! -x "$sdk/staging_dir/host/bin/apk" ]; then
             echo "cannot find the extracted SDK host apk under $SDK_WORK" >&2
             exit 1
-          }
+          fi
           python3 workflow-tools/scripts/apk-repository.py build-manifest \
             --sdk "$sdk" \
             --package-dir "inputs/${{ matrix.slug }}" \

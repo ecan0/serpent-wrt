@@ -8,7 +8,7 @@
 <br>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
-[![Go 1.26.9](https://img.shields.io/badge/go-1.26.9-blue.svg)](https://go.dev/)
+[![Go 1.26.10](https://img.shields.io/badge/go-1.26.10-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt APK](https://img.shields.io/badge/OpenWrt-APK%20packages-blueviolet.svg)](openwrt/serpent-wrt)
 

@@ -53,7 +53,7 @@ func rpcdValidateYAMLFile(configPath string, data []byte) (rpcdValidation, error
 		return rpcdValidation{}, fmt.Errorf("create validation file: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return rpcdValidation{}, fmt.Errorf("write validation file: %w", err)
@@ -102,7 +102,7 @@ func rpcdAtomicWrite(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("create configuration transaction: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	if err := tmp.Chmod(mode.Perm()); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("set configuration mode: %w", err)
@@ -145,7 +145,7 @@ func withRPCDAdminLock(fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open management lock: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	lockInfo, err := file.Stat()
 	if err != nil || !lockInfo.Mode().IsRegular() || lockInfo.Mode().Perm()&0o077 != 0 {
 		return errors.New("management lock is unsafe")
@@ -156,7 +156,7 @@ func withRPCDAdminLock(fn func() error) error {
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("lock management operations: %w", err)
 	}
-	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	defer func() { _ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN) }()
 	return fn()
 }
 
