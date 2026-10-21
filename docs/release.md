@@ -53,6 +53,12 @@ Require separate evidence for collection, one approved detection, and API/stdout
 Installation, restart, configuration changes, firewall changes, and controlled traffic require additional authority.
 Keep host identities, contracts, and raw evidence private.
 
+The public APK trust anchor is `contrib/keys/serpent-wrt.pem`.
+Its SHA-256 is `df11c54c10787e04f58b331b29a6950bb87df5e16ab9e8fe6491ec85b2c9de16`.
+The separate Git tag key is `contrib/keys/serpent-wrt-tag-signing.asc`.
+Its fingerprint is `C6B23D17F8051FAEAFD974426A5368C16EA4B975`.
+Keep both private keys outside the repository, build caches, and public artifacts.
+
 ## Repeatable Performance Comparisons
 
 Run the local feed and tracker benchmarks with the repository Go version:

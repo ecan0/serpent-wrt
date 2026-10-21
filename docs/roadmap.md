@@ -14,17 +14,21 @@ Recovery and live-state checks also passed.
 Package installation, upgrade, feed reload, and rollback passed on the same
 runtime class.
 
-ARM runtime behavior, live IPv6 E2E, and packet drops remain unverified.
+A v0.6.0 ARM64 candidate passed collection, one controlled detection, API/stdout delivery, and bounded resource measurements.
+Recovery removed the temporary package and preserved the original firewall configuration.
+Final release artifacts still require their own qualification.
+Live IPv6 E2E and packet drops remain unverified.
 
-The private ARM64 resource command now supports an approved multicore CPU count.
-Its offline checks do not establish ARM runtime support.
+The private ARM64 resource command supports an approved multicore CPU count.
 Household SSH access, installation, and controlled detection each need separate authority.
 The private gate also supports separate schema-2 IPv4 and IPv6 candidate contracts.
 Local IPv6 socket checks do not replace an authorized live IPv6 gate.
 Development code also provides explicit forwarded-source drops, private recovery state, and resource-loss handling.
 Local kernel checks do not establish the required OpenWrt packet-path result.
 The APK workflow can now sign packages and indexes and promote one verified candidate by digest.
-No repository key, Pages deployment, environment, or public release exists yet.
+The APK signing key and protected release environment are configured.
+Public trust anchors are in `contrib/keys`.
+Final candidate publication remains subject to the release gates.
 Target repository install, upgrade, and rollback remain unverified.
 
 ## Third-Party Release Development
