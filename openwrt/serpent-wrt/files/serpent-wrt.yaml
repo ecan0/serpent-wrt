@@ -8,6 +8,12 @@ dnsmasq_leases_path: /tmp/dhcp.leases
 enforcement_enabled: false
 block_duration: 1h
 
+# Optional forwarded-packet drops through the owned serpent_forward chain.
+# Requires enforcement_enabled: true and fw4 without flow offloading. The
+# offender is the detection source address, so an outbound match can isolate
+# the originating LAN host. Detect-only remains the default.
+packet_drop_enabled: false
+
 lan_cidrs:
   - 192.168.1.0/24
 

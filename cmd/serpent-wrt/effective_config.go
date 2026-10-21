@@ -17,6 +17,7 @@ type effectiveConfig struct {
 	LeaseEnrichment    bool                       `yaml:"lease_enrichment" json:"lease_enrichment"`
 	DnsmasqLeasesPath  string                     `yaml:"dnsmasq_leases_path" json:"dnsmasq_leases_path"`
 	EnforcementEnabled bool                       `yaml:"enforcement_enabled" json:"enforcement_enabled"`
+	PacketDropEnabled  bool                       `yaml:"packet_drop_enabled" json:"packet_drop_enabled"`
 	BlockDuration      string                     `yaml:"block_duration" json:"block_duration"`
 	LANCIDRs           []string                   `yaml:"lan_cidrs" json:"lan_cidrs"`
 	SelfIPs            []string                   `yaml:"self_ips" json:"self_ips"`
@@ -107,6 +108,7 @@ func newEffectiveConfig(cfg *config.Config) effectiveConfig {
 		LeaseEnrichment:    cfg.LeaseEnrichment,
 		DnsmasqLeasesPath:  cfg.DnsmasqLeasesPath,
 		EnforcementEnabled: cfg.EnforcementEnabled,
+		PacketDropEnabled:  cfg.PacketDropEnabled,
 		BlockDuration:      formatConfigDuration(cfg.BlockDuration),
 		LANCIDRs:           stringSliceOrEmpty(cfg.LANCIDRs),
 		SelfIPs:            stringSliceOrEmpty(cfg.SelfIPs),

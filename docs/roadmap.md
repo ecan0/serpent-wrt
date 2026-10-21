@@ -16,10 +16,35 @@ runtime class.
 
 ARM runtime behavior, live IPv6 E2E, and packet drops remain unverified.
 
-The next phase verifies ARM runtime, adds IPv6 E2E, defines the packet-drop
-policy, expands community packaging, and updates documentation.
-Releases increment through `v0.6.0` to `v1.0.0`.
-`v1.0.0` adds full LuCI app support and is the third-party release.
+The private ARM64 resource command now supports an approved multicore CPU count.
+Its offline checks do not establish ARM runtime support.
+Household SSH access, installation, and controlled detection each need separate authority.
+The private gate also supports separate schema-2 IPv4 and IPv6 candidate contracts.
+Local IPv6 socket checks do not replace an authorized live IPv6 gate.
+Development code also provides explicit forwarded-source drops, private recovery state, and resource-loss handling.
+Local kernel checks do not establish the required OpenWrt packet-path result.
+The APK workflow can now sign packages and indexes and promote one verified candidate by digest.
+No repository key, Pages deployment, environment, or public release exists yet.
+Target repository install, upgrade, and rollback remain unverified.
+
+## Third-Party Release Development
+
+The next release series remain open for selected feature and performance work.
+They do not define a fixed countdown to v1.0.
+
+| Series | Required outcome |
+| --- | --- |
+| v0.6.x | Real ARM64 baseline and repeatable resource measurements |
+| v0.7.x | Live IPv6 evidence with the IPv4 gate intact |
+| v0.8.x | Optional source-address drops for forwarded packets through fw4 |
+| v0.9.x | Trusted APK distribution, community recipes, and deployment rehearsal |
+| v1.0.0-rc.N | Authenticated management, complete LuCI controls, and candidate qualification |
+| v1.0.0 | Third-party release after explicit publication authority |
+
+Keep LuCI on the v1.0 development line, outside v0.x releases.
+Freeze features only after the owner selects the first v1.0 candidate.
+Use another minor release if development needs it.
+The MVP sections below describe v0.5.0, not a new feature freeze.
 
 ## Released
 

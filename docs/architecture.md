@@ -19,27 +19,84 @@ connection-create events through the available `conntrack` CLI.
 | Router fit | Heavy on small targets | Lightweight and bounded |
 | Enforcement path | Separate integration | Reuses nftables |
 
-## Flow
+## Detection Data Flow
 
 ```mermaid
 flowchart TD
-    A["nf_conntrack table"] --> B["collector"]
+    A["nf_conntrack table"] --> B["collector: snapshot or netlink"]
     B --> C["normalized flow records"]
-    C --> D["direction classifier"]
+    C --> D["direction classifier: LAN, WAN, self"]
     D --> E["outbound detectors"]
     D --> F["inbound detectors"]
+    L["local threat feed"] --> E
+    L --> F
     E --> G["suppression rules"]
     F --> G
     G --> H["dedup window"]
     H --> I["event logger"]
-    H --> J["stats"]
+    H --> J["stats counters"]
     H --> K["recent detections ring"]
-    H --> L["optional nftables enforcer"]
-    I --> M["stdout / procd"]
-    I --> N["remote syslog"]
-    K --> O["localhost API"]
-    L --> P["named nft set"]
+    H --> N["timed-set enforcer"]
+    I --> O["stdout and procd"]
+    I --> P["remote syslog"]
+    K --> Q["loopback API"]
+    N --> R["timed sets: blocked_ips_v4 and _v6"]
+    R --> S["packet-drop policy"]
 ```
+
+The detector, suppression, dedup, and retention stages keep bounded state.
+The feed stage is a local file. Nothing in this path fetches remote data.
+
+## Management And Enforcement Flow
+
+```mermaid
+flowchart TD
+    CFG["serpent-wrt.yaml on disk"] --> LOAD["config.Load and configtest"]
+    LOAD --> DAEMON["serpent-wrt daemon"]
+    LOAD --> CLI["CLI: configtest, nftcheck, feed, firewall"]
+    DAEMON --> PROCD["procd service state"]
+    PROCD --> FW4["fw4 script include"]
+    FW4 --> RECON["firewall reconcile"]
+    CLI --> RECON
+    CLI --> DISABLE["firewall disable"]
+    RECON --> KERNEL["owned nftables table"]
+    DISABLE --> KERNEL
+    LOOP["fixed loopback HTTP routes"] --> DAEMON
+    RPCD["serpent-wrt rpcd command adapter"] --> LOOP
+    RPCD --> TRANSACTION["atomic YAML config transaction"]
+    SESSION["planned LuCI session and scoped rpcd ACL"] -.->|"not installed until PR 8"| RPCD
+```
+
+The rpcd command adapter has fixed methods and no arbitrary command or file arguments.
+Its wrapper and ACL files are staged for the future LuCI package.
+That package and its browser views are not installed by the daemon package.
+Operators can still use the YAML file and service commands.
+
+Timed sets and packet drops are separate outcomes.
+The enforcer writes set elements under timeouts.
+The managed drop policy owns one forward chain that reads those sets.
+An external ruleset flush can remove resources, and the daemon reports their loss.
+
+
+## Module Contracts
+
+| Module | Inputs | Outputs | Visible failure behavior |
+| --- | --- | --- | --- |
+| Collector, snapshot | `/proc/net/nf_conntrack` | Normalized flow records per new tuple | More than 16,384 records sets `snapshot_overflow`; detection pauses until a complete baseline |
+| Collector, netlink | `conntrack -E -e NEW` | New-flow events | Missing tool, permission, or stream end records `fallback_error` and falls back to snapshots |
+| Feed loader | Local feed file | Exact-address and CIDR sets | Invalid entry or unreadable file fails the load and keeps the previous entries |
+| Direction classifier | Flow tuple, `lan_cidrs`, `self_ips` | LAN, WAN, or self | Router-originated flows are excluded from detection |
+| Detectors | Classified flows, profile thresholds | Detection events with reasons | A full state limit stops new distinct values for that tracker |
+| Suppression | Detection, rule list | Kept or dropped detection | A dropped detection is counted and not emitted |
+| Dedup | Kept detection | At most one event per window key | Duplicate signals are suppressed and counted |
+| Event logger | Detection | stdout line, optional syslog event | An unavailable syslog target does not stop stdout logging |
+| Recent ring | Detection | Last 100 records for the API | Older records are overwritten |
+| Loopback API | HTTP on the configured loopback bind | Status, stats, detections, feed operations | A non-loopback bind warns; a disabled API returns no data |
+| Timed-set enforcer | Detection source, block duration | Set element with timeout | Missing `nft` or sets marks nft setup failed and records the error |
+| Packet-drop policy | Configuration, fw4 include, nft state | One owned forward chain | Missing fw4, offloading, shared table, or foreign chain refuses activation and leaves prior rules |
+| Firewall disable | Persisted identity file | Removed owned chain | Fails closed on unreadable or reserved identity and keeps the chain |
+| Service control | procd and configuration | Started or stopped instance | Invalid configuration fails before a restart stops the running daemon |
+
 
 ## Collection Semantics
 
@@ -94,12 +151,28 @@ The configured set name is the base name. The daemon adds `_v4` or `_v6` to each
 `serpent-wrt nftcheck` parses the set definitions even when enforcement is disabled.
 It does not apply a ruleset or prove packet drops.
 
-The daemon does not create a base chain or packet-drop rule.
-An operator-managed firewall policy must use the correct family set.
-`/blocked`, `blocks_applied`, and nft readiness report set management, not packet drops.
-For OpenWrt, a supported fw4 package include is the preferred future integration
-instead of ad hoc runtime rules. Until that integration exists, verify the full
-ruleset and an actual packet-flow test before you claim enforcement works.
+`packet_drop_enabled` adds an explicit, optional policy in development builds.
+It defaults to false and requires timed-set enforcement.
+The selected offender remains the detection source address.
+An outbound feed match can therefore isolate the originating LAN host.
+
+The owned `serpent_forward` chain uses the configured dedicated `inet` table.
+It has a forward hook, priority `-1`, and an accept policy.
+Its two rules match IPv4/IPv6 source addresses in their respective timed sets, then count and drop packets.
+It adds no input or output hooks.
+
+The package registers one fw4 script include at `firewall.serpent_wrt`.
+The script reconciles only when procd reports the daemon active.
+Reconciliation preserves timed elements and their remaining timeouts.
+It refuses offloading, unavailable prerequisites, shared tables, and foreign chain ownership.
+One private lock serializes firewall mutations.
+The private identity lets disable remove only the owned chain after an invalid YAML edit.
+
+`/blocked` and `blocks_applied` describe set management, not packet drops.
+Packet-drop readiness requires the active hook and both rule references.
+After kernel resource loss, the daemon clears stale cached blocks and reports resource recreation.
+It cannot recover lost kernel elements.
+Local kernel checks do not replace the authorized OpenWrt packet-path gate.
 
 ## Detectors
 

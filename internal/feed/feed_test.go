@@ -1,6 +1,7 @@
 package feed_test
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -199,4 +200,60 @@ func writeFeed(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+var benchmarkFeedContainsResult bool
+
+func BenchmarkFeedContains(b *testing.B) {
+	for _, size := range []int{1000, 10000, 20000} {
+		b.Run(fmt.Sprintf("entries_%d", size), func(b *testing.B) {
+			// Each feed has equal IPv4/IPv6 exact and CIDR populations.
+			var content strings.Builder
+			for i := range size / 4 {
+				fmt.Fprintf(&content, "10.%d.%d.1\n", i>>8, i&255)
+				fmt.Fprintf(&content, "2001:db8:1::%x\n", i+1)
+				fmt.Fprintf(&content, "172.%d.%d.0/24\n", 16+(i>>8), i&255)
+				fmt.Fprintf(&content, "2001:db8:2:%x::/64\n", i)
+			}
+			path := filepath.Join(b.TempDir(), "feed.txt")
+			if err := os.WriteFile(path, []byte(content.String()), 0o600); err != nil {
+				b.Fatal(err)
+			}
+			f := feed.New()
+			if err := f.Load(path); err != nil {
+				b.Fatal(err)
+			}
+			if f.Len() != size {
+				b.Fatalf("feed entries: got %d, want %d", f.Len(), size)
+			}
+			last := size/4 - 1
+			cases := []struct {
+				name string
+				ip   net.IP
+				want bool
+			}{
+				{"ipv4_exact", net.IPv4(10, byte(last>>8), byte(last&255), 1), true},
+				{"ipv6_exact", net.ParseIP(fmt.Sprintf("2001:db8:1::%x", last+1)), true},
+				{"ipv4_miss", net.ParseIP("192.0.2.1"), false},
+				{"ipv6_miss", net.ParseIP("2001:db8:ffff::1"), false},
+				{"ipv4_cidr", net.IPv4(172, byte(16+(last>>8)), byte(last&255), 42), true},
+				{"ipv6_cidr", net.ParseIP(fmt.Sprintf("2001:db8:2:%x::42", last)), true},
+			}
+			for _, tc := range cases {
+				b.Run(tc.name, func(b *testing.B) {
+					if got := f.Contains(tc.ip); got != tc.want {
+						b.Fatalf("Contains(%s): got %t, want %t", tc.ip, got, tc.want)
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					var result bool
+					for range b.N {
+						result = f.Contains(tc.ip)
+					}
+					b.StopTimer()
+					benchmarkFeedContainsResult = result
+				})
+			}
+		})
+	}
 }

@@ -9,16 +9,16 @@ Do not use the legacy IPK helper for this workflow.
 The `OpenWrt APK Packages` workflow uses official OpenWrt SDKs.
 It attaches target-specific APKs and `SHA256SUMS` files to each GitHub Release.
 
-The v0.4.0 release provides these assets:
+The v0.5.0 release provides these assets:
 
-- `serpent-wrt-0.4.0-r1-x86-64.apk`
-- `serpent-wrt-0.4.0-r1-x86-generic.apk`
-- `serpent-wrt-0.4.0-r1-mediatek-filogic.apk`
+- `serpent-wrt-0.5.0-r1-x86-64.apk`
+- `serpent-wrt-0.5.0-r1-x86-generic.apk`
+- `serpent-wrt-0.5.0-r1-mediatek-filogic.apk`
 - `SHA256SUMS-x86-64`
 - `SHA256SUMS-x86-generic`
 - `SHA256SUMS-mediatek-filogic`
 
-Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.4.0>
+Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.5.0>
 
 Select the APK for the OpenWrt target class.
 An x86/generic target can report an `i686` machine type.
@@ -34,13 +34,17 @@ The binary keeps the requested `package_version`.
 The workflow pins the source archive to that commit.
 It does not attach a branch APK to a release.
 
+The v0.5.0 daemon package does not include the rpcd wrapper, ACL, or LuCI menu.
+The rpcd adapter and ACL files in the development tree are not installed by this recipe.
+Do not claim LuCI management support before the v1.0 package and session ACL checks pass.
+
 ## Verify The Artifact
 
 Download the APK and its target-specific `SHA256SUMS` file.
 Verify the checksum before you transfer the APK.
 
 ```sh
-APK=serpent-wrt-0.4.0-r1-x86-generic.apk
+APK=serpent-wrt-0.5.0-r1-x86-generic.apk
 SUMS=SHA256SUMS-x86-generic
 sha256sum --ignore-missing -c "$SUMS"
 ```
@@ -49,8 +53,37 @@ Release APKs include provenance attestations and an SBOM.
 Follow [the release process](release.md) for those checks.
 A provenance attestation does not prove a reproducible build.
 
-The install command uses `--allow-untrusted` for a local APK.
-Thus, you must verify the checksum and expected release source first.
+## Trusted Repository Installation
+
+The `OpenWrt APK Packages` workflow signs the daemon APK and the repository
+index with one release key.
+Install the published public key and the exact channel index, then use the
+package manager without `--allow-untrusted`:
+
+```sh
+KEY_URL=https://ecan0.github.io/serpent-wrt/serpent-wrt.pem
+INDEX_URL=https://ecan0.github.io/serpent-wrt/apk/25.12/testing/<apk-arch>
+wget -O /etc/apk/keys/serpent-wrt.pem "$KEY_URL"
+printf '%s\n' "$INDEX_URL" > /etc/apk/repositories.d/serpent-wrt.list
+apk update
+apk add --simulate serpent-wrt
+apk add serpent-wrt
+```
+
+Replace `<apk-arch>` with the architecture that `apk adbdump` reports for the
+selected package, not the target slug or `uname -m`.
+Keep the official OpenWrt repositories enabled for dependencies.
+Choose `testing` for a candidate build and `stable` only after explicit
+release authority.
+Do not run a whole-system `apk upgrade`.
+Do not disable TLS verification and do not use a `curl | sh` bootstrap.
+
+A local APK file has no trust relationship with the repository key unless the
+same key signed it.
+For a genuinely local build, verify the checksum and expected source first, and
+use `apk add --allow-untrusted <file>`.
+State that command as local-file installation, not repository trust.
+
 
 ## Verify The SSH Host
 
@@ -67,7 +100,10 @@ ssh-keygen -F openwrt-target -f "$KNOWN_HOSTS"
 Use `StrictHostKeyChecking=yes` for every device command.
 Do not use `StrictHostKeyChecking=no` or an empty known-hosts file.
 
-## Initial Package Installation
+## Local Package File Installation
+
+Use this procedure only for a package file that is not installed from the
+trusted repository, such as an unsigned local build.
 
 Transfer the verified APK with strict host-key checks.
 
@@ -220,13 +256,22 @@ apk -U add conntrack
 
 ## Package Build
 
-The package recipe is in [openwrt/serpent-wrt](../openwrt/serpent-wrt).
+The custom package recipe is in [openwrt/serpent-wrt](../openwrt/serpent-wrt).
 It uses a tagged release archive with a fixed source hash.
 
-Validate the recipe with a local OpenWrt SDK or buildroot:
+Validate the custom release recipe with a local OpenWrt SDK or buildroot:
 
 ```sh
 OPENWRT_SDK=/path/to/openwrt-sdk \
+  OPENWRT_PACKAGE_OVERWRITE=1 \
+  make openwrt-sdk-check
+```
+
+To validate the community recipe, set `OPENWRT_PACKAGE_SRC`:
+
+```sh
+OPENWRT_SDK=/path/to/openwrt-sdk \
+  OPENWRT_PACKAGE_SRC=contrib/openwrt-packages/net/serpent-wrt \
   OPENWRT_PACKAGE_OVERWRITE=1 \
   make openwrt-sdk-check
 ```
@@ -241,5 +286,49 @@ make openwrt-apk
 
 For repeated builds, set `OPENWRT_APK_REUSE_WORK_DIR=1`.
 Set `OPENWRT_APK_WORK_DIR` to a persistent directory outside this repository.
+
+## Source Feeds And Community Preparation
+
+`openwrt/serpent-wrt` is the custom release recipe.
+`contrib/openwrt-packages/net/serpent-wrt` is the community recipe source.
+The community recipe pins the published v0.5.0 archive and its literal hash.
+The upstream `openwrt/packages` repository expects the recipe at `net/serpent-wrt`.
+For a submission, export a patch from the in-repo recipe directory.
+Keep source changes in this repository. Do not maintain a separate recipe clone.
+
+The local preparation checks produced actual APKs from the published v0.5.0 source:
+
+| Recipe layout | SDK class | Go compiler | APK architecture |
+| --- | --- | --- | --- |
+| Custom | Pinned OpenWrt 25.12.5 x86/generic | 1.26.9 | `i386_pentium4` |
+| Upstream | Fresh x86/64 snapshot | 1.27.2 | `x86_64` |
+
+These builds establish recipe layout and source/hash checks only.
+They do not qualify current unreleased packet-drop code or target runtime behavior.
+The staging recipe uses package release 2 because its dependency change does not change the v0.5.0 source version.
+Do not publish the new managed-drop lifecycle files as an old daemon version.
+Refresh them from the next completed milestone tag before submission.
+
+The real-name DCO identity and public submission authority remain prerequisites.
+Upstream acceptance does not block the third-party release.
+Do not promise inclusion in an existing OpenWrt stable feed.
+
+## Legacy GL.iNet Firmware With opkg
+
+Use the compatibility IPK only on `aarch64_cortex-a53` firmware with `opkg`.
+It installs the daemon, init script, configuration, and feed.
+It does not install the managed fw4 include or LuCI files.
+Keep packet drops disabled on this package.
+The helper requires GNU tar and writes root-owned gzip/tar IPK containers.
+
+```sh
+VERSION=0.6.0-rc.1 sh scripts/package-glinet.sh
+```
+
+For a qualified SDK executable, set `OPENWRT_BINARY` to its absolute path.
+The helper copies those exact executable bytes instead of another Go build.
+Set `OPENWRT_IPK_OUT_DIR` to select the output directory.
+Record both the executable and IPK SHA-256 values.
+This compatibility check does not establish APK installation on older firmware.
 
 Operational runbooks: [openwrt-runbooks.md](openwrt-runbooks.md).

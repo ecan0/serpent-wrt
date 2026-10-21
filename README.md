@@ -8,7 +8,7 @@
 <br>
 
 [![CI](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/ecan0/serpent-wrt/actions/workflows/ci.yml)
-[![Go 1.26.9](https://img.shields.io/badge/go-1.26.9-blue.svg)](https://go.dev/)
+[![Go 1.26.10](https://img.shields.io/badge/go-1.26.10-blue.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![OpenWrt APK](https://img.shields.io/badge/OpenWrt-APK%20packages-blueviolet.svg)](openwrt/serpent-wrt)
 
@@ -124,15 +124,23 @@ enrichment from dnsmasq leases.
 
 The `OpenWrt APK Packages` workflow builds release APKs from official OpenWrt
 25.12 SDKs.
+It signs each APK and repository index with one published release key.
 Each target publishes an APK, CycloneDX SBOM, and `SHA256SUMS` file to GitHub Releases.
 GitHub artifact attestations bind each APK to its build and SBOM.
 
 Download target-specific APKs from [GitHub Releases](https://github.com/ecan0/serpent-wrt/releases).
+Install from the trusted APK repository with the published
+`serpent-wrt.pem` key, not from an untrusted local file.
 
 Verify a downloaded APK with
 `gh attestation verify <apk> --repo ecan0/serpent-wrt`.
 
 Install and package details: [OpenWrt install](docs/openwrt-install.md).
+
+The custom source-feed recipe remains in `openwrt/serpent-wrt`.
+Community preparation uses a separate `openwrt/packages` checkout.
+Source feeds are build recipes, not binary repositories.
+Upstream acceptance is not a third-party release prerequisite.
 
 ## Configuration And Operation
 
@@ -156,6 +164,18 @@ serpent-wrt feed validate
 serpent-wrt feed add 198.51.100.1
 serpent-wrt feed remove 198.51.100.1
 ```
+
+Development builds include a fixed rpcd executable-plugin adapter:
+
+```sh
+serpent-wrt rpcd list
+echo '{"offset":0,"limit":100}' | serpent-wrt rpcd call feed_list
+```
+
+The adapter accepts only fixed methods and reads arguments from stdin.
+It uses loopback HTTP routes only when the installed config enables the API.
+Its wrapper and ACL source are staged for the LuCI package.
+The daemon APK does not install them, and the LuCI pages are not implemented yet.
 
 Reference docs:
 
@@ -183,13 +203,16 @@ Wazuh decoder and rules live in [contrib/wazuh](contrib/wazuh).
 
 - Timed-set updates are disabled unless `enforcement_enabled: true`.
 - `serpent-wrt` validates the IPv4 and IPv6 set batch with `nft --check` before it applies the batch.
-- The daemon creates and populates separate `_v4` and `_v6` sets. It does not install a packet-drop rule. A separately managed firewall rule must use each set for its address family.
+- Timed-set mode creates separate `_v4` and `_v6` sets without a drop rule.
+- Development builds add optional `packet_drop_enabled: true` for forwarded source-address drops through fw4. It requires timed-set enforcement and disabled flow offloading.
+- An outbound detection can isolate the originating LAN host. The managed policy adds no input or output hooks.
+- The managed-drop release gate still requires authorized OpenWrt packet-path evidence.
 - `/blocked` and `blocks_applied` report set state, not observed packet drops.
 - Snapshot mode uses its first conntrack snapshot as a baseline and processes each new tuple once. A tuple that remains in the table does not create repeated beacon samples.
 - Netlink consumes `NEW` events. If the stream fails, snapshot mode sets a fresh baseline before it processes new tuples.
 - IPv6 enforcement requires the firewall policy to reference the IPv6 set.
 - `nftcheck` validates the parser definitions even when enforcement is disabled. Parser acceptance does not prove packet drops.
-- OpenWrt firewall reloads can remove custom nftables state. Check `/status`, run `nftcheck`, and verify the firewall rule that uses the sets after each reload.
+- Normal managed reconciliation preserves timed elements. An external ruleset flush can destroy them. Check `/status`, `nftcheck`, and the active rules after reload.
 
 ## Development
 

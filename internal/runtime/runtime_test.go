@@ -413,6 +413,7 @@ func TestLogLevelDoesNotHideRecentDetections(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	cfg.LogLevel = "error"
 	cfg.EnforcementEnabled = true
+	stubEnsureResourcesOK(t)
 	e := NewEngine(cfg, events.NewLogger(nil, events.Level(cfg.LogLevel)))
 	e.handleDetection(&detector.Detection{
 		Type:       "feed_match",
@@ -936,6 +937,7 @@ func TestHandleDetectionCountsBlockFailures(t *testing.T) {
 	cfg := testConfig()
 	cfg.EnforcementEnabled = true
 	cfg.DedupWindow = time.Minute
+	stubEnsureResourcesOK(t)
 	e := NewEngine(cfg, events.NewLogger(nil, events.LevelInfo))
 
 	e.handleDetection(&detector.Detection{

@@ -33,6 +33,7 @@ api_enabled: true
 api_bind: 127.0.0.1:8080
 
 enforcement_enabled: false
+packet_drop_enabled: false
 block_duration: 1h
 nft_table: serpent_wrt
 nft_set: blocked_ips
@@ -78,9 +79,16 @@ failure in `/status`. It then uses snapshot mode until restart.
 - `enforcement_enabled` defaults to `false`.
   When true, the daemon populates the configured family-specific nftables set.
 
+- `packet_drop_enabled` defaults to `false` in development builds.
+  It requires `enforcement_enabled: true`, fw4, the owned reload include, and disabled software/hardware flow offloading.
+  It adds source-address drops for forwarded packets only.
+  An outbound detection can isolate its originating LAN host.
+  The OpenWrt packet-path release gate remains open.
+
 - `nft_table` and `nft_set` identify the table and set-name prefix.
   The daemon appends `_v4` and `_v6` to the set prefix.
-  Firewall policy must use the correct set before an entry affects traffic.
+  External policy must reference the correct family set unless the explicit managed-drop policy supplies those rules.
+  Managed drops refuse reserved/shared tables, including `fw4`.
 
 - `dedup_window` suppresses repeated signals without detector-owned episode state.
 

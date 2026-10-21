@@ -12,6 +12,55 @@ use an SSH tunnel for remote administration. A non-loopback bind generates a
 configuration warning but remains operator-controlled. Do not expose it to a
 LAN or WAN: feed endpoints can modify the active threat feed.
 
+## rpcd Management Adapter (Development)
+
+The daemon source includes a fixed `serpent-wrt rpcd list` and
+`serpent-wrt rpcd call <method>` executable-plugin interface.
+rpcd passes call parameters as one JSON object on stdin.
+rpcd adds the top-level `ubus_rpc_session` field to authenticated calls.
+The adapter removes this transport field before it decodes method parameters.
+It rejects other unknown fields.
+The adapter accepts fixed method names and does not accept command paths,
+shell text, arbitrary URLs, or generic file access.
+
+Its methods provide overview, configuration revision and validation, guarded
+configuration apply, service controls, paged feed listing, feed validation and
+mutation, and reload.
+Configuration stays in YAML.
+The API origin comes only from the installed config and must be a literal
+loopback address.
+HTTP redirects and proxy environment variables are disabled.
+
+The fixed `/usr/libexec/rpcd/serpent` wrapper and `luci-app-serpent` ACL source
+are staged for the LuCI package.
+That package and its menu are not installed yet.
+The daemon package does not install or expose this adapter to web sessions.
+Do not use a browser UI claim until PR8 and the real LuCI session ACL checks pass.
+
+| rpcd method | Parameters | ACL access |
+| --- | --- | --- |
+| `overview` | none | read |
+| `config_get` | none | read |
+| `config_validate` | `document` JSON object string | read |
+| `config_apply` | `document`, `revision` strings | write |
+| `service` | `action` string | write |
+| `feed_list` | `offset`, `limit` integers | read |
+| `feed_validate` | `document` entries-array string | read |
+| `feed_add`, `feed_remove` | `entry` string | write |
+| `feed_replace` | `document` entries-array string | write |
+| `feed_reload` | none | write |
+
+`feed_list` defaults to offset 0 and limit 100.
+Its limit is 1 through 100, and its result returns `next_offset: null` at the end.
+The adapter limits requests to 1 MiB, configuration documents to 256 KiB, and feed changes to 20,000 entries.
+It uses a revision hash, one administration lock, a temporary configuration file, and atomic replacement.
+If apply fails, it restores the prior bytes and restarts the prior running service once.
+It returns a rollback failure as an explicit error.
+For a stopped service, feed edits use the existing file helpers.
+For a running service, feed edits use the existing loopback routes.
+If the running API is disabled or unavailable, feed writes fail instead of changing only the file.
+The adapter reports API sources as unavailable when it cannot read them.
+
 Only the methods listed below are accepted. Other methods return `405 Method Not Allowed`.
 JSON mutation requests must contain exactly one object and remain at or below 1 MiB.
 
@@ -55,6 +104,22 @@ Poll timestamps use RFC 3339 format with fractional seconds and a timezone offse
 `log_level` filters stdout and syslog only.
 At `error`, warn-level detections and timed-set events disappear from both outputs.
 Recent API detections, counters, suppression, and response behavior remain independent of that filter.
+
+## Enforcement Status
+
+Development builds add these fields under `/status.enforcement`:
+
+| Field | Meaning |
+| --- | --- |
+| `packet_drop_enabled` | The explicit configuration flag for forwarded source-address drops |
+| `packet_drop_state` | `disabled`, `ready`, or `failed`, from the configuration and active kernel policy |
+| `packet_drop_error` | The prerequisite, ownership, active-rule, or residual-chain error |
+
+`ready` requires valid prerequisites, the forward hook, and both family-set rule references.
+A disabled configuration does not hide an owned chain that remains present after failed cleanup.
+The same fields appear at the top level of `nftcheck --format json`.
+Set-write counters and `/blocked` do not measure packet drops.
+Use receiver observations and drop-rule counters for packet-path evidence.
 
 ## Detection Records
 

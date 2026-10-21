@@ -45,9 +45,12 @@ type CollectorStatus struct {
 
 // EnforcementStatus summarizes enforcement and nft setup state.
 type EnforcementStatus struct {
-	Enabled       bool      `json:"enabled"`
-	BlockDuration string    `json:"block_duration"`
-	Nft           NftStatus `json:"nft"`
+	Enabled           bool      `json:"enabled"`
+	PacketDropEnabled bool      `json:"packet_drop_enabled"`
+	PacketDropState   string    `json:"packet_drop_state"`
+	PacketDropError   string    `json:"packet_drop_error"`
+	BlockDuration     string    `json:"block_duration"`
+	Nft               NftStatus `json:"nft"`
 }
 
 // NftStatus describes cheap nft CLI availability and setup state.
@@ -172,6 +175,8 @@ func (e *Engine) GetStatus() Status {
 	build := e.buildInfo
 	e.buildMu.Unlock()
 
+	packetDrop := e.enf.CheckPacketDrop(e.cfg.PacketDropEnabled)
+
 	return Status{
 		Status:        "ok",
 		StartedAt:     e.startedAt,
@@ -190,9 +195,12 @@ func (e *Engine) GetStatus() Status {
 			NewFlowDetectionReady: newFlowDetectionReady,
 		},
 		Enforcement: EnforcementStatus{
-			Enabled:       e.cfg.EnforcementEnabled,
-			BlockDuration: e.cfg.BlockDuration.String(),
-			Nft:           e.nftStatus(nftState, nftErr),
+			Enabled:           e.cfg.EnforcementEnabled,
+			PacketDropEnabled: packetDrop.Enabled,
+			PacketDropState:   packetDrop.State,
+			PacketDropError:   packetDrop.Error,
+			BlockDuration:     e.cfg.BlockDuration.String(),
+			Nft:               e.nftStatus(nftState, nftErr),
 		},
 		Runtime: RuntimeStatus{
 			Version:           build.Version,

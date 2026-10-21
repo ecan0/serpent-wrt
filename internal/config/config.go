@@ -27,6 +27,7 @@ type Config struct {
 	LeaseEnrichment    bool              `yaml:"lease_enrichment"`
 	DnsmasqLeasesPath  string            `yaml:"dnsmasq_leases_path"`
 	EnforcementEnabled bool              `yaml:"enforcement_enabled"`
+	PacketDropEnabled  bool              `yaml:"packet_drop_enabled"`
 	BlockDuration      time.Duration     `yaml:"block_duration"`
 	LANCIDRs           []string          `yaml:"lan_cidrs"`
 	SelfIPs            []string          `yaml:"self_ips"` // router's own IPs — excluded from detection
@@ -204,6 +205,14 @@ func (c *Config) applyDefaults() error {
 	if len(c.NftSet) > 252 {
 		return fmt.Errorf("nft_set must be 252 bytes or fewer to allow the family suffix")
 	}
+	if c.PacketDropEnabled {
+		if !c.EnforcementEnabled {
+			return fmt.Errorf("packet_drop_enabled requires enforcement_enabled: true")
+		}
+		if reservedNftTable(c.NftTable) {
+			return fmt.Errorf("nft_table %q is reserved or shared; packet_drop_enabled requires a dedicated table", c.NftTable)
+		}
+	}
 	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
@@ -373,6 +382,31 @@ func validateIPAddrOrCIDR(value string) error {
 		return fmt.Errorf("not an IPv4 or IPv6 address")
 	}
 	return nil
+}
+
+// reservedNftTables lists table names owned by the platform firewall or legacy
+// iptables compatibility tables. The managed forwarded-drop policy must never
+// attach its chain or set references to a shared table.
+var reservedNftTables = map[string]struct{}{
+	"arp":      {},
+	"bridge":   {},
+	"broute":   {},
+	"filter":   {},
+	"fw3":      {},
+	"fw4":      {},
+	"inet":     {},
+	"ip":       {},
+	"ip6":      {},
+	"mangle":   {},
+	"nat":      {},
+	"netdev":   {},
+	"raw":      {},
+	"security": {},
+}
+
+func reservedNftTable(name string) bool {
+	_, ok := reservedNftTables[strings.ToLower(name)]
+	return ok
 }
 
 func validateNftIdentifier(field, value string) error {

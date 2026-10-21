@@ -1,0 +1,26 @@
+#!/bin/sh
+# fw4 script include for the owned forwarded-packet drop policy.
+#
+# fw4 reload runs this script after its own ruleset transaction.
+# Reconcile only when procd reports the daemon active.
+# Preserve the dedicated timed sets. Never flush the global ruleset.
+#
+# IPKG_INSTROOT supports image-root builds; it is empty on a device.
+
+ROOT="${IPKG_INSTROOT:-}"
+PROG="$ROOT/usr/sbin/serpent-wrt"
+INIT="$ROOT/etc/init.d/serpent-wrt"
+CONF="$ROOT/etc/serpent-wrt/serpent-wrt.yaml"
+
+[ -x "$INIT" ] || exit 1
+
+# procd is authoritative; do not reconcile merely because a config file exists.
+"$INIT" running >/dev/null 2>&1 || exit 0
+[ -x "$PROG" ] || exit 1
+
+if ! "$PROG" --config "$CONF" firewall reconcile; then
+	echo "serpent-wrt: packet-drop reconcile failed after fw4 reload" >&2
+	exit 1
+fi
+
+exit 0

@@ -4,6 +4,9 @@ PKG_NAME:=serpent-wrt
 PKG_VERSION:=0.5.0
 # Tagged release archive source. The release workflow pins the commit and
 # archive hash at build time after checking out the immutable release tag.
+# These package files do not claim a new release: a recipe that needs newer
+# Go sources must first update this pin and its literal hash from the actual
+# tagged archive. Never substitute an imaginary release or unverified hash.
 PKG_SOURCE_DATE:=2026-10-15
 PKG_SOURCE_VERSION:=9d4f49d93fcc4f28ee9aa1da23e904772d6f0d33
 PKG_RELEASE:=1
@@ -38,13 +41,13 @@ define Package/serpent-wrt
   SUBMENU:=Firewall
   TITLE:=Conntrack threat detection and timed nftables sets
   URL:=https://github.com/ecan0/serpent-wrt
-  DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack
+  DEPENDS:=$(GO_ARCH_DEPENDS) +nftables-json +kmod-nf-conntrack +firewall4
 endef
 
 define Package/serpent-wrt/description
   serpent-wrt monitors conntrack metadata and emits detection events.
   It can add offender addresses to timed nftables sets.
-  External firewall policy determines packet drops.
+  Optional forwarded-packet drops use an owned fw4-managed chain.
 endef
 
 define Package/serpent-wrt/conffiles
@@ -59,6 +62,36 @@ define Package/serpent-wrt/install
 	$(INSTALL_DIR) $(1)/etc/serpent-wrt
 	$(INSTALL_CONF) ./files/serpent-wrt.yaml $(1)/etc/serpent-wrt/serpent-wrt.yaml
 	$(INSTALL_DATA) ./files/threat-feed.txt $(1)/etc/serpent-wrt/threat-feed.txt
+	$(INSTALL_DIR) $(1)/usr/share/serpent-wrt
+	$(INSTALL_BIN) ./files/serpent-wrt.fw4 $(1)/usr/share/serpent-wrt/fw4-reload
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/serpent-wrt.defaults $(1)/etc/uci-defaults/90-serpent-wrt
+endef
+
+define Package/serpent-wrt/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+status=0
+if [ -x /etc/init.d/serpent-wrt ]; then
+	/etc/init.d/serpent-wrt stop || status=1
+fi
+if [ -x /usr/sbin/serpent-wrt ]; then
+	/usr/sbin/serpent-wrt firewall disable || status=1
+fi
+exit "$$status"
+endef
+
+define Package/serpent-wrt/postrm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+# An upgrade can leave the replacement package's include installed.
+[ -e /usr/share/serpent-wrt/fw4-reload ] && exit 0
+if [ "$$(uci -q get firewall.serpent_wrt)" = include ] && \
+   [ "$$(uci -q get firewall.serpent_wrt.path)" = /usr/share/serpent-wrt/fw4-reload ]; then
+	uci -q delete firewall.serpent_wrt || exit 1
+	uci commit firewall || exit 1
+fi
+exit 0
 endef
 
 $(eval $(call GoBinPackage,serpent-wrt))

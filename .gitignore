@@ -65,3 +65,10 @@ main prompt
 
 # local release/prep notes
 local-notes/
+
+# private local evidence and handoff (do not commit)
+evidence/
+docs/next-phase-planning-prompt.md
+
+# Python bytecode cache
+__pycache__/

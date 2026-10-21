@@ -22,6 +22,126 @@ This checklist is for project releases and OpenWrt package refreshes.
   `main` back into `dev` so the release branch does not drift ahead of
   integration. Do not squash that back-sync PR.
 
+## ARM64 Evidence Before v1.0
+
+The private gate provides `scripts/serpent-arm-check.py` for separately authorized household reads.
+Do not use the disposable deployment command for a household router.
+The read-only contract pins one SSH host, executable SHA-256, and positive CPU count.
+The command requires strict host-key checks and an absent or empty evidence directory.
+It records architecture, kernel, firmware, memory, package identity, executable hash, and bounded resource samples.
+
+Use one-second sample intervals and a total time limit of 300 seconds.
+Retain these ceilings unless the owner approves a revised private contract:
+
+| Metric | Ceiling |
+| --- | --- |
+| Daemon RSS | 131072 KiB |
+| CPU, percent of one core | 50 |
+| Open file descriptors | 128 |
+| Complete router conntrack table | 1024 entries |
+| Local evidence | 8388608 bytes |
+| SIEM delivery, in a separately authorized detection case | 30 seconds |
+
+Do not describe RSS as total daemon-and-helper memory.
+Do not describe conntrack as fixture-only traffic.
+Stop on an excess resource value, missing metric, process identity change, CPU-count change, or transport error.
+Do not retry automatically.
+If baseline conntrack exceeds the ceiling, request a revised private contract.
+
+Read-only samples alone do not satisfy ARM runtime acceptance.
+Require separate evidence for collection, one approved detection, and API/stdout or configured syslog delivery.
+Installation, restart, configuration changes, firewall changes, and controlled traffic require additional authority.
+Keep host identities, contracts, and raw evidence private.
+
+## Repeatable Performance Comparisons
+
+Run the local feed and tracker benchmarks with the repository Go version:
+
+```sh
+go test -run '^$' -bench 'Benchmark(FeedContains|TrackerAddParallel)' -benchmem -count=5 ./internal/feed ./internal/state
+```
+
+`BenchmarkFeedContains` uses feeds with 1000, 10000, and 20000 entries.
+Each feed has equal IPv4/IPv6 exact-address and CIDR populations.
+Each size covers exact hits, misses, and CIDR hits for both address families.
+CIDR hits use the last prefix of each family.
+The benchmark creates files and parses addresses outside the timed loop.
+It reports allocations and retains the lookup result.
+
+`BenchmarkTrackerAddParallel` includes its `fmt.Sprintf` allocations.
+Do not describe those allocations as daemon-only cost.
+Local benchmark results do not establish device performance.
+Do not change the matcher or detector limits from benchmark assumptions.
+
+For device comparisons, retain the feed hash, workload, Go version, firmware, sample interval, and duration.
+Use identical values before and after a proposed change.
+Keep ARM, IPv4, and IPv6 results separate.
+Retain the approved resource ceilings.
+An optimization needs a measured problem, unchanged detection results, and a repeated comparison before merge.
+
+## Separate Live IPv6 Evidence
+
+The private gate retains schema version 1 for historical IPv4 contracts.
+Schema version 2 accepts separate IPv4 or IPv6 contracts without an input claim of success.
+Do not rewrite historical approved inputs or evidence.
+
+For IPv6, require three distinct `/64` networks under `2001:db8::/32` on isolated lab links.
+Retain the existing management and SIEM transport addresses.
+Do not add NAT66, a default IPv6 route, or household traffic.
+Validate topology, address families, and allowlists before device access.
+The worker uses IPv6-only sockets and checks each send interval against the explicit isolated route.
+
+Require IPv6 feed IP/CIDR matches, LAN/self classification, suppression, deduplication, and all six detectors.
+Retain existing below-threshold, threshold, expiry/rearm, benign, and invalid-feed semantics.
+Keep the IPv4 DNAT case IPv4-only.
+Compare original/reply tuples and run/case markers across conntrack, API, stdout, and configured SIEM output.
+Compare IPv6 addresses by parsed value.
+Collect separate resource samples.
+
+Local validators and loopback socket checks do not establish live IPv6 acceptance.
+Require reviewed private candidate inputs, an immutable artifact, a recovery snapshot, and separate disposable-lab authority.
+Stop on the first unexpected route, resource excess, missing marker, or recovery failure.
+Do not retry automatically.
+
+## Managed-Drop Candidate Gate
+
+Keep packet drops disabled until a separately authorized disposable OpenWrt run passes the packet-path checks.
+Local namespace checks establish kernel transaction and cache behavior only.
+They do not establish fw4 reload, procd, firmware, or forwarded-packet acceptance.
+
+Require receiver delivery in detect-only mode before activation.
+After an approved detection, require receiver non-delivery and increased drop-rule counters for a new flow from the selected source.
+Require delivery from an unlisted control source and unchanged router-bound management access.
+Cover IPv4, IPv6, timeout expiry, firewall reload, service restart, policy disable, and rollback.
+Check offloading refusal and foreign-chain conflicts without global changes.
+
+Record the exact source, package, firmware, configuration, tuples, destinations, duration, and recovery procedure before authority.
+Do not authorize household drops under the ARM read-only contract.
+Stop on failed activation or recovery.
+Keep the prior rules intact.
+
+The development recipe retains its published source tag and literal archive hash.
+Do not publish its new lifecycle files as an old daemon version.
+After the next milestone tag exists, calculate its actual archive hash.
+Update the feed recipe in a separate commit.
+Build candidate artifacts from the selected source commit through the existing explicit source/version override.
+Do not put an archive's own hash inside that archive.
+
+## Authenticated Management Development
+
+The daemon source now implements the fixed rpcd executable-plugin command.
+It validates configuration, compares revision tokens, writes the YAML file atomically, and restores prior bytes after a failed apply.
+It restarts only a previously running service.
+The RPC feed methods page list results and use fixed loopback API routes for a running daemon.
+They use local feed-file helpers when the daemon is stopped.
+
+The fixed rpcd wrapper and method-scoped ACL source are in
+`openwrt/luci-app-serpent/root`.
+They are not installed by the daemon recipe.
+The LuCI package, menu, and browser views are not implemented yet.
+Do not claim browser management access until PR8 installs the wrapper and ACL and G passes on an authorized LuCI target.
+Do not increase rpcd's global input limit.
+
 ## MVP Candidate Gate
 
 This gate validates one immutable candidate from green `dev`.
@@ -59,45 +179,55 @@ APK is the canonical package format for this gate.
 The MVP candidate version is `0.5.0-rc.1`.
 The APK package version is `0.5.0_pre1-r1`.
 
-Dispatch `OpenWrt APK Packages` from `dev`.
+Dispatch `OpenWrt APK Packages` from `dev` or `main`.
 Set `ref` to the full candidate commit.
-Leave `release_tag` empty:
+Use build mode:
 
 ```sh
 source_commit=<full-dev-commit>
 candidate_version=0.5.0-rc.1
 gh workflow run openwrt-apk.yml --ref dev \
+  -f mode=build \
   -f ref="$source_commit" \
-  -f package_version="$candidate_version"
+  -f package_version="$candidate_version" \
+  -f candidate_channel=testing
 ```
 
 Record the workflow run ID, the workflow ref commit, and the candidate commit.
-The workflow takes its build helpers from the workflow ref.
+The workflow takes its trusted helpers from the workflow ref.
+It records that helper revision separately from the package source.
 It pins the package source to the commit in `ref`.
 
-Set `package_version` explicitly.
-An empty value creates `0.4.0-e2e.<run-number>`, not the candidate version.
+`package_version` is required for build mode.
+There is no default placeholder version.
 The workflow uses pinned OpenWrt 25.12.5 SDKs.
 It creates APKs for x86/64, x86/generic, and mediatek/filogic.
 These package builds do not prove runtime support.
+An incomplete target set fails the candidate.
 
-Download the workflow artifacts without a release tag:
+The build jobs produce unsigned canonical APKs.
+The signing job runs in the protected `serpent-release` environment.
+It signs the APKs and each `packages.adb`, then publishes the public key.
+A missing signing secret fails before any signed candidate exists.
+
+Download the single verified candidate artifact:
 
 ```sh
-gh run download <run-id> --dir candidate-artifacts
+gh run download <run-id> --name serpent-verified-candidate --dir candidate
 ```
 
-For each target, verify the workflow checksum file:
+`candidate.json` records the source commit and tree, helper and workflow
+revisions, SDK and feed pins, package hashes, SBOM hashes, and the signing-key
+fingerprint.
+The per-target `serpent-apk-input-<slug>` artifacts remain unsigned build
+inputs and are not the release path.
 
-```sh
-cd candidate-artifacts/serpent-wrt-apk-x86-generic
-sha256sum -c SHA256SUMS-x86-generic
-```
+Release asset names use the target suffix:
+`serpent-wrt-<apk-version>-r<release>-<slug>.apk`, with a matching
+`serpent-wrt-<slug>.cdx.json` and `SHA256SUMS-<slug>`.
+The build SBOM name stays `serpent-wrt-<slug>.cdx.json`.
 
-Verify each APK provenance attestation.
-The artifact name is `serpent-wrt-<apk-version>-r<release>-<slug>.apk`.
-For this candidate the x86/generic name is
-`serpent-wrt-0.5.0_pre1-r1-x86-generic.apk`:
+Verify each APK provenance attestation:
 
 ```sh
 gh attestation verify serpent-wrt-0.5.0_pre1-r1-x86-generic.apk \
@@ -106,8 +236,8 @@ gh attestation verify serpent-wrt-0.5.0_pre1-r1-x86-generic.apk \
 
 Repeat the command for each target APK.
 Record the APK and CycloneDX SBOM SHA-256 values for all targets.
-The workflow writes the SBOM as `serpent-wrt-<slug>.cdx.json`.
 Do not attach candidate artifacts to a GitHub Release.
+
 
 ### 3. Verify The Package Workflow
 
@@ -128,9 +258,9 @@ Run these package cases:
 8. Roll back to the prior package and config.
 9. Confirm service recovery after rollback.
 
-Transfer each APK to the target and install it with `apk add` from the local
-file path. The candidate APK has no trusted release signature, so the install
-command needs `--allow-untrusted`.
+Transfer each candidate APK to the target and install it from the trusted
+repository, or from the local file with `--allow-untrusted` when the candidate
+was not published to a repository.
 Do not run `apk upgrade` on the target. A mass upgrade changes unrelated
 packages and invalidates the runtime evidence.
 Keep the prior APK file on the target until the case set completes.
@@ -250,6 +380,14 @@ Do not tag or publish a release in this candidate-validation stage.
 
 ## Release Trust Claims
 
+Run the local signing suite against an extracted pinned SDK.
+Without `SERPENT_TEST_SDK` that suite skips, and a skip is not a pass:
+
+```sh
+SERPENT_TEST_SDK=/path/to/openwrt-sdk-25.12.5 \
+  python3 -m unittest discover -s scripts -p 'test_apk_repository.py' -v
+```
+
 The workflow creates a CycloneDX SBOM and `SHA256SUMS` for each target.
 It also creates GitHub provenance and SBOM attestations for each APK.
 The checksum file itself is not a detached signature.
@@ -265,16 +403,21 @@ Those pins define build inputs.
 They do not establish reproducible builds.
 
 Do not claim reproducibility until an independent rebuild produces identical APK and binary hashes from the recorded inputs.
-Do not claim an APK signature trust chain unless release evidence verifies that
-signature and its trusted key.
 
-The workflow has no APK signature step.
-It does not create a release signature for the APK.
-Do not describe an install as signature verification.
-The target install uses `apk add --allow-untrusted` for the local APK, so OpenWrt
-does not check a package signature.
-Trust for this release comes from the recorded APK SHA-256 values, the provenance
-attestation, and the release record.
+The workflow signs each APK and each `packages.adb` with one ECDSA P-256
+release key from the protected `serpent-release` environment.
+It publishes only `serpent-wrt.pem` and that key's SHA-256 fingerprint.
+The private key never enters source control, caches, artifacts, or logs.
+`apk --keys-dir <dir> verify <packages.adb>` must succeed with that public key
+and fail without it.
+That accepted-and-rejected pair is the repository trust evidence.
+
+A package-level `apk verify` result is not a trust gate for these APKs.
+Target install, upgrade, and rollback from the trusted repository remain the
+required lifecycle evidence.
+Use `--allow-untrusted` only for a local file that the repository key did not sign.
+Trust for a local file comes from the recorded APK SHA-256 values and the
+provenance attestation, not from a signature.
 State the SBOM and provenance attestations as build-file evidence only.
 
 ## Publication After Separate Approval
@@ -286,8 +429,25 @@ git tag -s vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Publish the GitHub Release only after tag approval.
-The release trigger builds APKs and attaches each APK, SBOM, and checksum file.
+Publishing the GitHub Release does not build APKs.
+The Release body must select one verified candidate:
+
+```text
+Serpent-Candidate-Run: <numeric workflow run id>
+Serpent-Candidate-Digest: sha256:<64 lowercase hex>
+Serpent-Channel: testing
+```
+
+The publication job downloads that exact `serpent-verified-candidate` artifact
+by digest, requires the release tag to resolve to the candidate source commit,
+and uploads only missing assets.
+An existing asset with different bytes fails the run instead of overwriting it.
+It deploys the complete Pages artifact once.
+
+A manual `mode=promote` dispatch performs the same digest-bound promotion for an
+existing Release.
+Promote a `stable` channel only with explicit release authority and a stable
+index that the candidate already signed.
 Record the published APK hashes and verify their attestations.
 A rebuild can change the bytes.
 If the hashes differ, require new runtime evidence before a release-validation claim.
@@ -365,5 +525,40 @@ Delete temporary release branches after publication completes.
 
 ## Upstream OpenWrt Notes
 
-For an `openwrt/packages` submission, confirm the expected include path for the Go package helper.
-Follow the OpenWrt commit style with `Signed-off-by`.
+Keep the custom release recipe and the community recipe in this repository.
+The custom recipe is in `openwrt/serpent-wrt`.
+The community recipe is in `contrib/openwrt-packages/net/serpent-wrt`.
+It pins the published v0.5.0 archive and its literal source hash.
+The upstream `openwrt/packages` repository expects it at `net/serpent-wrt`.
+Use a temporary export or patch for submission. Keep this repository as the source of truth.
+Keep `luci-app-serpent` in the custom feed for v1.0.
+Any later LuCI submission belongs in `openwrt/luci/applications/luci-app-serpent`, with `../../luci.mk`.
+
+Use a completed milestone tag and the SHA-256 of its actual archive bytes.
+Keep that archive's own hash outside the archive.
+Update the custom recipe in the next feed commit after the tag exists.
+Set package release 1 for a new source version.
+Increment it for package-only changes.
+Preserve `+nftables-json +kmod-nf-conntrack` and the managed-drop dependency `+firewall4`.
+
+The initial upstream commit subject is `serpent-wrt: add package`.
+Require the maintainer's real name and email for matching author and `Signed-off-by`.
+The existing maintainer handle is not a DCO identity.
+Do not create a signed-off commit or public submission without that identity and separate submission authority.
+
+For submission, export the in-repo community recipe to `net/serpent-wrt` in a temporary `openwrt/packages` worktree.
+Require source download/hash validation and actual package creation:
+
+```sh
+./scripts/feeds update packages
+./scripts/feeds install serpent-wrt
+make package/serpent-wrt/download V=s
+make package/serpent-wrt/compile V=s
+```
+
+Use a fresh snapshot SDK for the upstream layout.
+Keep third-party builds on the pinned 25.12 SDKs.
+Record these as separate build results.
+The completed local layout checks use released v0.5.0 sources, not current unreleased firewall changes.
+Do not reuse them as a new candidate's package or runtime evidence.
+Upstream review and acceptance do not block the third-party release.

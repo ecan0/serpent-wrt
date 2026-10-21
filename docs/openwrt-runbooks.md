@@ -83,68 +83,121 @@ Parser acceptance does not prove packet drops.
    - Confirm that lease enrichment reports only current hostnames.
    - Confirm `/stats` shows detections and suppressions that match expectations.
 
-## Timed Set And Firewall Policy Rollout
+## Timed Sets And Optional Forwarded Drops
 
-`enforcement_enabled` controls timed nftables set updates.
-The daemon validates both address-family set definitions before it applies them.
-It does not install a base chain or drop rule. Entries have no traffic effect
-until a separately managed firewall policy uses the correct family set.
+The managed drop path is unreleased development work.
+It still requires the authorized OpenWrt packet-path gate before a release claim.
+Local kernel checks do not establish fw4, router, or household acceptance.
 
-Do not read `blocks_applied`, `/blocked`, or a successful `nftcheck` as proof
-that packets were dropped. Keep console or out-of-band access available when
-you test a firewall policy.
+| Mode | `enforcement_enabled` | `packet_drop_enabled` | Effect |
+| --- | --- | --- | --- |
+| Detect-only | `false` | `false` | No timed-set writes or owned drop chain |
+| Timed sets | `true` | `false` | Source addresses enter timed sets for external policy |
+| Managed drops | `true` | `true` | The owned chain drops matching forwarded source addresses |
 
-1. Complete detect-only checks and threshold adjustments first.
+`packet_drop_enabled: true` requires `enforcement_enabled: true`.
+The offender is the detection source address.
+An outbound feed match can therefore isolate the originating LAN host, not only the remote feed address.
+Review this effect before activation.
+The owned policy adds no input or output hooks.
 
-2. Design the firewall integration for the target OpenWrt release. For fw4,
-   prefer a version-controlled nftables include managed by the package or local
-   configuration. Confirm its chain, hook, direction, and source-address
-   semantics with `fw4 print`. Do not add an ad hoc rule that disappears on the
-   next firewall reload.
+Keep console or out-of-band access available.
+Get separate authority for each disposable packet-path run.
+Do not use household infrastructure as a disposable target.
 
-   OpenWrt documents the supported include positions under
-   [Firewall configuration: Includes](https://openwrt.org/docs/guide-user/firewall/firewall_configuration#includes_2203_and_later_with_fw4).
+### Prerequisites
 
-3. Verify the installed policy actually references the configured set:
+Require fw4, the installed reload script, and its owned UCI include:
 
-   ```sh
-   fw4 print
-   nft -a list ruleset
-   ```
+```text
+firewall.serpent_wrt=include
+firewall.serpent_wrt.type=script
+firewall.serpent_wrt.path=/usr/share/serpent-wrt/fw4-reload
+firewall.serpent_wrt.fw4_compatible=1
+```
 
-The ruleset must use `@blocked_ips_v4` and `@blocked_ips_v6` in the correct address-family paths.
+The package registers only this section.
+It refuses a section that already belongs to another path.
+Do not disable software or hardware flow offloading automatically.
+Managed-drop activation refuses either enabled option.
+It also refuses reserved/shared tables and a foreign `serpent_forward` chain.
 
-4. Enable short-lived timed-set updates:
+### Authorized Activation
+
+1. Complete detect-only checks first.
+2. Select the explicit policy:
 
    ```yaml
    enforcement_enabled: true
+   packet_drop_enabled: true
    block_duration: 5m
    nft_table: serpent_wrt
    nft_set: blocked_ips
    ```
 
-5. Validate and restart:
+3. Validate before restart:
 
    ```sh
    /etc/init.d/serpent-wrt configtest
    /etc/init.d/serpent-wrt restart
-   /etc/init.d/serpent-wrt nftcheck
-   wget -q -O - http://127.0.0.1:8080/status
+   serpent-wrt nftcheck --format json
+   fw4 check
+   nft -j list table inet serpent_wrt
    ```
 
-6. In a disposable lab, add a known test address to the set or trigger a
-   controlled detection. Test a forwarded flow from that address.
-   Verify the set entry and packet counters on the firewall rule:
+Invalid configuration or prerequisites fail before restart stops the active daemon.
+The daemon creates the sets before it reconciles the owned chain.
+The chain uses `type filter hook forward priority -1; policy accept;` and exactly these rules:
+
+```nft
+ip saddr @blocked_ips_v4 counter drop
+ip6 saddr @blocked_ips_v6 counter drop
+```
+
+4. Inspect the active table after firewall reload:
 
    ```sh
-   wget -q -O - http://127.0.0.1:8080/blocked
-   nft list set inet serpent_wrt blocked_ips_v4
-   nft list set inet serpent_wrt blocked_ips_v6
+   /etc/init.d/firewall reload
+   nft -j list table inet serpent_wrt
+   serpent-wrt nftcheck --format json
    ```
 
-7. Reload the firewall and repeat the rule-reference and packet-flow checks.
-   Only increase `block_duration` after the policy survives reload and the
-   end-to-end traffic test passes.
+`fw4 print` does not execute script includes.
+Do not use it as proof that the owned chain exists.
+The reload script reconciles only when procd reports the daemon active.
+Normal reconciliation preserves timed-set elements and their remaining timeouts.
+
+5. Run the separately approved IPv4 and IPv6 packet cases.
+   Require receiver delivery before activation, then receiver non-delivery and increased drop-rule counters for a new blocked flow.
+   Require delivery from an unlisted control source.
+   Verify unchanged management access, timeout expiry, reload, restart, policy disable, and rollback.
+   A timeout alone does not prove a packet drop.
+
+### Status And Recovery
+
+`nftcheck` and `/status.enforcement` expose `packet_drop_enabled`, `packet_drop_state`, and `packet_drop_error`.
+The states are `disabled`, `ready`, and `failed`.
+`ready` requires valid prerequisites, the active forward hook, and both source-set rule references.
+A residual recorded chain prevents a disabled configuration from reporting clean disablement.
+Set-write counters and `/blocked` remain separate from packet counters.
+
+Disable only the owned chain with:
+
+```sh
+serpent-wrt firewall disable
+```
+
+This command uses the private identity under `/var/run/serpent-wrt/`, even if the current YAML is invalid.
+It leaves timed sets available to external policy.
+Service stop and package removal use the same cleanup.
+For a persistent policy change, set `packet_drop_enabled: false` and use the normal validated restart.
+For a table/set identity change, disable the old policy before reconciliation.
+
+An external ruleset flush can destroy the table and timed elements.
+The daemon clears stale cache entries for missing resources before the next block.
+It recreates missing resources and reports the loss.
+It cannot restore lost timed elements from the kernel.
+Do not flush the global ruleset as a recovery procedure.
 
 ## Package Rollback
 
@@ -153,6 +206,11 @@ Do not use `apk upgrade` for rollback.
 
 The rollback restores the prior config, feed, world constraints, autostart state, and active/stopped state.
 It also checks the installed `serpent-wrt` package identity.
+
+A rollback from the trusted repository uses the same published key and index and
+needs no `--allow-untrusted` flag.
+For a local unsigned APK, verify its recorded SHA-256 first and keep the flag on
+the two `apk add` commands.
 
 ```sh
 set -eu

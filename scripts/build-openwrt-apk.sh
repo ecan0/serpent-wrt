@@ -9,7 +9,6 @@ TMP_ROOT=${TMPDIR:-/tmp}
 WORK_DIR=${OPENWRT_APK_WORK_DIR:-"$TMP_ROOT/serpent-wrt-openwrt-apk"}
 OUT_DIR=${OPENWRT_APK_OUT_DIR:-"$REPO_ROOT/artifacts/openwrt-apk"}
 SUMS_NAME=${OPENWRT_APK_SUMS_NAME:-SHA256SUMS}
-ARTIFACT_SUFFIX=${OPENWRT_APK_ARTIFACT_SUFFIX:-}
 TARGETS=${OPENWRT_PACKAGE_TARGETS:-"package/serpent-wrt/check package/serpent-wrt/compile"}
 REUSE_WORK_DIR=${OPENWRT_APK_REUSE_WORK_DIR:-0}
 
@@ -42,12 +41,24 @@ if ! command -v sha256sum >/dev/null 2>&1; then
 	exit 2
 fi
 
-case "$ARTIFACT_SUFFIX" in
-	*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
-		echo "OPENWRT_APK_ARTIFACT_SUFFIX may only contain letters, numbers, dots, underscores, and dashes" >&2
+require_safe_directory() {
+	# Refuse to delete an empty, root, home, or repository path.
+	case "$1" in
+		''|/|"$REPO_ROOT"|"$HOME")
+			echo "refusing to clear an unsafe directory: ${1:-<empty>}" >&2
+			exit 2
+			;;
+	esac
+	[ "${#1}" -ge 8 ] || {
+		echo "refusing to clear an unexpectedly short path: $1" >&2
 		exit 2
-		;;
-esac
+	}
+}
+
+require_safe_directory "$OUT_DIR"
+if [ "$REUSE_WORK_DIR" != "1" ]; then
+	require_safe_directory "$WORK_DIR"
+fi
 
 rm -rf "$OUT_DIR"
 if [ "$REUSE_WORK_DIR" != "1" ]; then
@@ -122,21 +133,11 @@ OPENWRT_SDK="$SDK" \
 	OPENWRT_MAKE_FLAGS="$MAKE_FLAGS" \
 	sh "$REPO_ROOT/scripts/openwrt-package-check.sh"
 
+# Keep the package's canonical name-version.apk filename in this directory.
+# A repository index resolves that exact name, so this helper never renames or
+# duplicates build output.  Target-suffixed copies belong to Release assets and
+# are made by the signing stage only after the final bytes exist.
 find "$SDK/bin" -type f -name 'serpent-wrt-*.apk' -exec cp -v {} "$OUT_DIR"/ \;
-
-if [ -n "$ARTIFACT_SUFFIX" ]; then
-	for artifact in "$OUT_DIR"/serpent-wrt-*.apk; do
-		[ -e "$artifact" ] || continue
-		case "$artifact" in
-			*-"$ARTIFACT_SUFFIX".apk)
-				;;
-			*)
-				renamed=${artifact%.apk}-$ARTIFACT_SUFFIX.apk
-				mv "$artifact" "$renamed"
-				;;
-		esac
-	done
-fi
 
 count=$(find "$OUT_DIR" -type f -name 'serpent-wrt-*.apk' | wc -l | tr -d ' ')
 if [ "$count" -eq 0 ]; then

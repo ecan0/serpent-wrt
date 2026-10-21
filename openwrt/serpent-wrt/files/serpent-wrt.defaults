@@ -1,0 +1,29 @@
+#!/bin/sh
+# Register exactly one fw4 script include for the owned drop policy.
+# Do not add /etc/nftables.d rules, cross-table references, or a global flush.
+
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+
+SECTION=serpent_wrt
+INCLUDE_PATH=/usr/share/serpent-wrt/fw4-reload
+
+uci -q export firewall >/dev/null || exit 1
+
+existing_type=$(uci -q get "firewall.$SECTION" 2>/dev/null)
+if [ -n "$existing_type" ]; then
+	existing_path=$(uci -q get "firewall.$SECTION.path" 2>/dev/null)
+	if [ "$existing_path" != "$INCLUDE_PATH" ]; then
+		echo "serpent-wrt: firewall.$SECTION already belongs to another path" >&2
+		echo "serpent-wrt: refusing to overwrite an existing firewall include" >&2
+		exit 1
+	fi
+else
+	uci set "firewall.$SECTION=include" || exit 1
+fi
+
+uci set "firewall.$SECTION.type=script" || exit 1
+uci set "firewall.$SECTION.path=$INCLUDE_PATH" || exit 1
+uci set "firewall.$SECTION.fw4_compatible=1" || exit 1
+uci commit firewall || exit 1
+
+exit 0

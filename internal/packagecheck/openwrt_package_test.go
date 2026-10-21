@@ -1,6 +1,10 @@
 package packagecheck
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -236,4 +240,56 @@ func TestOpenWrtInitRestartValidatesBeforeStop(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGLInetPackageUsesRootOwnedOpkgContainer(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := t.TempDir()
+	if code := runHelper(t, "package-glinet.sh", "VERSION=0.6.0-test",
+		"OPENWRT_BINARY="+binary, "OPENWRT_IPK_OUT_DIR="+output); code != 0 {
+		t.Fatalf("package helper exited %d", code)
+	}
+	checkArchive := func(data []byte) map[string][]byte {
+		t.Helper()
+		compressed, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("opkg requires a gzip/tar container: %v", err)
+		}
+		defer func() { _ = compressed.Close() }()
+		reader := tar.NewReader(compressed)
+		files := make(map[string][]byte)
+		for {
+			header, err := reader.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if header.Uid != 0 || header.Gid != 0 {
+				t.Fatalf("package member %s has non-root owner %d:%d", header.Name, header.Uid, header.Gid)
+			}
+			if header.Typeflag == tar.TypeReg {
+				data, err := io.ReadAll(reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				files[strings.TrimPrefix(header.Name, "./")] = data
+			}
+		}
+		return files
+	}
+	data, err := os.ReadFile(filepath.Join(output, "serpent-wrt_0.6.0-test_aarch64_cortex-a53.ipk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := checkArchive(data)
+	if string(members["debian-binary"]) != "2.0\n" {
+		t.Fatal("opkg format marker is invalid")
+	}
+	checkArchive(members["control.tar.gz"])
+	checkArchive(members["data.tar.gz"])
 }
