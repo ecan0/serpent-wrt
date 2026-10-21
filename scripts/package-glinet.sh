@@ -1,6 +1,7 @@
 #!/bin/sh
 # Legacy opkg package for aarch64_cortex-a53 GL.iNet firmware.
 # Canonical OpenWrt 25.12 releases use the SDK APK recipe.
+# Requires GNU tar for root-owned package members.
 set -eu
 
 VERSION=${VERSION:-0.1.0-dev}
@@ -67,8 +68,8 @@ printf '2.0\n' > "$STAGE/debian-binary"
 PKG="$OUTDIR/serpent-wrt_${VERSION}_${ARCH}.ipk"
 (
 	cd "$STAGE"
-	tar -czf control.tar.gz -C control .
-	tar -czf data.tar.gz -C data .
-	ar r "$PKG" debian-binary control.tar.gz data.tar.gz
+	tar --numeric-owner --owner=0 --group=0 -czf control.tar.gz -C control .
+	tar --numeric-owner --owner=0 --group=0 -czf data.tar.gz -C data .
+	tar --numeric-owner --owner=0 --group=0 -czf "$PKG" ./debian-binary ./control.tar.gz ./data.tar.gz
 )
 printf 'Created: %s\n' "$PKG"

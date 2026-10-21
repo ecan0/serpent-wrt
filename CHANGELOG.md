@@ -25,6 +25,7 @@ The project uses semantic versions for tagged releases.
 - Package removal deletes only its owned fw4 include and preserves a replacement package's include during an upgrade.
 - CI cleanup checks now cover rpcd and packet-drop helpers without an unused test helper.
 - The legacy opkg helper installs a usable service and configuration, declares runtime dependencies, and can retain an SDK executable without a rebuild.
+- Legacy IPKs use OpenWrt's gzip/tar container and root-owned archive members instead of Debian's `ar` format.
 - The rpcd adapter removes the top-level `ubus_rpc_session` field before method decoding.
 - Configuration apply validates the feed and loopback API bind before atomic replacement.
 - Failed apply restores the prior config and restarts only a previously running service.

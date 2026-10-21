@@ -319,6 +319,7 @@ Use the compatibility IPK only on `aarch64_cortex-a53` firmware with `opkg`.
 It installs the daemon, init script, configuration, and feed.
 It does not install the managed fw4 include or LuCI files.
 Keep packet drops disabled on this package.
+The helper requires GNU tar and writes root-owned gzip/tar IPK containers.
 
 ```sh
 VERSION=0.6.0-rc.1 sh scripts/package-glinet.sh
