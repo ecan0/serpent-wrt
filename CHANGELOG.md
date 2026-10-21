@@ -4,7 +4,7 @@ This changelog lists notable serpent-wrt changes.
 
 The project uses semantic versions for tagged releases.
 
-## Unreleased
+## v0.5.0 - 2026-10-17
 
 ### Added
 
