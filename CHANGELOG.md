@@ -4,49 +4,36 @@ This changelog lists notable serpent-wrt changes.
 
 The project uses semantic versions for tagged releases.
 
-## v0.5.0 - 2026-10-17
+## Unreleased
+
+## v0.6.0
 
 ### Added
 
+- ARM64 qualification now separates collection, controlled detection, API/stdout delivery, resource measurements, and recovery.
 - Feed lookup benchmarks cover IPv4 and IPv6 exact hits, misses, and CIDR hits with 1000, 10000, and 20000 entries.
-- Release guidance separates private ARM64 resource samples, local benchmarks, and device runtime acceptance.
-- An explicit `packet_drop_enabled` policy adds owned fw4 source-address drops for forwarded packets. Detect-only remains the default.
-- Firewall reconcile/disable commands preserve timed sets and use a private recovery identity.
-- `nftcheck` and runtime enforcement status distinguish disabled, ready, and failed packet-drop policy.
-- The daemon includes a bounded rpcd executable-plugin adapter with revisioned configuration validation/apply, service state controls, and paged feed management.
-- A fixed rpcd wrapper and method-scoped ACL source are staged under `openwrt/luci-app-serpent` for the future LuCI package.
-- rpcd methods cover overview, revisioned configuration validation/apply, service controls, and bounded feed management.
+- The legacy GL.iNet opkg helper installs the service, configuration, and feed and can retain a qualified SDK executable without a rebuild.
 - The OpenWrt community recipe now lives in this repository and uses the SDK package checker.
-- The fixed executable-plugin interface rejects unknown methods and method fields and limits RPC input to 1 MiB.
+- APK build, sign, verify, and publish jobs keep private keys out of build jobs and promote one verified candidate by digest.
+- Separate public trust anchors identify the APK signing key and the Git release-tag key.
 
 ### Fixed
 
 - The module and package workflow require Go 1.26.10 to address GO-2026-6809.
-- Package removal deletes only its owned fw4 include and preserves a replacement package's include during an upgrade.
-- CI cleanup checks now cover rpcd and packet-drop helpers without an unused test helper.
-- The legacy opkg helper installs a usable service and configuration, declares runtime dependencies, and can retain an SDK executable without a rebuild.
 - Legacy IPKs use OpenWrt's gzip/tar container and root-owned archive members instead of Debian's `ar` format.
-- The rpcd adapter removes the top-level `ubus_rpc_session` field before method decoding.
-- Configuration apply validates the feed and loopback API bind before atomic replacement.
-- Failed apply restores the prior config and restarts only a previously running service.
-- Running feed writes use the fixed loopback routes; a disabled or unavailable API fails closed.
+- Package removal deletes only its owned fw4 include and preserves foreign includes and replacement packages.
+- Release selection accepts the documented `Serpent-Channel` line.
+- Signing isolates equal canonical package filenames across architectures.
+- Release uploads refuse to overwrite an existing asset with different bytes.
+- rpcd rejects unknown methods and fields, validates configuration before atomic replacement, and restores prior bytes after a failed apply.
+- Kernel resource loss invalidates stale block-cache entries before another enforcement write.
 
+### Qualification Boundaries
 
-- Kernel resource loss clears stale block-cache entries for missing sets. Cached offenders cannot skip a missing kernel entry.
-- Reconciliation reports lost kernel resources and refuses foreign chains, shared tables, unavailable includes, and flow offloading.
-- Release selection parsing now accepts the documented `Serpent-Channel` line instead of rejecting every selection record.
-- Signing uses one directory per package, so equal canonical filenames across architectures no longer fail as duplicates.
-
-### Changed
-
-- The APK workflow separates build, sign, verify, and publish jobs. Build jobs hold no key.
-- A protected `serpent-release` environment holds the ECDSA P-256 key; only the public key and fingerprint ship.
-- The workflow signs each APK and repository index, and verifies accepted-and-rejected index trust.
-- Publication promotes one verified candidate by digest instead of rebuilding on a Release event.
-- Release uploads never overwrite an existing asset with different bytes.
-- Build mode requires an explicit `package_version`; the placeholder default is removed.
-- The custom feed keeps its recipe; upstream layout preparation uses a separate checkout.
-- The workflow now also requires a real UI package for v1.0 and later candidates.
+- Optional packet-drop and rpcd code remains under development. Packet drops stay disabled until the separate live fw4 gate passes.
+- The daemon package does not install the staged LuCI wrapper or ACL. Full LuCI support remains outside v0.6.0.
+- Live IPv6 acceptance remains separate from the ARM64 baseline and the prior IPv4 gate.
+- ARM opkg installation does not establish APK lifecycle behavior on older firmware.
 
 ## v0.5.0 - 2026-10-17
 
