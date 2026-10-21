@@ -3,24 +3,55 @@ name: OpenWrt APK Packages
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Build a signed candidate or promote an existing verified candidate
+        type: choice
+        options: [build, promote]
+        default: build
       ref:
-        description: Git ref to package
+        description: Source ref or full commit SHA for a build
         required: false
         default: dev
-      release_tag:
-        description: Optional existing GitHub Release tag to attach artifacts to
-        required: false
-        default: ""
       package_version:
-        description: APK version for a manual build from the selected ref
+        description: Human package version for a build (required for build mode)
         required: false
         default: ""
+      candidate_channel:
+        description: Repository channel prepared by a build candidate
+        type: choice
+        options: [testing, stable]
+        default: testing
+      initial_repository:
+        description: Explicitly initialize an absent Pages repository (build mode)
+        type: boolean
+        default: false
+      promote_release_tag:
+        description: Existing Release tag for promote mode
+        required: false
+        default: ""
+      promote_run_id:
+        description: Successful build run that produced serpent-verified-candidate
+        required: false
+        default: ""
+      promote_digest:
+        description: Exact artifact API digest (sha256:<64 hex>) to promote
+        required: false
+        default: ""
+      promote_channel:
+        description: Already-prepared repository channel to publish
+        type: choice
+        options: [testing, stable]
+        default: testing
+      promote_initial_repository:
+        description: Explicitly initialize an absent Pages repository (promote mode)
+        type: boolean
+        default: false
   release:
     types: [published]
 
-# Baseline access for every run. The job below adds only the write scopes it
-# needs, and every trigger of this workflow is a trusted manual dispatch or a
-# published release.
+# No ordinary push or pull request can publish.  Every privileged job below
+# narrows this baseline and runs only from a protected main/dev workflow ref or
+# a published Release selection record.
 permissions:
   contents: read
 
@@ -29,24 +60,250 @@ defaults:
     shell: bash
 
 env:
-  # Pinned OpenWrt packages feed commit. Single source of truth shared by the
-  # SDK cache key and the build so the two cannot drift apart.
   OPENWRT_PACKAGES_REF: 84f4958aff37296fc77a03b4592ee65ba8b9e7c2
+  # Signing only uses the host apk from a freshly verified archive.  It never
+  # restores a build-job SDK cache.  This is the x86/generic pin that has
+  # actual release evidence; all three pins stay in the build matrix.
+  SIGNING_SDK_URL: https://downloads.openwrt.org/releases/25.12.5/targets/x86/generic/openwrt-sdk-25.12.5-x86-generic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+  SIGNING_SDK_SHA256: 0bd51089e1c94c736a4d2d345b24844aab091f1c50502e8e6facddcc6114fde6
+  CUSTOM_PREDICATE: https://serpent-wrt.dev/attestation/apk-candidate/v1
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build-apk:
-    name: Build APK (${{ matrix.target }})
+  resolve:
+    name: Resolve release inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      package_version: ${{ steps.resolve.outputs.package_version }}
+      apk_version: ${{ steps.resolve.outputs.apk_version }}
+      ui_required: ${{ steps.resolve.outputs.ui_required }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
+      source_tree: ${{ steps.resolve.outputs.source_tree }}
+      source_ref: ${{ steps.resolve.outputs.source_ref }}
+      tools_commit: ${{ steps.resolve.outputs.tools_commit }}
+      initial_repository: ${{ steps.resolve.outputs.initial_repository }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      candidate_run_id: ${{ steps.resolve.outputs.candidate_run_id }}
+      candidate_digest: ${{ steps.resolve.outputs.candidate_digest }}
+    steps:
+      - name: Check out trusted workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: workflow-tools
+          sparse-checkout: |
+            scripts/openwrt_release.py
+            scripts/pages_snapshot.py
+            scripts/candidate_archive.py
+            scripts/prepare-openwrt-source.sh
+            scripts/build-openwrt-apk.sh
+            scripts/openwrt-package-check.sh
+            scripts/apk-repository.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Check out candidate source
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'promote'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.ref || 'dev' }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate event, workflow ref, and mode
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          MODE: ${{ github.event_name == 'release' && 'promote' || github.event.inputs.mode }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          INPUT_PACKAGE_VERSION: ${{ github.event.inputs.package_version }}
+          INPUT_CHANNEL: ${{ github.event.inputs.candidate_channel }}
+          INPUT_INITIAL: ${{ github.event.inputs.initial_repository }}
+          INPUT_PROMOTE_TAG: ${{ github.event.inputs.promote_release_tag }}
+          INPUT_PROMOTE_RUN_ID: ${{ github.event.inputs.promote_run_id }}
+          INPUT_PROMOTE_DIGEST: ${{ github.event.inputs.promote_digest }}
+          INPUT_PROMOTE_CHANNEL: ${{ github.event.inputs.promote_channel }}
+          INPUT_PROMOTE_INITIAL: ${{ github.event.inputs.promote_initial_repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          out() {
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"
+          }
+          fail() {
+            printf 'error: %s\n' "$*" >&2
+            exit 1
+          }
+
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              case "$WORKFLOW_REF" in
+                refs/heads/main | refs/heads/dev) ;;
+                *) fail "privileged dispatch must run from refs/heads/main or refs/heads/dev: $WORKFLOW_REF" ;;
+              esac
+              ;;
+            release)
+              case "$WORKFLOW_REF" in
+                refs/tags/v*) ;;
+                *) fail "Release publication requires a v<semver> tag ref: $WORKFLOW_REF" ;;
+              esac
+              case "$DEFAULT_BRANCH" in
+                main | dev) ;;
+                *) fail "Release publication requires a protected default branch: $DEFAULT_BRANCH" ;;
+              esac
+              ;;
+            *) fail "unsupported event: $EVENT_NAME" ;;
+          esac
+          case "$WORKFLOW_SHA" in
+            *[!0-9a-f]* | '') fail "cannot record the trusted workflow commit" ;;
+          esac
+          [ "${#WORKFLOW_SHA}" -eq 40 ] || fail "workflow commit is not a full SHA"
+          out tools_commit "$WORKFLOW_SHA"
+
+          case "$MODE" in
+            build) ;;
+            promote) ;;
+            *) fail "mode must be build or promote: $MODE" ;;
+          esac
+          out mode "$MODE"
+
+          if [ "$MODE" = "build" ]; then
+            [ -n "$INPUT_PACKAGE_VERSION" ] ||
+              fail "package_version is required for build mode"
+            python3 workflow-tools/scripts/openwrt_release.py version \
+              --version "$INPUT_PACKAGE_VERSION" > "$RUNNER_TEMP/version.json"
+            apk_version=$(jq -r .apk_version "$RUNNER_TEMP/version.json")
+            final=$(jq -r .final "$RUNNER_TEMP/version.json")
+            channel=${INPUT_CHANNEL:-testing}
+            case "$channel" in
+              testing) ;;
+              stable)
+                [ "$final" = "true" ] ||
+                  fail "stable candidates require a final package_version"
+                ;;
+              *) fail "candidate_channel must be testing or stable: $channel" ;;
+            esac
+            major=${INPUT_PACKAGE_VERSION%%.*}
+            case "$major" in
+              '' | *[!0-9]*) fail "package_version has no numeric major version" ;;
+            esac
+            ui_required=false
+            if [ "$major" -ge 1 ]; then
+              ui_required=true
+            fi
+            [ -d source ] || fail "candidate source checkout is missing"
+            [ -n "$INPUT_REF" ] || fail "ref is required for build mode"
+            source_commit=$(git -C source rev-parse HEAD)
+            source_tree=$(git -C source rev-parse 'HEAD^{tree}')
+            case "$source_commit$source_tree" in
+              *[!0-9a-f]*) fail "resolved source identity is not a full SHA" ;;
+            esac
+            if [ "${#source_commit}" -ne 40 ] || [ "${#source_tree}" -ne 40 ]; then
+              fail "resolved source commit or tree is not a full SHA"
+            fi
+            out channel "$channel"
+            out package_version "$INPUT_PACKAGE_VERSION"
+            out apk_version "$apk_version"
+            out ui_required "$ui_required"
+            out source_commit "$source_commit"
+            out source_tree "$source_tree"
+            out source_ref "$INPUT_REF"
+            case "$INPUT_INITIAL" in
+              true) out initial_repository true ;;
+              *) out initial_repository false ;;
+            esac
+            out release_tag ""
+            out candidate_run_id ""
+            out candidate_digest ""
+            echo "Build candidate: $INPUT_PACKAGE_VERSION ($apk_version), channel $channel, source $source_commit"
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            [ -n "$RELEASE_TAG" ] || fail "Release event has no tag"
+            tag=$RELEASE_TAG
+            release_json=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")
+            printf '%s\n' "$release_json" | jq -e '.draft == false' > /dev/null ||
+              fail "Release $tag is a draft"
+            printf '%s\n' "$release_json" | jq -r .body > "$RUNNER_TEMP/selection.txt"
+            initial=false
+          else
+            tag=$INPUT_PROMOTE_TAG
+            [ -n "$tag" ] || fail "promote_release_tag is required for promote mode"
+            [ -n "$INPUT_PROMOTE_RUN_ID" ] ||
+              fail "promote_run_id is required for promote mode"
+            [ -n "$INPUT_PROMOTE_DIGEST" ] ||
+              fail "promote_digest is required for promote mode"
+            case "$INPUT_PROMOTE_RUN_ID" in
+              *[!0-9]* | '') fail "promote_run_id must be numeric" ;;
+            esac
+            case "$INPUT_PROMOTE_RUN_ID" in
+              0*) fail "promote_run_id must be positive" ;;
+            esac
+            printf '%s\n' "$INPUT_PROMOTE_DIGEST" |
+              grep -Eq '^sha256:[0-9a-f]{64}$' ||
+              fail "promote_digest must be sha256:<64 lowercase hex>"
+            printf 'Serpent-Candidate-Run: %s\n' "$INPUT_PROMOTE_RUN_ID" > "$RUNNER_TEMP/selection.txt"
+            printf 'Serpent-Candidate-Digest: %s\n' "$INPUT_PROMOTE_DIGEST" >> "$RUNNER_TEMP/selection.txt"
+            printf 'Serpent-Channel: %s\n' "$INPUT_PROMOTE_CHANNEL" >> "$RUNNER_TEMP/selection.txt"
+            case "$INPUT_PROMOTE_INITIAL" in
+              true) initial=true ;;
+              *) initial=false ;;
+            esac
+          fi
+
+          case "$tag" in
+            v?*) package_version=${tag#v} ;;
+            *) fail "Release tag must use v<semver> form: $tag" ;;
+          esac
+          python3 workflow-tools/scripts/openwrt_release.py version \
+            --version "$package_version" > "$RUNNER_TEMP/version.json"
+          selection=$(python3 workflow-tools/scripts/openwrt_release.py \
+            parse-selection --body-file "$RUNNER_TEMP/selection.txt")
+          channel=$(printf '%s\n' "$selection" | jq -r .channel)
+          run_id=$(printf '%s\n' "$selection" | jq -r .run_id)
+          digest=$(printf '%s\n' "$selection" | jq -r .digest)
+          if [ "$channel" = "stable" ]; then
+            [ "$(jq -r .final "$RUNNER_TEMP/version.json")" = "true" ] ||
+              fail "stable promotion requires a final package version"
+          fi
+          [ "$run_id" != "$GITHUB_RUN_ID" ] ||
+            fail "a promotion cannot select its own workflow run"
+          out channel "$channel"
+          out package_version "$package_version"
+          out apk_version ""
+          out ui_required false
+          out source_commit ""
+          out source_tree ""
+          out source_ref ""
+          out initial_repository "$initial"
+          out release_tag "$tag"
+          out candidate_run_id "$run_id"
+          out candidate_digest "$digest"
+          echo "Promotion: $tag channel $channel candidate run $run_id digest $digest"
+
+  build:
+    name: Build APK (${{ matrix.slug }})
+    needs: resolve
+    if: needs.resolve.outputs.mode == 'build'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
-      contents: write # attach packages to an existing GitHub Release
-      id-token: write # OIDC signing for actions/attest
-      attestations: write # publish package provenance and SBOM attestations
-      artifact-metadata: write # record artifact metadata for attestations
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -66,34 +323,38 @@ jobs:
             slug: mediatek-filogic
             sdk_url: https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst
             sdk_sha256: ff4a38a397caa2cfe1c39e18f84ddede14878221b3593c3f2c4cfe24e3ec4c25
-
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.resolve.outputs.source_commit }}
+          path: source
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || inputs.ref || github.ref }}
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out trusted workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
-          ref: ${{ github.ref }}
+          ref: ${{ needs.resolve.outputs.tools_commit }}
           path: workflow-tools
           sparse-checkout: |
+            scripts/openwrt_release.py
+            scripts/prepare-openwrt-source.sh
             scripts/build-openwrt-apk.sh
             scripts/openwrt-package-check.sh
+            scripts/apk-repository.py
           sparse-checkout-cone-mode: false
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: source/go.mod
 
       - name: Restore OpenWrt SDK cache
         id: sdk-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
-          # Reuse only the exact SDK, feed, helper, and package-recipe key.
-          key: openwrt-apk-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-${{ env.OPENWRT_PACKAGES_REF }}-${{ hashFiles('workflow-tools/scripts/build-openwrt-apk.sh', 'workflow-tools/scripts/openwrt-package-check.sh', 'openwrt/serpent-wrt/Makefile') }}
+          key: openwrt-apk-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ matrix.slug }}-${{ matrix.sdk_sha256 }}-${{ env.OPENWRT_PACKAGES_REF }}-${{ hashFiles('workflow-tools/scripts/build-openwrt-apk.sh', 'workflow-tools/scripts/openwrt-package-check.sh', 'source/openwrt/serpent-wrt/Makefile') }}
 
       - name: Install SDK build dependencies
         run: |
@@ -109,6 +370,7 @@ jobs:
             gcc-multilib \
             gettext \
             git \
+            jq \
             libncurses-dev \
             libssl-dev \
             python3 \
@@ -118,80 +380,25 @@ jobs:
             wget \
             zstd
 
-      - name: Pin package source to the release tag
-        if: github.event_name == 'release' || inputs.release_tag != ''
+      - name: Protect v1 candidates from a missing LuCI package
+        if: needs.resolve.outputs.ui_required == 'true'
+        run: |
+          echo "::error::v1.0 and later candidates require the real luci-app-serpent package and its installed-file SBOM. This repository state has no UI recipe, so no daemon-only v1 candidate may be signed."
+          exit 1
+
+      - name: Pin the package source
         env:
-          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+          SOURCE_ROOT: source
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.source_commit }}
+          PACKAGE_VERSION: ${{ needs.resolve.outputs.package_version }}
+          APK_VERSION: ${{ needs.resolve.outputs.apk_version }}
+          SOURCE_ARCHIVE: ${{ runner.temp }}/openwrt-source/serpent-wrt-${{ needs.resolve.outputs.apk_version }}.tar.gz
+        run: sh workflow-tools/scripts/prepare-openwrt-source.sh
+
+      - name: Use trusted build helpers
         run: |
-          case "$RELEASE_TAG" in
-            v[0-9]*)
-              ;;
-            *)
-              echo "release tag must use v<semver> form: $RELEASE_TAG" >&2
-              exit 1
-              ;;
-          esac
-
-          source_version=$(git rev-parse HEAD)
-          source_date=$(git show -s --format=%cs HEAD)
-          source_hash=$(curl --fail --location --retry 3 --retry-delay 5 \
-            "https://codeload.github.com/${{ github.repository }}/tar.gz/$RELEASE_TAG" |
-            sha256sum | cut -d' ' -f1)
-
-          sed -i -E \
-            -e "s/^PKG_VERSION:=.*/PKG_VERSION:=${RELEASE_TAG#v}/" \
-            -e "s/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${source_date}/" \
-            -e "s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${source_version}/" \
-            -e "s/^PKG_HASH:=.*/PKG_HASH:=${source_hash}/" \
-            openwrt/serpent-wrt/Makefile
-      - name: Pin APK source to the selected commit
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag == ''
-        env:
-          REQUESTED_PACKAGE_VERSION: ${{ inputs.package_version }}
-        run: |
-          set -eu
-          package_version="$REQUESTED_PACKAGE_VERSION"
-          if [ -z "$package_version" ]; then
-            package_version="0.4.0-e2e.${GITHUB_RUN_NUMBER}"
-          fi
-          if [[ ! "$package_version" =~ ^[0-9]+(\.[0-9]+){2}(-[A-Za-z0-9][A-Za-z0-9.+-]*)?$ ]]; then
-            echo "package_version must use semantic version syntax: $package_version" >&2
-            exit 1
-          fi
-
-          source_version=$(git rev-parse HEAD)
-          source_date=$(git show -s --format=%cs HEAD)
-          apk_version=${package_version%%-*}
-          if [ "$apk_version" != "$package_version" ]; then
-            suffix=${package_version#*-}
-            sequence=${suffix##*.}
-            case "$sequence" in
-              ''|*[!0-9]*) sequence=1 ;;
-            esac
-            apk_version="${apk_version}_pre${sequence}"
-          fi
-          source_subdir="serpent-wrt-${apk_version}"
-          source_archive="$RUNNER_TEMP/${source_subdir}.tar.gz"
-          git archive --format=tar --prefix="${source_subdir}/" "$source_version" | gzip -n > "$source_archive"
-          source_hash=$(sha256sum "$source_archive" | cut -d' ' -f1)
-          source_url="file://${RUNNER_TEMP}"
-
-          sed -i -E \
-            -e "s|^PKG_VERSION:=.*|PKG_VERSION:=${apk_version}|" \
-            -e "s|^PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${source_date}|" \
-            -e "s|^PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${source_version}|" \
-            -e "s|^PKG_SOURCE_SUBDIR:=.*|PKG_SOURCE_SUBDIR:=${source_subdir}|" \
-            -e "s|^PKG_SOURCE_URL:=.*|PKG_SOURCE_URL:=${source_url}|" \
-            -e "s|^PKG_HASH:=.*|PKG_HASH:=${source_hash}|" \
-            openwrt/serpent-wrt/Makefile
-          sed -i -E \
-            "s|main\\.version=\\$\\(PKG_VERSION\\)|main.version=${package_version}|" \
-            openwrt/serpent-wrt/Makefile
-          echo "Pinned APK source to ${source_version} (${package_version}; APK ${apk_version})"
-      - name: Use build helpers from workflow ref
-        run: |
-          install -m 0755 workflow-tools/scripts/build-openwrt-apk.sh scripts/build-openwrt-apk.sh
-          install -m 0755 workflow-tools/scripts/openwrt-package-check.sh scripts/openwrt-package-check.sh
+          install -m 0755 workflow-tools/scripts/build-openwrt-apk.sh source/scripts/build-openwrt-apk.sh
+          install -m 0755 workflow-tools/scripts/openwrt-package-check.sh source/scripts/openwrt-package-check.sh
 
       - name: Build serpent-wrt OpenWrt package
         env:
@@ -199,11 +406,10 @@ jobs:
           OPENWRT_SDK_SHA256: ${{ matrix.sdk_sha256 }}
           OPENWRT_APK_REUSE_WORK_DIR: "1"
           OPENWRT_APK_WORK_DIR: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
-          OPENWRT_APK_OUT_DIR: artifacts/openwrt-apk/${{ matrix.slug }}
+          OPENWRT_APK_OUT_DIR: inputs/${{ matrix.slug }}
           OPENWRT_APK_SUMS_NAME: SHA256SUMS-${{ matrix.slug }}
-          OPENWRT_APK_ARTIFACT_SUFFIX: ${{ matrix.slug }}
           OPENWRT_FEEDS_UPDATE: "1"
-        run: sh scripts/build-openwrt-apk.sh
+        run: sh source/scripts/build-openwrt-apk.sh
 
       - name: Save OpenWrt SDK cache
         if: steps.sdk-cache.outputs.cache-hit != 'true'
@@ -212,50 +418,870 @@ jobs:
           path: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
           key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
 
-      - name: Generate CycloneDX SBOM
+      - name: Generate the daemon Go SBOM
         env:
           CGO_ENABLED: "0"
-          GOARCH: ${{ matrix.go_arch }}
           GOOS: linux
         run: |
-          GOARCH=amd64 GOOS=linux go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
-          cyclonedx-gomod app \
-            -json \
-            -licenses \
-            -main cmd/serpent-wrt \
-            -notimestamp \
-            -output-version 1.4 \
-            -output "artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json" \
-            .
+          set -euo pipefail
+          apk_count=$(find "inputs/${{ matrix.slug }}" -maxdepth 1 -type f -name 'serpent-wrt-*.apk' | wc -l)
+          [ "$apk_count" -eq 1 ] || {
+            echo "expected exactly one canonical serpent-wrt APK, found $apk_count" >&2
+            exit 1
+          }
+          # The manifest names only canonical packages and their SBOMs.  Keep
+          # the unsigned build checksum as a diagnostic outside that directory.
+          mkdir -p "diagnostics/${{ matrix.slug }}"
+          if [ -f "inputs/${{ matrix.slug }}/SHA256SUMS-${{ matrix.slug }}" ]; then
+            mv "inputs/${{ matrix.slug }}/SHA256SUMS-${{ matrix.slug }}" \
+              "diagnostics/${{ matrix.slug }}/"
+          fi
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+          (
+            cd source
+            cyclonedx-gomod app \
+              -json \
+              -licenses \
+              -main cmd/serpent-wrt \
+              -notimestamp \
+              -output-version 1.4 \
+              -output "$GITHUB_WORKSPACE/inputs/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json" \
+              .
+          )
 
-          cd "artifacts/openwrt-apk/${{ matrix.slug }}"
-          sha256sum serpent-wrt-*.apk serpent-wrt-*.cdx.json > "SHA256SUMS-${{ matrix.slug }}"
-
-      - name: Attest package provenance
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
-
-      - name: Attest package SBOM
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: artifacts/openwrt-apk/${{ matrix.slug }}/*.apk
-          sbom-path: artifacts/openwrt-apk/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json
-
+      - name: Record the unsigned build manifest
+        env:
+          SDK_WORK: ${{ runner.temp }}/openwrt-apk-work/${{ matrix.slug }}
+        run: |
+          set -euo pipefail
+          sdk=$(find "$SDK_WORK" -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)
+          [ -n "$sdk" ] && [ -x "$sdk/staging_dir/host/bin/apk" ] || {
+            echo "cannot find the extracted SDK host apk under $SDK_WORK" >&2
+            exit 1
+          }
+          python3 workflow-tools/scripts/apk-repository.py build-manifest \
+            --sdk "$sdk" \
+            --package-dir "inputs/${{ matrix.slug }}" \
+            --output "inputs/${{ matrix.slug }}/manifest.json" \
+            --source-commit "${{ needs.resolve.outputs.source_commit }}" \
+            --source-tree "${{ needs.resolve.outputs.source_tree }}" \
+            --helper-commit "${{ needs.resolve.outputs.tools_commit }}" \
+            --workflow-commit "${{ needs.resolve.outputs.tools_commit }}" \
+            --package-version "${{ needs.resolve.outputs.package_version }}" \
+            --target "${{ matrix.target }}" \
+            --slug "${{ matrix.slug }}" \
+            --sdk-url "${{ matrix.sdk_url }}" \
+            --sdk-sha256 "${{ matrix.sdk_sha256 }}" \
+            --packages-ref "$OPENWRT_PACKAGES_REF" \
+            --sbom "inputs/${{ matrix.slug }}/serpent-wrt-${{ matrix.slug }}.cdx.json"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: serpent-wrt-apk-${{ matrix.slug }}
-          path: artifacts/openwrt-apk/${{ matrix.slug }}/*
+          name: serpent-apk-input-${{ matrix.slug }}
+          path: inputs/${{ matrix.slug }}
           if-no-files-found: error
 
-      - name: Attach OpenWrt packages to GitHub Release
-        if: github.event_name == 'release' || inputs.release_tag != ''
+  sign:
+    name: Sign and stage candidate
+    needs: [resolve, build]
+    if: needs.resolve.outputs.mode == 'build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: serpent-release
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.tools_commit }}
+          path: workflow-tools
+          sparse-checkout: |
+            scripts/apk-repository.py
+            scripts/pages_snapshot.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: serpent-apk-input-*
+          path: inputs
+
+      - name: Compute Pages URL
+        id: pages
+        run: |
+          set -euo pipefail
+          owner=$(printf '%s' "${GITHUB_REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')
+          repo=${GITHUB_REPOSITORY#*/}
+          echo "pages_url=https://$owner.github.io/$repo/" >> "$GITHUB_OUTPUT"
+
+      - name: Obtain a fresh verified signing SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/serpent-signing-sdk.tar.zst"
+          extract="$RUNNER_TEMP/serpent-signing-sdk"
+          curl -fL --retry 3 --retry-delay 5 -o "$archive" "$SIGNING_SDK_URL"
+          printf '%s  %s\n' "$SIGNING_SDK_SHA256" "$archive" | sha256sum -c -
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          tar -C "$extract" -xf "$archive"
+          sdk=$(find "$extract" -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)
+          if [ -z "$sdk" ] || [ ! -x "$sdk/staging_dir/host/bin/apk" ]; then
+            echo "fresh signing SDK has no host apk executable" >&2
+            exit 1
+          fi
+          echo "sdk=$sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Snapshot the published repository base
+        env:
+          PAGES_URL: ${{ steps.pages.outputs.pages_url }}
+          INITIAL_REPOSITORY: ${{ needs.resolve.outputs.initial_repository }}
+        run: |
+          set -euo pipefail
+          if [ "$INITIAL_REPOSITORY" = "true" ]; then
+            python3 workflow-tools/scripts/pages_snapshot.py \
+              --base-url "$PAGES_URL" require-missing
+          else
+            python3 workflow-tools/scripts/pages_snapshot.py \
+              --base-url "$PAGES_URL" fetch --output prior-pages
+          fi
+
+      - name: Write the signing key outside caches and artifacts
+        id: key
+        env:
+          SERPENT_APK_SIGNING_KEY: ${{ secrets.SERPENT_APK_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/serpent-apk-signing-key.pem"
+          if [ -z "${SERPENT_APK_SIGNING_KEY:-}" ]; then
+            echo "::error::SERPENT_APK_SIGNING_KEY is not configured; no trusted signed candidate exists."
+            exit 1
+          fi
+          (umask 077; printf '%s\n' "$SERPENT_APK_SIGNING_KEY" > "$key")
+          chmod 0600 "$key"
+          [ -s "$key" ] || {
+            echo "the signing key file is empty" >&2
+            exit 1
+          }
+          echo "key_path=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Stage signed repository and Release copies
+        env:
+          SDK: ${{ steps.sdk.outputs.sdk }}
+          KEY_PATH: ${{ steps.key.outputs.key_path }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+          PRIOR_PAGES: prior-pages
+        run: |
+          set -euo pipefail
+          key="$KEY_PATH"
+          trap 'rm -f "$key"' EXIT HUP INT TERM
+          [ -f "$key" ] || {
+            echo "signing key is unavailable" >&2
+            exit 1
+          }
+          set -- \
+            --sdk "$SDK" \
+            --inputs inputs \
+            --output candidate \
+            --channel "$CHANNEL" \
+            --private-key "$key"
+          if [ -d "$PRIOR_PAGES" ]; then
+            set -- "$@" --previous "$PRIOR_PAGES"
+          fi
+          python3 workflow-tools/scripts/apk-repository.py stage "$@"
+          rm -f "$key"
+          trap - EXIT HUP INT TERM
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/serpent-apk-signing-key.pem"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: serpent-signed-candidate
+          path: candidate
+          if-no-files-found: error
+
+  verify:
+    name: Verify and attest candidate
+    needs: [resolve, sign]
+    if: needs.resolve.outputs.mode == 'build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out trusted workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.tools_commit }}
+          path: workflow-tools
+          sparse-checkout: |
+            scripts/apk-repository.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: serpent-signed-candidate
+          path: signed
+
+      - name: Locate the candidate root
+        id: root
+        run: |
+          set -euo pipefail
+          count=$(find signed -type f -name candidate.json | wc -l)
+          [ "$count" -eq 1 ] || {
+            echo "expected exactly one candidate.json in the signed artifact, found $count" >&2
+            exit 1
+          }
+          root=$(dirname "$(find signed -type f -name candidate.json -print -quit)")
+          [ -f "$root/candidate.json" ]
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Obtain a fresh verified verification SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/serpent-verify-sdk.tar.zst"
+          extract="$RUNNER_TEMP/serpent-verify-sdk"
+          curl -fL --retry 3 --retry-delay 5 -o "$archive" "$SIGNING_SDK_URL"
+          printf '%s  %s\n' "$SIGNING_SDK_SHA256" "$archive" | sha256sum -c -
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          tar -C "$extract" -xf "$archive"
+          sdk=$(find "$extract" -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)
+          if [ -z "$sdk" ] || [ ! -x "$sdk/staging_dir/host/bin/apk" ]; then
+            echo "fresh verification SDK has no host apk executable" >&2
+            exit 1
+          fi
+          echo "sdk=$sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the signed candidate without a private key
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+          SDK: ${{ steps.sdk.outputs.sdk }}
+        run: python3 workflow-tools/scripts/apk-repository.py verify --sdk "$SDK" --root "$ROOT"
+
+      - name: Write the custom candidate predicate
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+        run: |
+          set -euo pipefail
+          candidate_sha=$(sha256sum "$ROOT/candidate.json" | cut -d' ' -f1)
+          jq -n \
+            --slurpfile candidate "$ROOT/candidate.json" \
+            --arg candidate_sha "$candidate_sha" \
+            '{
+              schema: 1,
+              kind: "serpent-wrt-apk-candidate",
+              source: $candidate[0].source,
+              package_version: $candidate[0].source.package_version,
+              apk_version: $candidate[0].apk_version,
+              channel: $candidate[0].channel,
+              revisions: $candidate[0].revisions,
+              sdks: $candidate[0].sdks,
+              prior_pages_manifest_sha256: $candidate[0].prior.manifest_sha256,
+              candidate_manifest: {
+                path: "candidate.json",
+                sha256: $candidate_sha
+              }
+            }' > "$RUNNER_TEMP/candidate-predicate.json"
+
+      - name: Read per-package release subjects
+        id: subjects
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+        run: |
+          set -euo pipefail
+          candidate="$ROOT/candidate.json"
+          for slug in x86-64 x86-generic mediatek-filogic; do
+            apk=$(find "$ROOT/release" -maxdepth 1 -type f -name "*-$slug.apk" -print -quit)
+            sbom=$(find "$ROOT/release" -maxdepth 1 -type f -name "*-$slug.cdx.json" -print -quit)
+            if [ -z "$apk" ] || [ -z "$sbom" ]; then
+              echo "missing release APK or SBOM for $slug" >&2
+              exit 1
+            fi
+            apk_path="release/$(basename "$apk")"
+            sbom_path="release/$(basename "$sbom")"
+            provenance=$(jq -r --arg path "$apk_path" \
+              '.packages[] | select(.release.path == $path) | .provenance' \
+              "$candidate")
+            case "$provenance" in
+              new | reused) ;;
+              *) {
+                echo "candidate has no provenance for $apk_path" >&2
+                exit 1
+              } ;;
+            esac
+            jq -e --arg path "$sbom_path" \
+              'any(.packages[]; .sbom.path == $path)' "$candidate" > /dev/null
+            key=$(printf '%s' "$slug" | tr '-' '_')
+            printf '%s_apk=%s\n%s_sbom=%s\n%s_new=%s\n' \
+              "$key" "$apk" "$key" "$sbom" "$key" "$provenance" \
+              >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Attest x86-64 signed APK provenance
+        if: steps.subjects.outputs.x86_64_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.x86_64_apk }}
+
+      - name: Attest x86-generic signed APK provenance
+        if: steps.subjects.outputs.x86_generic_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.x86_generic_apk }}
+
+      - name: Attest mediatek-filogic signed APK provenance
+        if: steps.subjects.outputs.mediatek_filogic_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.mediatek_filogic_apk }}
+
+      - name: Attest the candidate checksums
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.root.outputs.root }}/release/SHA256SUMS
+
+      - name: Attest x86-64 package SBOM
+        if: steps.subjects.outputs.x86_64_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.x86_64_apk }}
+          sbom-path: ${{ steps.subjects.outputs.x86_64_sbom }}
+
+      - name: Attest x86-generic package SBOM
+        if: steps.subjects.outputs.x86_generic_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.x86_generic_apk }}
+          sbom-path: ${{ steps.subjects.outputs.x86_generic_sbom }}
+
+      - name: Attest mediatek-filogic package SBOM
+        if: steps.subjects.outputs.mediatek_filogic_new == 'new'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.subjects.outputs.mediatek_filogic_apk }}
+          sbom-path: ${{ steps.subjects.outputs.mediatek_filogic_sbom }}
+
+      - name: Attest the explicit source/helper/workflow manifest predicate
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            ${{ steps.root.outputs.root }}/candidate.json
+            ${{ steps.root.outputs.root }}/candidate.sha256
+            ${{ steps.root.outputs.root }}/checksums/SHA256SUMS
+            ${{ steps.root.outputs.root }}/release/SHA256SUMS
+            ${{ steps.root.outputs.root }}/pages/repository-manifest.json
+          predicate-path: ${{ runner.temp }}/candidate-predicate.json
+          predicate-type: ${{ env.CUSTOM_PREDICATE }}
+
+      - name: Upload the immutable verified candidate
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: serpent-verified-candidate
+          path: ${{ steps.root.outputs.root }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record the verified candidate artifact digest
+        id: digest
+        env:
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARTIFACT_DIGEST" ] || [ "$ARTIFACT_DIGEST" = "null" ]; then
+            echo "artifact upload did not report a digest" >&2
+            exit 1
+          fi
+          case "$ARTIFACT_DIGEST" in
+            sha256:*) digest=$ARTIFACT_DIGEST ;;
+            *) digest="sha256:$ARTIFACT_DIGEST" ;;
+          esac
+          printf '%s\n' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || {
+            echo "artifact upload reported an invalid digest" >&2
+            exit 1
+          }
+          echo "Serpent-Verified-Candidate-Run: $GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "Serpent-Verified-Candidate-Digest: $digest" >> "$GITHUB_STEP_SUMMARY"
+          echo "artifact_digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the exact candidate archive provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: serpent-verified-candidate
+          subject-digest: ${{ steps.digest.outputs.artifact_digest }}
+
+      - name: Attest the exact candidate archive identity
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: serpent-verified-candidate
+          subject-digest: ${{ steps.digest.outputs.artifact_digest }}
+          predicate-path: ${{ runner.temp }}/candidate-predicate.json
+          predicate-type: ${{ env.CUSTOM_PREDICATE }}
+
+  publish:
+    name: Promote verified candidate
+    needs: [resolve, verify]
+    if: |
+      always() &&
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.mode == 'promote' &&
+      (needs.verify.result == 'success' || needs.verify.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: serpent-release
+    concurrency:
+      group: serpent-apk-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Check out trusted workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.tools_commit }}
+          path: workflow-tools
+          sparse-checkout: |
+            scripts/openwrt_release.py
+            scripts/pages_snapshot.py
+            scripts/candidate_archive.py
+            scripts/apk-repository.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Validate the Release and resolve the tag commit
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+          TAG: ${{ needs.resolve.outputs.release_tag }}
         run: |
-          gh release upload "$RELEASE_TAG" \
-            artifacts/openwrt-apk/${{ matrix.slug }}/* \
-            --repo "${{ github.repository }}" \
-            --clobber
+          set -euo pipefail
+          [ -n "$TAG" ] || {
+            echo "release tag is missing" >&2
+            exit 1
+          }
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")
+          printf '%s\n' "$release" | jq -e '.draft == false and .tag_name != null' > /dev/null
+          ref_json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+          type=$(printf '%s\n' "$ref_json" | jq -r .object.type)
+          sha=$(printf '%s\n' "$ref_json" | jq -r .object.sha)
+          if [ "$type" = "tag" ]; then
+            tag_json=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha")
+            type=$(printf '%s\n' "$tag_json" | jq -r .object.type)
+            sha=$(printf '%s\n' "$tag_json" | jq -r .object.sha)
+          fi
+          [ "$type" = "commit" ] || {
+            echo "Release tag does not resolve to a commit" >&2
+            exit 1
+          }
+          case "$sha" in
+            *[!0-9a-f]* | '') {
+              echo "tag commit is not a full SHA" >&2
+              exit 1
+            } ;;
+          esac
+          [ "${#sha}" -eq 40 ] || {
+            echo "tag commit is not a full SHA" >&2
+            exit 1
+          }
+          echo "tag_commit=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the candidate workflow run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ needs.resolve.outputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          [ -n "$RUN_ID" ] || {
+            echo "candidate run id is missing" >&2
+            exit 1
+          }
+          [ "$RUN_ID" != "$GITHUB_RUN_ID" ] || {
+            echo "promotion cannot select its own run" >&2
+            exit 1
+          }
+          run_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          printf '%s\n' "$run_json" | jq -e \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --argjson run "$RUN_ID" \
+            '.id == $run and
+             .repository.full_name == $repo and
+             .head_repository.full_name == $repo and
+             .path == ".github/workflows/openwrt-apk.yml" and
+             .event == "workflow_dispatch" and
+             .status == "completed" and
+             .conclusion == "success" and
+             (.head_branch == "main" or .head_branch == "dev")' > /dev/null
+          sha=$(printf '%s\n' "$run_json" | jq -r .head_sha)
+          case "$sha" in
+            *[!0-9a-f]* | '') {
+              echo "candidate run head SHA is not a full SHA" >&2
+              exit 1
+            } ;;
+          esac
+          [ "${#sha}" -eq 40 ] || {
+            echo "candidate run head SHA is not a full SHA" >&2
+            exit 1
+          }
+          echo "run_sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the exact candidate artifact
+        id: artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ needs.resolve.outputs.candidate_run_id }}
+          DECLARED_DIGEST: ${{ needs.resolve.outputs.candidate_digest }}
+        run: |
+          set -euo pipefail
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100")
+          selected=$(printf '%s\n' "$artifacts" | jq -c \
+            '[.artifacts[] | select(.name == "serpent-verified-candidate")]')
+          count=$(printf '%s\n' "$selected" | jq 'length')
+          [ "$count" -eq 1 ] || {
+            echo "expected exactly one serpent-verified-candidate artifact, found $count" >&2
+            exit 1
+          }
+          artifact_id=$(printf '%s\n' "$selected" | jq -r '.[0].id')
+          expired=$(printf '%s\n' "$selected" | jq -r '.[0].expired')
+          digest=$(printf '%s\n' "$selected" | jq -r '.[0].digest')
+          size=$(printf '%s\n' "$selected" | jq -r '.[0].size_in_bytes')
+          [ "$expired" = "false" ] || {
+            echo "candidate artifact is expired" >&2
+            exit 1
+          }
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "candidate artifact has no API digest" >&2
+            exit 1
+          fi
+          case "$digest" in
+            sha256:*) ;;
+            *) digest="sha256:$digest" ;;
+          esac
+          [ "$digest" = "$DECLARED_DIGEST" ] || {
+            echo "declared digest does not match the artifact API digest" >&2
+            exit 1
+          }
+          case "$size" in
+            '' | *[!0-9]*) {
+              echo "candidate artifact has an invalid size" >&2
+              exit 1
+            } ;;
+          esac
+          [ "$size" -le 1073741824 ] || {
+            echo "candidate artifact is larger than the allowed 1 GiB" >&2
+            exit 1
+          }
+          gh api -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" \
+            > "$RUNNER_TEMP/candidate.zip"
+          python3 workflow-tools/scripts/openwrt_release.py verify-file \
+            --path "$RUNNER_TEMP/candidate.zip" --digest "$DECLARED_DIGEST"
+          echo "declared_digest=$DECLARED_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the artifact attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ steps.run.outputs.run_sha }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "$RUNNER_TEMP/candidate.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+            --source-digest "$RUN_SHA"
+
+      - name: Extract the candidate without executing it
+        id: root
+        run: |
+          set -euo pipefail
+          python3 workflow-tools/scripts/candidate_archive.py extract \
+            --archive "$RUNNER_TEMP/candidate.zip" \
+            --output "$RUNNER_TEMP/unpacked"
+          count=$(find "$RUNNER_TEMP/unpacked" -type f -name candidate.json | wc -l)
+          [ "$count" -eq 1 ] || {
+            echo "expected exactly one candidate.json, found $count" >&2
+            exit 1
+          }
+          root=$(dirname "$(find "$RUNNER_TEMP/unpacked" -type f -name candidate.json -print -quit)")
+          [ -f "$root/candidate.json" ]
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Validate candidate identity against the Release
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+          TAG_COMMIT: ${{ steps.release.outputs.tag_commit }}
+          RUN_SHA: ${{ steps.run.outputs.run_sha }}
+          EXPECTED_CHANNEL: ${{ needs.resolve.outputs.channel }}
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.package_version }}
+          INITIAL_REPOSITORY: ${{ needs.resolve.outputs.initial_repository }}
+        run: |
+          set -euo pipefail
+          jq -e \
+            --arg commit "$TAG_COMMIT" \
+            --arg head "$RUN_SHA" \
+            --arg channel "$EXPECTED_CHANNEL" \
+            --arg version "$EXPECTED_VERSION" \
+            --argjson initial "$INITIAL_REPOSITORY" \
+            '.schema_version == 1 and
+             .channel == $channel and
+             .source.package_version == $version and
+             .source.commit == $commit and
+             .revisions.helper_commit == $head and
+             .revisions.workflow_commit == $head and
+             .prior.initial == $initial and
+             (.prior.manifest_sha256 == null or
+               (.prior.manifest_sha256 | test("^[0-9a-f]{64}$")))' \
+            "$ROOT/candidate.json" > /dev/null
+
+      - name: Verify the candidate archive identity attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT: ${{ steps.root.outputs.root }}
+          RUN_SHA: ${{ steps.run.outputs.run_sha }}
+        run: |
+          set -euo pipefail
+          candidate_sha=$(sha256sum "$ROOT/candidate.json" | cut -d' ' -f1)
+          gh attestation verify "$RUNNER_TEMP/candidate.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+            --source-digest "$RUN_SHA" \
+            --predicate-type "$CUSTOM_PREDICATE" \
+            --format json > "$RUNNER_TEMP/archive-attestation.json"
+          jq -e \
+            --arg candidate "$candidate_sha" \
+            'any(.[]; .verificationResult.statement.predicate |
+              .candidate_manifest.sha256 == $candidate)' \
+            "$RUNNER_TEMP/archive-attestation.json" > /dev/null
+
+      - name: Obtain a fresh verified verification SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/serpent-publish-sdk.tar.zst"
+          extract="$RUNNER_TEMP/serpent-publish-sdk"
+          curl -fL --retry 3 --retry-delay 5 -o "$archive" "$SIGNING_SDK_URL"
+          printf '%s  %s\n' "$SIGNING_SDK_SHA256" "$archive" | sha256sum -c -
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          tar -C "$extract" -xf "$archive"
+          sdk=$(find "$extract" -maxdepth 1 -type d -name 'openwrt-sdk-*' -print -quit)
+          if [ -z "$sdk" ] || [ ! -x "$sdk/staging_dir/host/bin/apk" ]; then
+            echo "fresh verification SDK has no host apk executable" >&2
+            exit 1
+          fi
+          echo "sdk=$sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the promoted candidate
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+          SDK: ${{ steps.sdk.outputs.sdk }}
+        run: python3 workflow-tools/scripts/apk-repository.py verify --sdk "$SDK" --root "$ROOT"
+
+      - name: Verify manifest attestations and identity agreement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT: ${{ steps.root.outputs.root }}
+          TAG_COMMIT: ${{ steps.release.outputs.tag_commit }}
+          RUN_SHA: ${{ steps.run.outputs.run_sha }}
+        run: |
+          set -euo pipefail
+          candidate_sha=$(sha256sum "$ROOT/candidate.json" | cut -d' ' -f1)
+          for relative in \
+            candidate.json \
+            candidate.sha256 \
+            checksums/SHA256SUMS \
+            release/SHA256SUMS \
+            pages/repository-manifest.json; do
+            gh attestation verify "$ROOT/$relative" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+              --source-digest "$RUN_SHA" \
+              --predicate-type "$CUSTOM_PREDICATE" \
+              --format json > "$RUNNER_TEMP/attestation.json"
+            jq -e \
+              --arg source "$TAG_COMMIT" \
+              --arg head "$RUN_SHA" \
+              --arg candidate "$candidate_sha" \
+              'any(.[]; .verificationResult.statement.predicate |
+                .source.commit == $source and
+                .revisions.helper_commit == $head and
+                .revisions.workflow_commit == $head and
+                .candidate_manifest.sha256 == $candidate)' \
+              "$RUNNER_TEMP/attestation.json" > /dev/null
+          done
+          gh attestation verify "$ROOT/release/SHA256SUMS" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+            --source-digest "$RUN_SHA" \
+            --predicate-type "https://slsa.dev/provenance/v1"
+
+      - name: Verify package-specific attestations by provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT: ${{ steps.root.outputs.root }}
+          RUN_SHA: ${{ steps.run.outputs.run_sha }}
+        run: |
+          set -euo pipefail
+          candidate="$ROOT/candidate.json"
+          mapfile -t assets < <(jq -r '.release_assets[].path' "$candidate")
+          [ "${#assets[@]}" -gt 0 ] || {
+            echo "candidate has no Release assets" >&2
+            exit 1
+          }
+          for relative in "${assets[@]}"; do
+            case "$relative" in
+              '' | /* | *..*) {
+                echo "unsafe candidate asset path: $relative" >&2
+                exit 1
+              } ;;
+            esac
+            file="$ROOT/$relative"
+            [ -f "$file" ] || {
+              echo "missing candidate asset: $relative" >&2
+              exit 1
+            }
+            case "$relative" in
+              release/SHA256SUMS)
+                continue
+                ;;
+              *.apk)
+                provenance=$(jq -r --arg path "$relative" \
+                  '.packages[] | select(.release.path == $path) | .provenance' \
+                  "$candidate")
+                case "$provenance" in
+                  new)
+                    gh attestation verify "$file" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+                      --source-digest "$RUN_SHA" \
+                      --predicate-type "https://slsa.dev/provenance/v1"
+                    gh attestation verify "$file" \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/openwrt-apk.yml" \
+                      --source-digest "$RUN_SHA" \
+                      --predicate-type "https://cyclonedx.org/bom"
+                    ;;
+                  reused)
+                    echo "reused package retains its original provenance: $relative"
+                    ;;
+                  *) {
+                    echo "candidate has no package provenance for $relative" >&2
+                    exit 1
+                  } ;;
+                esac
+                ;;
+              *.cdx.json)
+                jq -e --arg path "$relative" \
+                  'any(.packages[]; .sbom.path == $path)' "$candidate" > /dev/null
+                ;;
+              *) {
+                echo "unexpected candidate Release asset: $relative" >&2
+                exit 1
+              } ;;
+            esac
+          done
+
+      - name: Refuse a stale Pages base
+        id: base
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+          GH_TOKEN: ${{ github.token }}
+          INITIAL_REPOSITORY: ${{ needs.resolve.outputs.initial_repository }}
+        run: |
+          set -euo pipefail
+          owner=$(printf '%s' "${GITHUB_REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')
+          repo=${GITHUB_REPOSITORY#*/}
+          pages_url="https://$owner.github.io/$repo/"
+          probe=$(python3 workflow-tools/scripts/pages_snapshot.py \
+            --base-url "$pages_url" probe)
+          current_digest=$(printf '%s\n' "$probe" | jq -r '.sha256 // ""')
+          expected=$(jq -r '.prior.manifest_sha256 // ""' "$ROOT/candidate.json")
+          args=(--expected-digest "$expected" --current-digest "$current_digest")
+          if [ "$INITIAL_REPOSITORY" = "true" ]; then
+            args+=(--allow-missing)
+          fi
+          python3 workflow-tools/scripts/openwrt_release.py verify-base "${args[@]}"
+
+      - name: Refuse a Pages tree with symlinks
+        env:
+          ROOT: ${{ steps.root.outputs.root }}
+        run: |
+          set -euo pipefail
+          [ -f "$ROOT/pages/repository-manifest.json" ] || {
+            echo "candidate Pages tree has no repository manifest" >&2
+            exit 1
+          }
+          if find "$ROOT/pages" -type l -print -quit | grep -q .; then
+            echo "candidate Pages tree contains symlinks" >&2
+            exit 1
+          fi
+
+      - name: Plan immutable Release assets
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT: ${{ steps.root.outputs.root }}
+          TAG: ${{ needs.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          jq '[.release_assets[] | {name: (.path | split("/")[-1]), sha256: .sha256}]' \
+            "$ROOT/candidate.json" > "$RUNNER_TEMP/candidate-assets.json"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            > "$RUNNER_TEMP/existing-assets.json"
+          python3 workflow-tools/scripts/openwrt_release.py plan-assets \
+            --assets "$RUNNER_TEMP/candidate-assets.json" \
+            --existing "$RUNNER_TEMP/existing-assets.json" \
+            --directory "$ROOT/release" > "$RUNNER_TEMP/asset-plan.json"
+          jq -r '.upload[]' "$RUNNER_TEMP/asset-plan.json" > "$RUNNER_TEMP/upload-assets.txt"
+          jq -r '.skip[]' "$RUNNER_TEMP/asset-plan.json" > "$RUNNER_TEMP/skip-assets.txt"
+          echo "Release assets to upload: $(wc -l < "$RUNNER_TEMP/upload-assets.txt")"
+          echo "Identical assets already present: $(wc -l < "$RUNNER_TEMP/skip-assets.txt")"
+
+      - name: Upload new Release assets without clobbering
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT: ${{ steps.root.outputs.root }}
+          TAG: ${{ needs.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            gh release upload "$TAG" "$ROOT/release/$name" \
+              --repo "$GITHUB_REPOSITORY"
+          done < "$RUNNER_TEMP/upload-assets.txt"
+
+      - name: Upload the complete Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: ${{ steps.root.outputs.root }}/pages
+          retention-days: 1
+
+      - name: Deploy the complete Pages repository in one operation
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
+      - name: Record the publication summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## Serpent APK promotion"
+            echo ""
+            echo "- Release tag: ${{ needs.resolve.outputs.release_tag }}"
+            echo "- Channel: ${{ needs.resolve.outputs.channel }}"
+            echo "- Candidate run: ${{ needs.resolve.outputs.candidate_run_id }}"
+            echo "- Candidate digest: ${{ needs.resolve.outputs.candidate_digest }}"
+            echo "- Tag commit: ${{ steps.release.outputs.tag_commit }}"
+            echo "- Pages URL: ${{ steps.deployment.outputs.page_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

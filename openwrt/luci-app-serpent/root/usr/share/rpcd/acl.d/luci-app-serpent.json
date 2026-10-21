@@ -1,0 +1,28 @@
+{
+  "luci-app-serpent": {
+    "description": "Manage serpent-wrt through its fixed rpcd adapter",
+    "read": {
+      "ubus": {
+        "serpent": [
+          "overview",
+          "config_get",
+          "config_validate",
+          "feed_list",
+          "feed_validate"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "serpent": [
+          "config_apply",
+          "service",
+          "feed_add",
+          "feed_remove",
+          "feed_replace",
+          "feed_reload"
+        ]
+      }
+    }
+  }
+}

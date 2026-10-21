@@ -58,6 +58,56 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LeaseEnrichment {
 		t.Error("lease_enrichment should default to false")
 	}
+	if cfg.PacketDropEnabled {
+		t.Error("packet_drop_enabled should default to false")
+	}
+}
+
+func TestLoadPacketDropRequiresEnforcement(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\npacket_drop_enabled: true\n")
+	_, err := config.Load(f)
+	if err == nil || !strings.Contains(err.Error(), "packet_drop_enabled requires enforcement_enabled: true") {
+		t.Fatalf("error: got %v, want timed-set prerequisite", err)
+	}
+}
+
+func TestLoadPacketDropAcceptsDedicatedTable(t *testing.T) {
+	f := writeTemp(t, `threat_feed_path: ./feed.txt
+enforcement_enabled: true
+packet_drop_enabled: true
+nft_table: serpent_wrt
+nft_set: blocked_ips
+`)
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load packet drop config: %v", err)
+	}
+	if !cfg.PacketDropEnabled || !cfg.EnforcementEnabled {
+		t.Fatalf("packet drop/enforcement: got %t/%t, want true/true", cfg.PacketDropEnabled, cfg.EnforcementEnabled)
+	}
+}
+
+func TestLoadPacketDropRejectsReservedTable(t *testing.T) {
+	for _, table := range []string{"fw4", "FW4", "filter", "nat", "ip", "ip6", "inet", "bridge"} {
+		t.Run(table, func(t *testing.T) {
+			f := writeTemp(t, "threat_feed_path: ./feed.txt\nenforcement_enabled: true\npacket_drop_enabled: true\nnft_table: "+table+"\n")
+			_, err := config.Load(f)
+			if err == nil || !strings.Contains(err.Error(), "reserved or shared") {
+				t.Fatalf("error: got %v, want reserved table rejection", err)
+			}
+		})
+	}
+}
+
+func TestLoadReservedTableAllowedWithoutPacketDrops(t *testing.T) {
+	f := writeTemp(t, "threat_feed_path: ./feed.txt\nnft_table: fw4\n")
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load detect-only config with reserved table: %v", err)
+	}
+	if cfg.NftTable != "fw4" {
+		t.Fatalf("nft_table: got %q, want fw4", cfg.NftTable)
+	}
 }
 
 func TestLoadLogLevels(t *testing.T) {

@@ -480,6 +480,10 @@ func TestRunNftcheckJSONSkipsWhenEnforcementDisabled(t *testing.T) {
 	if body["enforcement_enabled"] != false {
 		t.Fatalf("enforcement_enabled: got %v, want false", body["enforcement_enabled"])
 	}
+	if body["packet_drop_enabled"] != false || body["packet_drop_state"] != "disabled" || body["packet_drop_error"] != "" {
+		t.Fatalf("packet drop fields: got enabled=%v state=%v error=%v",
+			body["packet_drop_enabled"], body["packet_drop_state"], body["packet_drop_error"])
+	}
 	if body["table"] != "serpent_wrt" || body["set"] != "blocked_ips" {
 		t.Fatalf("table/set: %+v", body)
 	}
@@ -551,8 +555,38 @@ func TestRunNftcheckJSONInvalidConfig(t *testing.T) {
 	if body["status"] != "error" {
 		t.Fatalf("status: got %v, want error", body["status"])
 	}
+	if body["packet_drop_enabled"] != false || body["packet_drop_state"] != "disabled" {
+		t.Fatalf("packet drop fields: got enabled=%v state=%v",
+			body["packet_drop_enabled"], body["packet_drop_state"])
+	}
 	if !strings.Contains(fmt.Sprint(body["error"]), "threat_feed_path is required") {
 		t.Fatalf("error: got %v", body["error"])
+	}
+}
+
+func TestRunNftcheckJSONReportsPacketDropFailure(t *testing.T) {
+	cfg := writePacketDropConfig(t, "enforcement_enabled: true\npacket_drop_enabled: true\n")
+	restore := stubNftDefinitions(t, nil)
+	defer restore()
+	t.Setenv("PATH", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"nftcheck", "--config", cfg, "--format", "json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run nftcheck: exit=%d, want 1", code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatalf("decode stdout=%q: %v", stdout.String(), err)
+	}
+	if body["packet_drop_enabled"] != true {
+		t.Fatalf("packet_drop_enabled: got %v, want true", body["packet_drop_enabled"])
+	}
+	if body["packet_drop_state"] != "failed" {
+		t.Fatalf("packet_drop_state: got %v, want failed", body["packet_drop_state"])
+	}
+	if body["packet_drop_error"] == "" {
+		t.Fatalf("packet_drop_error: got empty, want verification failure")
 	}
 }
 

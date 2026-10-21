@@ -15,7 +15,12 @@ if [ -z "$SDK" ]; then
 fi
 
 SDK=$(cd "$SDK" && pwd)
-PACKAGE_SRC="$REPO_ROOT/openwrt/serpent-wrt"
+PACKAGE_SRC_REL=${OPENWRT_PACKAGE_SRC:-openwrt/serpent-wrt}
+PACKAGE_SRC="$REPO_ROOT/$PACKAGE_SRC_REL"
+if [ ! -d "$PACKAGE_SRC" ]; then
+	echo "OpenWrt package source does not exist: $PACKAGE_SRC" >&2
+	exit 2
+fi
 PACKAGE_DST="$SDK/package/serpent-wrt"
 TARGETS=${OPENWRT_PACKAGE_TARGETS:-"package/serpent-wrt/check package/serpent-wrt/compile"}
 MAKE_FLAGS=${OPENWRT_MAKE_FLAGS:-}
@@ -114,6 +119,7 @@ if [ -e "$PACKAGE_DST" ]; then
 		echo "set OPENWRT_PACKAGE_OVERWRITE=1 to refresh it" >&2
 		exit 2
 	fi
+# Remove only the SDK copy when the user sets OPENWRT_PACKAGE_OVERWRITE=1.
 	rm -rf "$PACKAGE_DST"
 fi
 

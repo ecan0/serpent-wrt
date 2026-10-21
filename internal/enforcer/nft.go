@@ -17,6 +17,7 @@ var (
 	runNftScript      = runNftScriptCommand
 	runNftScriptCheck = runNftScriptCheckCommand
 	runNftListSet     = listNftSetCommand
+	runNftJSON        = runNftJSONCommand
 )
 
 // Enforcer manages IPv4 and IPv6 nftables sets with kernel timeouts.
@@ -26,8 +27,9 @@ type Enforcer struct {
 	set      string
 	duration time.Duration
 
-	mu      sync.Mutex
-	blocked map[string]time.Time // ip string → unblock time
+	mu                 sync.Mutex
+	blocked            map[string]time.Time // ip string → unblock time
+	resourcesRecreated bool
 }
 
 // NftCheck reports whether both family-specific sets are visible.
@@ -88,18 +90,50 @@ func (e *Enforcer) Check() NftCheck {
 	return check
 }
 
-// EnsureSet validates and creates the IPv4 and IPv6 sets when they are missing.
+// EnsureSet validates and creates the IPv4 and IPv6 sets when they are
+// missing. It preserves the historical caller contract; EnsureResources
+// additionally reports whether resources had to be recreated.
 func (e *Enforcer) EnsureSet() error {
+	_, err := e.EnsureResources()
+	return err
+}
+
+// EnsureResources validates and creates the table and timed sets when they are
+// missing, preserving existing sets and their elements. recreated reports that
+// kernel resources had to be restored.
+func (e *Enforcer) EnsureResources() (bool, error) {
+	var recreated bool
+	err := withFirewallLock(func() error {
+		var innerErr error
+		recreated, innerErr = e.ensureResourcesLocked()
+		return innerErr
+	})
+	return recreated, err
+}
+
+func (e *Enforcer) ensureResourcesLocked() (bool, error) {
 	if err := e.ValidateSetDefinitions(); err != nil {
-		return fmt.Errorf("nftables set validation failed: %w", err)
+		return false, fmt.Errorf("nftables set validation failed: %w", err)
 	}
 	check := e.Check()
 	if !check.Available {
-		return fmt.Errorf("cannot validate nftables sets: %s", check.Error)
+		return false, fmt.Errorf("cannot validate nftables sets: %s", check.Error)
 	}
 	if check.TablePresent && check.SetPresent {
-		return nil
+		return false, nil
 	}
+	e.mu.Lock()
+	if !check.TablePresent {
+		clear(e.blocked)
+	} else {
+		for address := range e.blocked {
+			isIPv4 := net.ParseIP(address).To4() != nil
+			if (isIPv4 && !check.IPv4SetPresent) || (!isIPv4 && !check.IPv6SetPresent) {
+				delete(e.blocked, address)
+			}
+		}
+	}
+	e.mu.Unlock()
 	script := ensureSetScript(
 		e.table,
 		e.set,
@@ -108,9 +142,15 @@ func (e *Enforcer) EnsureSet() error {
 		!check.IPv6SetPresent,
 	)
 	if err := runNftScriptCheck(script); err != nil {
-		return fmt.Errorf("nftables set validation failed: %w", err)
+		return false, fmt.Errorf("nftables set validation failed: %w", err)
 	}
-	return e.runScript(script)
+	if err := e.runScript(script); err != nil {
+		return false, err
+	}
+	e.mu.Lock()
+	e.resourcesRecreated = true
+	e.mu.Unlock()
+	return true, nil
 }
 
 // ValidateSetDefinitions parses the dual-stack set batch without applying it.
@@ -139,22 +179,40 @@ func (e *Enforcer) Block(ip net.IP) error {
 		return nil
 	}
 	key := ip.String()
+	setName := familySetName(e.set, ip.To4() != nil)
 
 	e.mu.Lock()
-	if exp, ok := e.blocked[key]; ok && time.Now().Before(exp) {
+	exp, ok := e.blocked[key]
+	e.mu.Unlock()
+	if ok && time.Now().Before(exp) {
+		present, err := e.kernelElementPresent(setName, key)
+		if err != nil {
+			// A firewall reload can remove the sets while the cache is intact.
+			if _, ensureErr := e.EnsureResources(); ensureErr != nil {
+				return fmt.Errorf("restore nftables set %s before verifying %s: %w", setName, key, ensureErr)
+			}
+			present, err = e.kernelElementPresent(setName, key)
+			if err != nil {
+				return fmt.Errorf("verify %s in nftables set %s: %w", key, setName, err)
+			}
+		}
+		if present {
+			return nil
+		}
+		e.mu.Lock()
+		delete(e.blocked, key)
+		e.mu.Unlock()
+	}
+
+	return withFirewallLock(func() error {
+		if err := e.runScript(blockScript(e.table, setName, key, e.duration)); err != nil {
+			return err
+		}
+		e.mu.Lock()
+		e.blocked[key] = time.Now().Add(e.duration)
 		e.mu.Unlock()
 		return nil
-	}
-	e.mu.Unlock()
-
-	if err := e.runScript(blockScript(e.table, familySetName(e.set, ip.To4() != nil), key, e.duration)); err != nil {
-		return err
-	}
-
-	e.mu.Lock()
-	e.blocked[key] = time.Now().Add(e.duration)
-	e.mu.Unlock()
-	return nil
+	})
 }
 
 // IsBlocked reports whether ip is currently tracked as blocked.
@@ -258,6 +316,29 @@ func runNftScriptCheckCommand(script string) error {
 		return fmt.Errorf("nft --check: %w (output: %s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func runNftJSONCommand(args ...string) ([]byte, error) {
+	cmdArgs := append([]string{"-j"}, args...)
+	cmd := exec.Command("nft", cmdArgs...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("nft -j %s: %w (output: %s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func (e *Enforcer) kernelElementPresent(set, ip string) (bool, error) {
+	elements, err := runNftListSet(e.table, set)
+	if err != nil {
+		return false, err
+	}
+	for _, element := range elements {
+		if element == ip {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func runNftCheck(args ...string) error {

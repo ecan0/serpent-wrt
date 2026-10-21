@@ -35,6 +35,20 @@ const (
 
 var ipv4Broadcast = net.IPv4(255, 255, 255, 255)
 
+// Package-level seams keep the nftables implementation testable. Production
+// code always uses the enforcer methods below.
+var (
+	ensureEnforcerResources = func(e *enforcer.Enforcer) (bool, error) {
+		return e.EnsureResources()
+	}
+	blockEnforcerSource = func(e *enforcer.Enforcer, ip net.IP) error {
+		return e.Block(ip)
+	}
+	reconcileEnforcerPacketDrop = func(e *enforcer.Enforcer, enabled bool) (enforcer.PacketDropStatus, error) {
+		return e.ReconcilePacketDrop(enabled)
+	}
+)
+
 // isUnroutable reports whether ip should never appear as a threat actor.
 func isUnroutable(ip net.IP) bool {
 	if ip == nil {
@@ -231,7 +245,8 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	if e.cfg.EnforcementEnabled {
-		if err := e.enf.EnsureSet(); err != nil {
+		recreated, err := ensureEnforcerResources(e.enf)
+		if err != nil {
 			e.setNftSetupState(nftSetupFailed, err)
 			e.log.System(events.LevelError, events.SystemFields{
 				Component: "nft",
@@ -241,11 +256,18 @@ func (e *Engine) Run(ctx context.Context) error {
 			}, fmt.Sprintf("nftables setup failed: %v", err))
 		} else {
 			e.setNftSetupState(nftSetupReady, nil)
+			message := "nftables set ready"
+			if recreated {
+				message = "nftables set resources created"
+			}
 			e.log.System(events.LevelInfo, events.SystemFields{
 				Component: "nft",
 				Action:    "setup",
 				Status:    "success",
-			}, "nftables set ready")
+			}, message)
+			if e.cfg.PacketDropEnabled {
+				e.reconcilePacketDrop(true, "startup")
+			}
 		}
 	}
 
@@ -527,7 +549,17 @@ func (e *Engine) handleDetection(det *detector.Detection) {
 	e.recentMu.Unlock()
 
 	if e.cfg.EnforcementEnabled && det.SrcIP != nil {
-		if err := e.enf.Block(det.SrcIP); err != nil {
+		if err := e.ensureResourcesBeforeEnforcement(); err != nil {
+			atomic.AddUint64(&e.blocksFailed, 1)
+			e.log.System(events.LevelError, events.SystemFields{
+				Component: "nft",
+				Action:    "ensure_resources",
+				Status:    "failure",
+				Error:     err.Error(),
+			}, fmt.Sprintf("ensure nftables resources before blocking %s: %v", det.SrcIP, err))
+			return
+		}
+		if err := blockEnforcerSource(e.enf, det.SrcIP); err != nil {
 			atomic.AddUint64(&e.blocksFailed, 1)
 			e.log.Error(fmt.Sprintf("add %s to nftables set: %v", det.SrcIP, err))
 			return
@@ -721,6 +753,59 @@ func ipStr(ip net.IP) string {
 		return ""
 	}
 	return ip.String()
+}
+
+// ensureResourcesBeforeEnforcement verifies kernel membership before every
+// block. An external flush or fw4 reload can recreate the sets while the
+// daemon cache still reports them as present, so the cached path is never
+// trusted without this check.
+func (e *Engine) ensureResourcesBeforeEnforcement() error {
+	recreated, err := ensureEnforcerResources(e.enf)
+	if err != nil {
+		return err
+	}
+	if !recreated {
+		return nil
+	}
+	e.log.System(events.LevelWarn, events.SystemFields{
+		Component: "nft",
+		Action:    "resources",
+		Status:    "recreated",
+	}, "nftables set resources were missing and have been recreated; cached block state is re-verified before the next write")
+	if e.cfg.PacketDropEnabled {
+		e.reconcilePacketDrop(true, "resources_recreated")
+	}
+	return nil
+}
+
+func (e *Engine) reconcilePacketDrop(enabled bool, action string) {
+	status, err := reconcileEnforcerPacketDrop(e.enf, enabled)
+	fields := events.SystemFields{Component: "nft", Action: action}
+	if err != nil {
+		fields.Status = "failure"
+		fields.Error = err.Error()
+		e.log.System(events.LevelError, fields, fmt.Sprintf("reconcile packet drop policy failed: %v", err))
+		return
+	}
+	if status.ResourcesLost {
+		e.log.System(events.LevelWarn, events.SystemFields{
+			Component: "nft",
+			Action:    "resources",
+			Status:    "recreated",
+		}, "nft resources were lost; missing resources were recreated, but lost set elements cannot be restored")
+	}
+	switch status.State {
+	case enforcer.PacketDropStateReady:
+		fields.Status = "success"
+		e.log.System(events.LevelInfo, fields, "packet drop policy active for forwarded traffic")
+	case enforcer.PacketDropStateDisabled:
+		fields.Status = "disabled"
+		e.log.System(events.LevelWarn, fields, "packet drop policy is disabled")
+	default:
+		fields.Status = status.State
+		fields.Error = status.Error
+		e.log.System(events.LevelError, fields, fmt.Sprintf("packet drop policy state=%s: %s", status.State, status.Error))
+	}
 }
 
 func (e *Engine) setNftSetupState(state string, err error) {

@@ -8,6 +8,12 @@ dnsmasq_leases_path: /tmp/dhcp.leases
 enforcement_enabled: false  # set true only after a firewall rule references nft_set
 block_duration: 1h
 
+# Optional forwarded-packet drops through the owned serpent_forward chain.
+# Requires enforcement_enabled: true and fw4 without flow offloading. The
+# offender is the detection source address, so an outbound match can isolate
+# the originating LAN host. Detect-only remains the default.
+packet_drop_enabled: false
+
 # LAN CIDRs — used for direction classification (LAN→WAN vs WAN→LAN).
 # Add every private subnet reachable through this router.
 lan_cidrs:

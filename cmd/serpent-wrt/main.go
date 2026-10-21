@@ -27,23 +27,29 @@ var (
 	buildDate = "unknown"
 )
 
-var validateNftDefinitions = func(table, set string) error {
-	return enforcer.New(table, set, 0).ValidateSetDefinitions()
-}
+var (
+	validateNftDefinitions = func(table, set string) error {
+		return enforcer.New(table, set, 0).ValidateSetDefinitions()
+	}
+	validatePacketDropPrerequisites = enforcer.ValidatePacketDropPrerequisites
+)
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "configtest" {
-		return runConfigtest(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
+	if len(args) > 0 && args[0] == "rpcd" {
+		return runRPCD(args[1:], os.Stdin, stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
 	if len(args) > 0 && args[0] == "nftcheck" {
 		return runNftcheck(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
 	if len(args) > 0 && args[0] == "feed" {
 		return runFeed(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
+	}
+	if len(args) > 0 && args[0] == "firewall" {
+		return runFirewall(args[1:], stdout, stderr, "/etc/serpent-wrt/serpent-wrt.yaml")
 	}
 
 	fs := flag.NewFlagSet("serpent-wrt", flag.ContinueOnError)
@@ -52,7 +58,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	bannerMode := fs.String("banner", "auto", "startup banner mode: auto, always, or never")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() {
-		writef(stderr, "Usage: serpent-wrt [--config path] [--banner auto|always|never] [configtest|nftcheck|feed]\n\n")
+		writef(stderr, "Usage: serpent-wrt [--config path] [--banner auto|always|never] [configtest|nftcheck|feed|firewall|rpcd]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -79,6 +85,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runNftcheck(fs.Args()[1:], stdout, stderr, *cfgPath)
 		case "feed":
 			return runFeed(fs.Args()[1:], stdout, stderr, *cfgPath)
+		case "firewall":
+			return runFirewall(fs.Args()[1:], stdout, stderr, *cfgPath)
 		default:
 			writef(stderr, "serpent-wrt: unknown command %q\n", fs.Arg(0))
 			return 2
@@ -116,8 +124,9 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 	if err != nil {
 		if *format == "json" {
 			writeNftcheckJSON(stdout, nftcheckResult{
-				Status: "error",
-				Error:  "config: " + err.Error(),
+				Status:          "error",
+				PacketDropState: enforcer.PacketDropStateDisabled,
+				Error:           "config: " + err.Error(),
 			})
 			return 1
 		}
@@ -129,11 +138,17 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 	result := nftcheckResult{
 		Status:             "ok",
 		EnforcementEnabled: cfg.EnforcementEnabled,
+		PacketDropEnabled:  cfg.PacketDropEnabled,
+		PacketDropState:    enforcer.PacketDropStateDisabled,
 		Table:              cfg.NftTable,
 		Set:                cfg.NftSet,
 		Available:          enf.Available(),
 		ParserChecked:      true,
 	}
+	packetDrop := enf.CheckPacketDrop(cfg.PacketDropEnabled)
+	result.PacketDropEnabled = packetDrop.Enabled
+	result.PacketDropState = packetDrop.State
+	result.PacketDropError = packetDrop.Error
 	if err := validateNftDefinitions(cfg.NftTable, cfg.NftSet); err != nil {
 		result.Status = "failed"
 		result.ParserError = err.Error()
@@ -147,6 +162,17 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 		return 1
 	}
 	result.ParserValid = true
+	if result.PacketDropState == enforcer.PacketDropStateFailed {
+		result.Status = "failed"
+		result.Error = result.PacketDropError
+		result.Diagnostic = "packet drop policy check failed"
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
+		} else {
+			writef(stderr, "serpent-wrt: nft check failed: %s\n", result.PacketDropError)
+		}
+		return 1
+	}
 
 	if !cfg.EnforcementEnabled {
 		result.Status = "skipped"
@@ -199,17 +225,36 @@ func runNftcheck(args []string, stdout, stderr io.Writer, defaultConfigPath stri
 		return 1
 	}
 
+	if cfg.PacketDropEnabled && result.PacketDropState != enforcer.PacketDropStateReady {
+		result.Status = "failed"
+		result.Diagnostic = "packet drop policy is not active"
+		if result.Error == "" {
+			result.Error = result.PacketDropError
+		}
+		if *format == "json" {
+			writeNftcheckJSON(stdout, result)
+			return 1
+		}
+		writef(stderr, "serpent-wrt: nft check failed: packet drop policy is not active (state=%s): %s\n",
+			result.PacketDropState, result.PacketDropError)
+		return 1
+	}
+
 	if *format == "json" {
 		writeNftcheckJSON(stdout, result)
 		return 0
 	}
-	writef(stdout, "serpent-wrt: nft OK: table=%s sets=%s_v4,%s_v6\n", cfg.NftTable, cfg.NftSet, cfg.NftSet)
+	writef(stdout, "serpent-wrt: nft OK: table=%s sets=%s_v4,%s_v6 packet_drop=%s\n",
+		cfg.NftTable, cfg.NftSet, cfg.NftSet, result.PacketDropState)
 	return 0
 }
 
 type nftcheckResult struct {
 	Status             string `json:"status"`
 	EnforcementEnabled bool   `json:"enforcement_enabled"`
+	PacketDropEnabled  bool   `json:"packet_drop_enabled"`
+	PacketDropState    string `json:"packet_drop_state"`
+	PacketDropError    string `json:"packet_drop_error"`
 	Table              string `json:"table,omitempty"`
 	Set                string `json:"set,omitempty"`
 	Available          bool   `json:"available"`
@@ -326,6 +371,11 @@ func checkConfig(path string) (*config.Config, int, []string, error) {
 	feedEntries, err := feed.ValidateFile(cfg.ThreatFeedPath)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("threat feed: %w", err)
+	}
+	if cfg.PacketDropEnabled {
+		if err := validatePacketDropPrerequisites(cfg.NftTable, cfg.NftSet); err != nil {
+			return nil, 0, nil, fmt.Errorf("packet drop prerequisites: %w", err)
+		}
 	}
 	return cfg, feedEntries, config.Warnings(cfg), nil
 }

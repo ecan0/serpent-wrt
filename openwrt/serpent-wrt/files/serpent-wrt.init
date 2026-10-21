@@ -4,11 +4,13 @@ USE_PROCD=1
 START=95
 STOP=5
 
-PROG=/usr/sbin/serpent-wrt
-CONF=/etc/serpent-wrt/serpent-wrt.yaml
-FEED=/etc/serpent-wrt/threat-feed.txt
+# IPKG_INSTROOT supports image-root checks and local harnesses; empty on a device.
+ROOT="${IPKG_INSTROOT:-}"
+PROG="$ROOT/usr/sbin/serpent-wrt"
+CONF="$ROOT/etc/serpent-wrt/serpent-wrt.yaml"
+FEED="$ROOT/etc/serpent-wrt/threat-feed.txt"
 
-extra_command "configtest" "Validate configuration and threat feed"
+extra_command "configtest" "Validate configuration, feed, and fw4 prerequisites"
 extra_command "nftcheck" "Validate nftables enforcement resources"
 extra_command "reload_feed" "Reload threat feed without restarting"
 
@@ -21,6 +23,8 @@ nftcheck() {
 }
 
 start_service() {
+	# Read-only validation. Never start or reconcile the drop policy here:
+	# the daemon creates the sets and then reconciles enabled policy.
 	configtest || return 1
 
 	procd_open_instance
@@ -32,11 +36,30 @@ start_service() {
 	procd_close_instance
 }
 
+stop_service() {
+	# Uses the persisted table/set identity, never the current configuration,
+	# so a bad config edit cannot prevent removal of the owned chain.
+	if [ ! -x "$PROG" ]; then
+		echo "serpent-wrt: cannot remove the owned packet-drop chain: $PROG is unavailable" >&2
+		return 1
+	fi
+	if ! "$PROG" firewall disable; then
+		echo "serpent-wrt: failed to remove the owned packet-drop chain" >&2
+		return 1
+	fi
+	return 0
+}
+
 restart() {
+	# Validate before stop so an invalid drop configuration leaves the current
+	# daemon and its policy intact.
 	configtest || return 1
 
 	trap '' TERM
-	stop "$@"
+	if ! stop "$@"; then
+		trap - TERM
+		return 1
+	fi
 	trap - TERM
 	start "$@"
 }

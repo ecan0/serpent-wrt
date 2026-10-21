@@ -203,6 +203,66 @@ func TestHandleStatus(t *testing.T) {
 	}
 }
 
+func TestHandleStatusExposesPacketDropState(t *testing.T) {
+	s := newServer("127.0.0.1:0", &fakeEngine{
+		status: runtime.Status{
+			Status: "ok",
+			Enforcement: runtime.EnforcementStatus{
+				Enabled:           true,
+				PacketDropEnabled: true,
+				PacketDropState:   "failed",
+				PacketDropError:   "serpent_forward hook is missing",
+			},
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	w := httptest.NewRecorder()
+	s.handleStatus(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	enforcement, ok := body["enforcement"].(map[string]any)
+	if !ok {
+		t.Fatalf("enforcement: got %#v", body["enforcement"])
+	}
+	if enforcement["packet_drop_enabled"] != true {
+		t.Fatalf("packet_drop_enabled: got %v, want true", enforcement["packet_drop_enabled"])
+	}
+	if enforcement["packet_drop_state"] != "failed" {
+		t.Fatalf("packet_drop_state: got %v, want failed", enforcement["packet_drop_state"])
+	}
+	if enforcement["packet_drop_error"] != "serpent_forward hook is missing" {
+		t.Fatalf("packet_drop_error: got %v", enforcement["packet_drop_error"])
+	}
+}
+
+func TestHandleStatusExposesDisabledPacketDropByDefault(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	w := httptest.NewRecorder()
+	s.handleStatus(w, req)
+
+	var body map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	enforcement, ok := body["enforcement"].(map[string]any)
+	if !ok {
+		t.Fatalf("enforcement: got %#v", body["enforcement"])
+	}
+	if enforcement["packet_drop_enabled"] != false || enforcement["packet_drop_state"] != "disabled" {
+		t.Fatalf("packet drop fields: got enabled=%v state=%v", enforcement["packet_drop_enabled"], enforcement["packet_drop_state"])
+	}
+	if enforcement["packet_drop_error"] != "" {
+		t.Fatalf("packet_drop_error: got %v, want empty", enforcement["packet_drop_error"])
+	}
+}
+
 func TestHandleReloadMethodNotAllowed(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/reload", nil)

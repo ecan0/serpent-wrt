@@ -1,0 +1,56 @@
+poll_interval: 10s
+collector: polling
+threat_feed_path: /etc/serpent-wrt/threat-feed.txt
+profile: home
+lease_enrichment: true
+dnsmasq_leases_path: /tmp/dhcp.leases
+
+enforcement_enabled: false
+block_duration: 1h
+
+lan_cidrs:
+  - 192.168.1.0/24
+
+# Add the router's own interface addresses to avoid alerting on router-originated
+# management traffic.
+# self_ips:
+#   - 192.168.1.1
+
+nft_table: serpent_wrt
+nft_set: blocked_ips
+
+log_level: info
+dedup_window: 5m
+
+# Config-only suppressions for expected/noisy detections. Omitted dimensions act
+# as wildcards; keep rules specific enough that real attacks still alert.
+# suppression_rules:
+#   - name: trusted scanner
+#     detectors: [port_scan, ext_scan]
+#     src_addrs:
+#       - 192.168.1.50
+
+api_enabled: true
+api_bind: 127.0.0.1:8080
+
+# syslog_target: "10.0.0.10:514"
+# syslog_proto: "udp"
+
+detectors:
+  fanout:
+    distinct_dst_threshold: 50
+    window: 60s
+  scan:
+    distinct_port_threshold: 30
+    window: 60s
+  beacon:
+    min_hits: 5
+    tolerance: 3s
+    window: 5m
+    exclude_ports: [53, 123]
+  ext_scan:
+    distinct_port_threshold: 15
+    window: 60s
+  brute_force:
+    threshold: 5
+    window: 60s

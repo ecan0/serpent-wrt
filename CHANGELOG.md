@@ -4,6 +4,45 @@ This changelog lists notable serpent-wrt changes.
 
 The project uses semantic versions for tagged releases.
 
+## Unreleased
+
+### Added
+
+- Feed lookup benchmarks cover IPv4 and IPv6 exact hits, misses, and CIDR hits with 1000, 10000, and 20000 entries.
+- Release guidance separates private ARM64 resource samples, local benchmarks, and device runtime acceptance.
+- An explicit `packet_drop_enabled` policy adds owned fw4 source-address drops for forwarded packets. Detect-only remains the default.
+- Firewall reconcile/disable commands preserve timed sets and use a private recovery identity.
+- `nftcheck` and runtime enforcement status distinguish disabled, ready, and failed packet-drop policy.
+- The daemon includes a bounded rpcd executable-plugin adapter with revisioned configuration validation/apply, service state controls, and paged feed management.
+- A fixed rpcd wrapper and method-scoped ACL source are staged under `openwrt/luci-app-serpent` for the future LuCI package.
+- rpcd methods cover overview, revisioned configuration validation/apply, service controls, and bounded feed management.
+- The OpenWrt community recipe now lives in this repository and uses the SDK package checker.
+- The fixed executable-plugin interface rejects unknown methods and method fields and limits RPC input to 1 MiB.
+
+### Fixed
+
+- The rpcd adapter removes the top-level `ubus_rpc_session` field before method decoding.
+- Configuration apply validates the feed and loopback API bind before atomic replacement.
+- Failed apply restores the prior config and restarts only a previously running service.
+- Running feed writes use the fixed loopback routes; a disabled or unavailable API fails closed.
+
+
+- Kernel resource loss clears stale block-cache entries for missing sets. Cached offenders cannot skip a missing kernel entry.
+- Reconciliation reports lost kernel resources and refuses foreign chains, shared tables, unavailable includes, and flow offloading.
+- Release selection parsing now accepts the documented `Serpent-Channel` line instead of rejecting every selection record.
+- Signing uses one directory per package, so equal canonical filenames across architectures no longer fail as duplicates.
+
+### Changed
+
+- The APK workflow separates build, sign, verify, and publish jobs. Build jobs hold no key.
+- A protected `serpent-release` environment holds the ECDSA P-256 key; only the public key and fingerprint ship.
+- The workflow signs each APK and repository index, and verifies accepted-and-rejected index trust.
+- Publication promotes one verified candidate by digest instead of rebuilding on a Release event.
+- Release uploads never overwrite an existing asset with different bytes.
+- Build mode requires an explicit `package_version`; the placeholder default is removed.
+- The custom feed keeps its recipe; upstream layout preparation uses a separate checkout.
+- The workflow now also requires a real UI package for v1.0 and later candidates.
+
 ## v0.5.0 - 2026-10-17
 
 ### Added

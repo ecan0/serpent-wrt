@@ -2,11 +2,48 @@ package enforcer
 
 import (
 	"errors"
+	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestMain keeps every test away from the production runtime directory and
+// fails closed if a test reaches a real nft or uci executable.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "serpent-wrt-enforcer-test-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	runtimeStateDir = dir
+	lookPath = func(file string) (string, error) {
+		return "", fmt.Errorf("test: unexpected lookPath(%q)", file)
+	}
+	runNftCommand = func(args ...string) error {
+		return fmt.Errorf("test: unexpected nft %v", args)
+	}
+	runNftScript = func(string) error {
+		return errors.New("test: unexpected nft apply")
+	}
+	runNftScriptCheck = func(string) error {
+		return errors.New("test: unexpected nft check")
+	}
+	runNftListSet = func(string, string) ([]string, error) {
+		return nil, errors.New("test: unexpected nft set listing")
+	}
+	runNftJSON = func(args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("test: unexpected nft JSON %v", args)
+	}
+	runUCIOutput = func(args ...string) (string, error) {
+		return "", fmt.Errorf("test: unexpected uci %v", args)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestFormatDurationHours(t *testing.T) {
 	cases := []struct {
@@ -98,6 +135,16 @@ func TestBlockTracksSuccessfulBlock(t *testing.T) {
 		return nil
 	})
 	defer restore()
+	restoreList := stubNftListSet(t, func(table, set string) ([]string, error) {
+		if table != "serpent_wrt" || set != "blocked_ips_v4" {
+			t.Fatalf("unexpected membership check: %s %s", table, set)
+		}
+		if len(scripts) == 0 {
+			return nil, nil
+		}
+		return []string{"1.2.3.4"}, nil
+	})
+	defer restoreList()
 
 	e := New("serpent_wrt", "blocked_ips", time.Hour)
 	ip := net.ParseIP("1.2.3.4")
