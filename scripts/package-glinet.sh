@@ -1,76 +1,74 @@
 #!/bin/sh
-# package-glinet.sh - build a legacy OpenWrt .ipk for GL.iNet MT7986AV routers
-#
-# Target: MediaTek Filogic 830 (MT7986AV), ARM Cortex-A53, aarch64
-# OpenWrt architecture string: aarch64_cortex-a53
-#
-# Prefer the feed package under openwrt/serpent-wrt for reproducible SDK or
-# buildroot builds. This script remains as a fast local packaging helper.
-#
-# Requirements:
-#   - Go toolchain on the build host
-#   - ar (GNU binutils; on macOS: brew install binutils && export PATH="/opt/homebrew/opt/binutils/bin:$PATH")
-#
-# Usage:
-#   sh scripts/package-glinet.sh
-#   VERSION=0.3.1 sh scripts/package-glinet.sh
+# Legacy opkg package for aarch64_cortex-a53 GL.iNet firmware.
+# Canonical OpenWrt 25.12 releases use the SDK APK recipe.
+set -eu
 
-set -e
-
-BINARY=serpent-wrt
 VERSION=${VERSION:-0.1.0-dev}
 ARCH=aarch64_cortex-a53
-OUTDIR=bin
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
-
-cd "$REPO_ROOT"
+OUTDIR=${OPENWRT_IPK_OUT_DIR:-"$REPO_ROOT/bin"}
 mkdir -p "$OUTDIR"
+OUTDIR=$(cd "$OUTDIR" && pwd)
 
-echo "==> Building $BINARY for $ARCH (GOOS=linux GOARCH=arm64)..."
-GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" \
-    -o "${OUTDIR}/${BINARY}-linux-arm64" ./cmd/serpent-wrt
+case "$VERSION" in
+	''|*[!A-Za-z0-9.+~-]*) echo "invalid package version" >&2; exit 2 ;;
+esac
+
+BINARY=${OPENWRT_BINARY:-}
+if [ -z "$BINARY" ]; then
+	BINARY="$OUTDIR/serpent-wrt-linux-arm64"
+	COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+	BUILD_DATE=$(git -C "$REPO_ROOT" show -s --format=%cs HEAD)
+	(
+		cd "$REPO_ROOT"
+		GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+			-ldflags="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.buildDate=$BUILD_DATE" \
+			-o "$BINARY" ./cmd/serpent-wrt
+	)
+fi
+[ -f "$BINARY" ] || { echo "missing ARM executable: $BINARY" >&2; exit 2; }
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+trap 'rm -rf "$STAGE"' EXIT HUP INT TERM
+mkdir -p "$STAGE/data/usr/sbin" "$STAGE/data/etc/init.d" \
+	"$STAGE/data/etc/serpent-wrt" "$STAGE/control"
+cp "$BINARY" "$STAGE/data/usr/sbin/serpent-wrt"
+cp "$REPO_ROOT/openwrt/serpent-wrt/files/serpent-wrt.init" "$STAGE/data/etc/init.d/serpent-wrt"
+cp "$REPO_ROOT/openwrt/serpent-wrt/files/serpent-wrt.yaml" "$STAGE/data/etc/serpent-wrt/serpent-wrt.yaml"
+cp "$REPO_ROOT/openwrt/serpent-wrt/files/threat-feed.txt" "$STAGE/data/etc/serpent-wrt/threat-feed.txt"
+chmod 755 "$STAGE/data/usr/sbin/serpent-wrt" "$STAGE/data/etc/init.d/serpent-wrt"
+chmod 600 "$STAGE/data/etc/serpent-wrt/serpent-wrt.yaml"
+chmod 644 "$STAGE/data/etc/serpent-wrt/threat-feed.txt"
 
-# Stage binary
-mkdir -p "${STAGE}/data/usr/sbin"
-cp "${OUTDIR}/${BINARY}-linux-arm64" "${STAGE}/data/usr/sbin/serpent-wrt"
-chmod 755 "${STAGE}/data/usr/sbin/serpent-wrt"
-
-# Stage default config and example feed
-mkdir -p "${STAGE}/data/etc/serpent-wrt"
-cp configs/serpent-wrt.example.yaml "${STAGE}/data/etc/serpent-wrt/serpent-wrt.yaml.example"
-cp testdata/threat-feed.txt         "${STAGE}/data/etc/serpent-wrt/threat-feed.txt.example"
-
-# control file
-mkdir -p "${STAGE}/control"
-cat > "${STAGE}/control/control" <<EOF
-Package: ${BINARY}
-Version: ${VERSION}
-Architecture: ${ARCH}
+cat > "$STAGE/control/control" <<EOF
+Package: serpent-wrt
+Version: $VERSION
+Architecture: $ARCH
 Maintainer: ecan0
-Depends:
+Depends: libc, nftables-json, kmod-nf-conntrack, firewall4
 Section: net
-Description: Lightweight threat intelligence and enforcement daemon for OpenWrt.
- Collects conntrack metadata, runs behavioral detectors, and blocks suspicious
- IPs via nftables. No packet capture. No database. Single binary.
+Description: Conntrack threat detection and timed nftables sets.
+ Legacy opkg compatibility package. Managed fw4 packet drops are not installed.
 EOF
+cat > "$STAGE/control/conffiles" <<'EOF'
+/etc/serpent-wrt/serpent-wrt.yaml
+/etc/serpent-wrt/threat-feed.txt
+EOF
+cat > "$STAGE/control/prerm" <<'EOF'
+#!/bin/sh
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+if [ -x /etc/init.d/serpent-wrt ]; then
+	/etc/init.d/serpent-wrt stop || exit 1
+fi
+EOF
+chmod 755 "$STAGE/control/prerm"
+printf '2.0\n' > "$STAGE/debian-binary"
 
-# debian-binary marker
-printf '2.0\n' > "${STAGE}/debian-binary"
-
-# Build the ipk (ar archive of three tar.gz members)
-PKG="${OUTDIR}/${BINARY}_${VERSION}_${ARCH}.ipk"
+PKG="$OUTDIR/serpent-wrt_${VERSION}_${ARCH}.ipk"
 (
-    cd "${STAGE}"
-    tar -czf control.tar.gz -C control .
-    tar -czf data.tar.gz    -C data    .
-    ar r "${REPO_ROOT}/${PKG}" debian-binary control.tar.gz data.tar.gz
+	cd "$STAGE"
+	tar -czf control.tar.gz -C control .
+	tar -czf data.tar.gz -C data .
+	ar r "$PKG" debian-binary control.tar.gz data.tar.gz
 )
-
-echo "==> Created: ${PKG}"
-echo ""
-echo "Install on router:"
-echo "  scp -o StrictHostKeyChecking=yes ${PKG} root@<router-ip>:/tmp/"
-echo "  ssh -o StrictHostKeyChecking=yes root@<router-ip> opkg install /tmp/$(basename ${PKG})"
+printf 'Created: %s\n' "$PKG"

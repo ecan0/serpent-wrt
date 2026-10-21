@@ -313,4 +313,21 @@ The real-name DCO identity and public submission authority remain prerequisites.
 Upstream acceptance does not block the third-party release.
 Do not promise inclusion in an existing OpenWrt stable feed.
 
+## Legacy GL.iNet Firmware With opkg
+
+Use the compatibility IPK only on `aarch64_cortex-a53` firmware with `opkg`.
+It installs the daemon, init script, configuration, and feed.
+It does not install the managed fw4 include or LuCI files.
+Keep packet drops disabled on this package.
+
+```sh
+VERSION=0.6.0-rc.1 sh scripts/package-glinet.sh
+```
+
+For a qualified SDK executable, set `OPENWRT_BINARY` to its absolute path.
+The helper copies those exact executable bytes instead of another Go build.
+Set `OPENWRT_IPK_OUT_DIR` to select the output directory.
+Record both the executable and IPK SHA-256 values.
+This compatibility check does not establish APK installation on older firmware.
+
 Operational runbooks: [openwrt-runbooks.md](openwrt-runbooks.md).
