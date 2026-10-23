@@ -40,7 +40,7 @@ They do not define a fixed countdown to v1.0.
 
 | Series | Required outcome |
 | --- | --- |
-| v0.6.x | Complete: ARM64 baseline and repeatable resource measurements |
+| v0.6.x | Complete: ARM64 baseline and 300-second resource measurement |
 | v0.7.x | Live IPv6 evidence with the IPv4 gate intact |
 | v0.8.x | Optional source-address drops for forwarded packets through fw4 |
 | v0.9.x | Trusted APK distribution, community recipes, and deployment rehearsal |
