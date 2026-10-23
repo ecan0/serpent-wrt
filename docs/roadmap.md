@@ -5,31 +5,33 @@ no packet capture, no DPI, no database, and no heavy runtime dependencies.
 
 ## Current Status
 
-`v0.5.0` is the released stable MVP.
-It adds effective operator log levels and collector poll status.
+`v0.5.0` remains the released stable MVP.
+Its 19-case IPv4 E2E, recovery, install, upgrade, feed reload, and rollback gate passed on OpenWrt x86/generic.
 
-A 19-case IPv4 E2E gate passed on an OpenWrt x86/generic test target for the
-`0.5.0-rc.1` build from the same source tree.
-Recovery and live-state checks also passed.
-Package installation, upgrade, feed reload, and rollback passed on the same
-runtime class.
+`v0.6.0` was released on 2026-10-21.
+The signed source candidate is `269dbc0c6b14c38d651e9b1fc45a6e1b78c0eaaa`.
+The final SDK APK set has provenance and SBOM attestations for all three targets.
+The signed Pages key and stable index are public and verify with the release key.
+The private ARM qualification passed 299 samples within the 300-second gate:
+maximum daemon RSS 13948 KiB, one-core CPU 30.332 percent, 7 file descriptors,
+and 907 complete-table conntrack entries.
+One controlled `feed_match` reached the local API and stdout in 8.67 seconds.
+Packet drops stayed disabled, and cleanup preserved the original firewall hash.
+The first resource attempt exceeded the CPU ceiling once during concurrent
+commands. A clean isolated run passed; the cause of the first spike is unknown.
 
-A v0.6.0 ARM64 candidate passed collection, one controlled detection, API/stdout delivery, and bounded resource measurements.
-Recovery removed the temporary package and preserved the original firewall configuration.
-Final release artifacts still require their own qualification.
-Live IPv6 E2E and packet drops remain unverified.
+The Flint 2 uses OpenWrt 24.10.4 and `opkg`, not APK.
+The ARM runtime check used a temporary opkg compatibility package built from
+the exact signed-candidate executable.
+The disposable x86 VM passed trusted APK install, conffile-preserving upgrade,
+feed reload, invalid-config restart protection, rollback, removal, and full
+snapshot restoration.
+That lifecycle used a private signed repository, not the public Pages endpoint.
 
-The private ARM64 resource command supports an approved multicore CPU count.
-Household SSH access, installation, and controlled detection each need separate authority.
-The private gate also supports separate schema-2 IPv4 and IPv6 candidate contracts.
-Local IPv6 socket checks do not replace an authorized live IPv6 gate.
-Development code also provides explicit forwarded-source drops, private recovery state, and resource-loss handling.
-Local kernel checks do not establish the required OpenWrt packet-path result.
-The APK workflow can now sign packages and indexes and promote one verified candidate by digest.
-The APK signing key and protected release environment are configured.
-Public trust anchors are in `contrib/keys`.
-Final candidate publication remains subject to the release gates.
-Target repository install, upgrade, and rollback remain unverified.
+Live IPv6 E2E, fw4 packet-path drops, and complete LuCI support remain unverified.
+Development code includes explicit forwarded-source drops and authenticated
+rpcd methods, but the v0.6.0 daemon package does not install the LuCI wrapper or ACL.
+The public trust anchors are in `contrib/keys`; private signing keys remain in Vault.
 
 ## Third-Party Release Development
 
@@ -38,7 +40,7 @@ They do not define a fixed countdown to v1.0.
 
 | Series | Required outcome |
 | --- | --- |
-| v0.6.x | Real ARM64 baseline and repeatable resource measurements |
+| v0.6.x | Complete: ARM64 baseline and repeatable resource measurements |
 | v0.7.x | Live IPv6 evidence with the IPv4 gate intact |
 | v0.8.x | Optional source-address drops for forwarded packets through fw4 |
 | v0.9.x | Trusted APK distribution, community recipes, and deployment rehearsal |

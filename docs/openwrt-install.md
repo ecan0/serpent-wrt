@@ -9,16 +9,16 @@ Do not use the legacy IPK helper for this workflow.
 The `OpenWrt APK Packages` workflow uses official OpenWrt SDKs.
 It attaches target-specific APKs and `SHA256SUMS` files to each GitHub Release.
 
-The v0.5.0 release provides these assets:
+The v0.6.0 release provides these assets:
 
-- `serpent-wrt-0.5.0-r1-x86-64.apk`
-- `serpent-wrt-0.5.0-r1-x86-generic.apk`
-- `serpent-wrt-0.5.0-r1-mediatek-filogic.apk`
+- `serpent-wrt-0.6.0-r1-x86-64.apk`
+- `serpent-wrt-0.6.0-r1-x86-generic.apk`
+- `serpent-wrt-0.6.0-r1-mediatek-filogic.apk`
 - `SHA256SUMS-x86-64`
 - `SHA256SUMS-x86-generic`
 - `SHA256SUMS-mediatek-filogic`
 
-Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.5.0>
+Release page: <https://github.com/ecan0/serpent-wrt/releases/tag/v0.6.0>
 
 Select the APK for the OpenWrt target class.
 An x86/generic target can report an `i686` machine type.
@@ -34,8 +34,8 @@ The binary keeps the requested `package_version`.
 The workflow pins the source archive to that commit.
 It does not attach a branch APK to a release.
 
-The v0.5.0 daemon package does not include the rpcd wrapper, ACL, or LuCI menu.
-The rpcd adapter and ACL files in the development tree are not installed by this recipe.
+The v0.6.0 daemon APK contains the rpcd command in the binary.
+It does not install the rpcd wrapper, ACL, or LuCI menu.
 Do not claim LuCI management support before the v1.0 package and session ACL checks pass.
 
 ## Verify The Artifact
@@ -44,7 +44,7 @@ Download the APK and its target-specific `SHA256SUMS` file.
 Verify the checksum before you transfer the APK.
 
 ```sh
-APK=serpent-wrt-0.5.0-r1-x86-generic.apk
+APK=serpent-wrt-0.6.0-r1-x86-generic.apk
 SUMS=SHA256SUMS-x86-generic
 sha256sum --ignore-missing -c "$SUMS"
 ```
